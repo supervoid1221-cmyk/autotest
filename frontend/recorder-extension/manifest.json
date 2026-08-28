@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "自动化测试平台 - 接口录制",
+  "version": "1.0.0",
+  "description": "在 Chrome DevTools 中录制网络请求并导入自动化测试平台。",
+  "devtools_page": "devtools.html",
+  "permissions": ["storage"],
+  "host_permissions": ["http://*/*", "https://*/*"]
+}

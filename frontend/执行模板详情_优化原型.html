@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>执行模板详情 · 优化原型</title>
+<style>
+  :root{
+    --primary:#536dfe; --primary-soft:#eef2ff; --ink:#172033; --ink-2:#263549;
+    --muted:#8793a5; --line:#edf1f6; --bg:#f7f9fc; --green:#1d9b69; --green-soft:#e8f7ef;
+    --amber:#c48214; --amber-soft:#fff2d8; --red:#e5484d; --red-soft:#ffeaed;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,Roboto,sans-serif;
+    background:var(--bg); color:var(--ink); padding:24px;}
+  .wrap{max-width:1280px;margin:0 auto;}
+
+  /* Header */
+  .crumb{font-size:12px;color:var(--muted);margin-bottom:8px;}
+  .crumb b{color:var(--ink-2);font-weight:600;}
+  .head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;}
+  .head h1{font-size:22px;font-weight:750;color:var(--ink);}
+  .head p{margin-top:4px;font-size:13px;color:var(--muted);}
+  .actions{display:flex;gap:10px;}
+  .btn{border:1px solid var(--line);background:#fff;color:var(--ink-2);padding:0 18px;height:38px;
+    border-radius:7px;font-size:14px;cursor:pointer;}
+  .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600;
+    box-shadow:0 6px 16px rgba(83,109,254,.22);}
+
+  /* Stat strip */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:11px;padding:16px 18px;position:relative;}
+  .stat .k{font-size:12px;color:var(--muted);margin-bottom:8px;}
+  .stat .v{font-size:18px;font-weight:700;color:var(--ink);}
+  .stat .v.small{font-size:15px;}
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;}
+  .badge.on{background:var(--green-soft);color:var(--green);}
+  .badge.off{background:var(--line);color:var(--muted);}
+
+  /* Two columns */
+  .cols{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:16px;align-items:start;}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:16px;overflow:hidden;}
+  .card>.ttl{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;
+    border-bottom:1px solid var(--line);font-size:15px;font-weight:650;color:var(--ink-2);}
+  .card>.ttl .sub{font-size:12px;color:var(--muted);font-weight:400;}
+  .add{font-size:13px;color:var(--primary);background:var(--primary-soft);border:0;padding:6px 12px;
+    border-radius:7px;cursor:pointer;font-weight:600;}
+  .body{padding:16px 20px;}
+
+  /* basic grid */
+  .bgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 20px;}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;}
+  .input,.sel{height:38px;border:1px solid var(--line);border-radius:7px;background:#fff;
+    display:flex;align-items:center;padding:0 12px;font-size:14px;color:var(--ink);}
+  .input.fill{color:var(--ink);} .input.ph{color:#b9c1cf;}
+  .switch{width:42px;height:24px;border-radius:20px;background:var(--green);position:relative;}
+  .switch::after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;right:3px;}
+
+  /* table-like rows */
+  .rows{display:grid;gap:8px;}
+  .rhead,.rrow{display:grid;grid-template-columns:120px 120px 92px minmax(120px,1fr) 70px 44px;gap:8px;align-items:center;}
+  .rhead{font-size:11px;color:var(--muted);padding:0 2px 2px;}
+  .rrow .mini{height:34px;border:1px solid var(--line);border-radius:7px;display:flex;align-items:center;padding:0 10px;font-size:13px;}
+  .rrow .mini.ph{color:#b9c1cf;} .rrow .mini.fill{color:var(--ink);}
+  .req{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ink-2);}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--green);}
+  .del{color:var(--red);background:var(--red-soft);border:0;border-radius:6px;height:30px;cursor:pointer;font-size:12px;padding:0 8px;}
+  .tip{margin-top:12px;font-size:12px;color:var(--muted);line-height:1.6;}
+  .tip code{background:var(--primary-soft);color:var(--primary);padding:1px 5px;border-radius:4px;}
+
+  .ohead,.orow{display:grid;grid-template-columns:120px 120px minmax(120px,1fr) 120px 80px 44px;gap:8px;align-items:center;}
+
+  /* preview panel (right) */
+  .side{position:sticky;top:16px;}
+  .preview-head{background:linear-gradient(135deg,#536dfe,#7c8cff);color:#fff;padding:16px 18px;border-radius:12px 12px 0 0;}
+  .preview-head .pt{font-size:14px;font-weight:700;}
+  .preview-head .ps{font-size:12px;opacity:.85;margin-top:3px;}
+  .preview-form{padding:16px 18px;background:#fff;border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;}
+  .pfield{margin-bottom:13px;}
+  .pfield label{display:block;font-size:12px;color:var(--ink-2);margin-bottom:6px;font-weight:600;}
+  .pfield label .star{color:var(--red);}
+  .pinput{height:38px;border:1px solid var(--line);border-radius:7px;display:flex;align-items:center;padding:0 12px;font-size:14px;color:var(--ink);}
+  .ptag{display:inline-block;background:var(--primary-soft);color:var(--primary);border-radius:6px;padding:4px 10px;font-size:12px;margin:2px 4px 2px 0;}
+  .runbtn{width:100%;height:42px;border:0;border-radius:8px;background:var(--primary);color:#fff;font-weight:700;font-size:15px;margin-top:4px;cursor:pointer;box-shadow:0 6px 16px rgba(83,109,254,.22);}
+
+  .json{background:#0f172a;color:#cfe3ff;border-radius:12px;padding:16px 18px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.7;overflow:auto;}
+  .json .k{color:#7dd3fc;} .json .s{color:#86efac;} .json .n{color:#fca5a5;} .json .b{color:#fcd34d;}
+  .json .c{color:#64748b;}
+
+  /* empty state */
+  .empty{border:1.5px dashed #d6deea;border-radius:10px;padding:30px 20px;text-align:center;color:var(--muted);}
+  .empty .ico{font-size:30px;margin-bottom:8px;}
+  .empty .cta{margin-top:12px;display:inline-block;background:var(--primary-soft);color:var(--primary);border:0;padding:7px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;}
+
+  @media (max-width:980px){ .cols{grid-template-columns:1fr;} .stats{grid-template-columns:repeat(2,1fr);} .side{position:static;} }
+  @media (max-width:620px){ .stats{grid-template-columns:1fr;} .bgrid{grid-template-columns:1fr;} .rhead,.rrow,.ohead,.orow{grid-template-columns:1fr 1fr;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Header -->
+  <div class="crumb">执行&nbsp;/&nbsp;<b>数据工厂</b>&nbsp;/&nbsp;模板详情</div>
+  <div class="head">
+    <div>
+      <h1>模板详情</h1>
+      <p>定义参数变量并绑定套件，前台将据此生成执行入口</p>
+    </div>
+    <div class="actions">
+      <button class="btn">返回</button>
+      <button class="btn primary">保存</button>
+    </div>
+  </div>
+
+  <!-- Overview stat strip -->
+  <div class="stats">
+    <div class="stat"><div class="k">关联套件</div><div class="v small">电商回归套件 v2.3</div></div>
+    <div class="stat"><div class="k">参数个数</div><div class="v">4</div></div>
+    <div class="stat"><div class="k">输出字段</div><div class="v">3</div></div>
+    <div class="stat"><div class="k">状态</div><div class="v"><span class="badge on"><span class="dot"></span>启用</span></div></div>
+  </div>
+
+  <div class="cols">
+    <!-- LEFT: editing -->
+    <div>
+      <!-- 基本信息 -->
+      <div class="card">
+        <div class="ttl">基本信息</div>
+        <div class="body">
+          <div class="bgrid">
+            <div class="field"><label>模板名称</label><div class="input fill">电商回归 - 一键执行</div></div>
+            <div class="field"><label>关联套件</label><div class="input fill">电商回归套件 v2.3</div></div>
+            <div class="field"><label>模板描述</label><div class="input fill">覆盖订单/支付核心链路，供日常回归使用</div></div>
+            <div class="field"><label>状态</label><div style="padding-top:6px"><span class="switch"></span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 参数定义 -->
+      <div class="card">
+        <div class="ttl">参数定义 <span class="sub">前台执行时由用户填写，覆盖同名变量</span>
+          <button class="add">+ 添加参数</button></div>
+        <div class="body">
+          <div class="rows">
+            <div class="rhead"><span>显示名</span><span>变量名</span><span>类型</span><span>默认值</span><span>必填</span><span></span></div>
+            <div class="rrow"><div class="mini fill">订单号</div><div class="mini fill">order_id</div><div class="mini fill">文本</div><div class="mini ph">—</div><div class="req"><span class="dot"></span>必填</div><button class="del">删除</button></div>
+            <div class="rrow"><div class="mini fill">环境</div><div class="mini fill">env</div><div class="mini fill">下拉</div><div class="mini fill">prod</div><div class="req">可选</div><button class="del">删除</button></div>
+            <div class="rrow"><div class="mini fill">并发数</div><div class="mini fill">concurrency</div><div class="mini fill">数字</div><div class="mini fill">10</div><div class="req"><span class="dot"></span>必填</div><button class="del">删除</button></div>
+            <div class="rrow"><div class="mini fill">是否压测</div><div class="mini fill">stress</div><div class="mini fill">开关</div><div class="mini fill">关</div><div class="req">可选</div><button class="del">删除</button></div>
+          </div>
+          <p class="tip">变量名对应请求中的 <code>${变量名}</code> 占位符（推荐），同时兼容 <code>{{变量名}}</code>；执行时用户填写的值会覆盖同名变量。</p>
+        </div>
+      </div>
+
+      <!-- 输出字段 -->
+      <div class="card">
+        <div class="ttl">输出字段 <span class="sub">执行完成后按 JSONPath 提取并展示</span>
+          <button class="add">+ 添加字段</button></div>
+        <div class="body">
+          <div class="rows">
+            <div class="ohead"><span>展示名称</span><span>字段标识</span><span>来源接口</span><span>JSONPath</span><span>类型</span><span></span></div>
+            <div class="orow"><div class="mini fill">用户 ID</div><div class="mini fill">user_id</div><div class="mini fill">登录接口</div><div class="mini fill">$.data.id</div><div class="mini fill">文本</div><button class="del">删</button></div>
+            <div class="orow"><div class="mini fill">订单号</div><div class="mini fill">order_no</div><div class="mini fill">下单接口</div><div class="mini fill">$.data.orderNo</div><div class="mini fill">文本</div><button class="del">删</button></div>
+            <div class="orow"><div class="mini fill">结果</div><div class="mini fill">result</div><div class="mini fill">支付接口</div><div class="mini fill">$.data</div><div class="mini fill">JSON</div><button class="del">删</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: live preview + JSON -->
+    <div class="side">
+      <div class="card" style="margin-bottom:16px;border:0;overflow:visible;">
+        <div class="preview-head">
+          <div class="pt">运行：电商回归 - 一键执行</div>
+          <div class="ps">关联套件 · 电商回归套件 v2.3</div>
+        </div>
+        <div class="preview-form">
+          <div class="pfield"><label>订单号 <span class="star">*</span></label><div class="pinput">— 请输入 —</div></div>
+          <div class="pfield"><label>环境</label>
+            <div><span class="ptag">prod</span><span class="ptag">+ 添加</span></div>
+          </div>
+          <div class="pfield"><label>并发数 <span class="star">*</span></label><div class="pinput">10</div></div>
+          <div class="pfield"><label>是否压测</label><div class="switch"></div></div>
+          <button class="runbtn">执行模板</button>
+        </div>
+      </div>
+
+      <div class="card" style="border:0;overflow:visible;">
+        <div class="ttl" style="border-bottom:1px solid #1e293b;background:#0f172a;color:#cfe3ff;border-radius:12px 12px 0 0;">配置预览 (JSON)</div>
+        <div class="json">{
+  <span class="k">"name"</span>: <span class="s">"电商回归 - 一键执行"</span>,
+  <span class="k">"suite"</span>: <span class="n">38</span>,
+  <span class="k">"enabled"</span>: <span class="b">true</span>,
+  <span class="k">"parameters"</span>: [
+    { <span class="k">"key"</span>:<span class="s">"order_id"</span>, <span class="k">"required"</span>:<span class="b">true</span> },
+    { <span class="k">"key"</span>:<span class="s">"env"</span>, <span class="k">"type"</span>:<span class="s">"select"</span> }
+  ],
+  <span class="k">"output_fields"</span>: [
+    { <span class="k">"key"</span>:<span class="s">"user_id"</span>, <span class="k">"json_path"</span>:<span class="s">"$.data.id"</span> }
+  ]
+  <span class="c">// 共 4 个参数 · 3 个输出字段</span>
+}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Empty-state reference (how 暂无参数 looks now) -->
+  <div class="card" style="margin-top:8px;">
+    <div class="ttl">空状态参考 <span class="sub">初始无参数时的视觉，避免大段留白</span></div>
+    <div class="body">
+      <div class="empty">
+        <div class="ico">🧩</div>
+        <div>暂无参数，添加变量后前台执行时用户将按此填写</div>
+        <button class="cta">+ 添加参数</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

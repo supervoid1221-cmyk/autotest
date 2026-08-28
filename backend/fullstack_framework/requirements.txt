@@ -1,0 +1,4 @@
+jsonpath
+pyyaml
+pytest_yaml
+requests

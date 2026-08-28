@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>接口详情 - 优化原型</title>
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+<style>
+:root {
+  --accent: #5B6AF0;
+  --accent-soft: #EEF0FF;
+  --accent-border: #DFE3FF;
+  --bg: #F8F9FA;
+  --card: #FFFFFF;
+  --border: #E5E7EB;
+  --border-soft: #F3F4F6;
+  --text-1: #111827;
+  --text-2: #374151;
+  --text-3: #6B7280;
+  --text-4: #9CA3AF;
+  --ok: #059669; --ok-bg: #ECFDF5;
+  --err: #E11D48; --err-bg: #FFF1F2;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); font-family: var(--sans); color: var(--text-1); font-size: 14px; }
+
+.page { max-width: 1080px; margin: 0 auto; padding: 20px 28px 96px; }
+
+/* 页头 */
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+.page-head h1 { font-size: 20px; font-weight: 600; }
+.page-head .sub { margin-top: 4px; font-size: 13px; color: var(--text-3); }
+.head-actions { display: flex; gap: 10px; }
+
+/* 卡片 */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; }
+.card-title { padding: 13px 20px; border-bottom: 1px solid var(--border-soft); font-size: 14px; font-weight: 600; background: #FAFAFB; border-radius: 10px 10px 0 0; display: flex; align-items: center; gap: 8px; }
+.card-title i { color: var(--accent); font-size: 15px; }
+
+/* 按钮 */
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--border); background: #fff; color: var(--text-2); font-size: 13px; font-weight: 500; cursor: pointer; font-family: var(--sans); transition: border-color .15s, background .15s; }
+.btn:hover { border-color: #C7CBD4; background: #F9FAFB; }
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary:hover { background: #4A5AE8; border-color: #4A5AE8; }
+
+/* 表单 */
+.form-body { padding: 18px 20px 20px; }
+.field { margin-bottom: 16px; }
+.field:last-child { margin-bottom: 0; }
+.field label { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; }
+.field label .req { color: var(--err); margin-left: 2px; }
+.field .hint { margin-top: 5px; font-size: 12px; color: var(--text-4); }
+.input { width: 100%; height: 38px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: var(--sans); color: var(--text-1); background: #fff; outline: none; transition: border-color .15s, box-shadow .15s; }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91,106,240,.12); }
+textarea.input { height: auto; padding: 9px 12px; line-height: 1.6; resize: vertical; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; }
+
+/* 请求行 */
+.req-line { display: flex; gap: 10px; padding: 16px 20px; }
+.method { position: relative; width: 112px; flex-shrink: 0; }
+.method select { width: 100%; height: 42px; padding: 0 10px 0 12px; border: 1px solid var(--border); border-radius: 6px; font-family: var(--mono); font-size: 12.5px; font-weight: 700; letter-spacing: .02em; appearance: none; cursor: pointer; outline: none; }
+.method::after { content: ""; position: absolute; right: 12px; top: 50%; width: 7px; height: 7px; border-right: 2px solid var(--text-3); border-bottom: 2px solid var(--text-3); transform: translateY(-70%) rotate(45deg); pointer-events: none; }
+.method.get select { color: #065F46; background: #ECFDF5; border-color: #A7F3D0; }
+.method.post select { color: #1E40AF; background: #EFF6FF; border-color: #BFDBFE; }
+.method.put select { color: #92400E; background: #FFFBEB; border-color: #FDE68A; }
+.method.delete select { color: #9F1239; background: #FFF1F2; border-color: #FECDD3; }
+.method.patch select { color: #4338CA; background: #F3F4FF; border-color: #C7D2FE; }
+.url-input { flex: 1; height: 42px; font-family: var(--mono); font-size: 13px; }
+.send-btn { height: 42px; padding: 0 22px; font-weight: 600; }
+
+/* 参数 Tabs */
+.tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--border-soft); }
+.tab { padding: 11px 14px; font-size: 13px; font-weight: 500; color: var(--text-3); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; align-items: center; gap: 6px; transition: color .15s; }
+.tab:hover { color: var(--text-1); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.tab .count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.tab-pane { display: none; padding: 16px 20px 20px; }
+.tab-pane.active { display: block; }
+
+/* 键值对行 */
+.kv-row { display: grid; grid-template-columns: 1fr 1fr 36px; gap: 10px; margin-bottom: 8px; align-items: center; }
+.kv-row .del { width: 32px; height: 38px; border-radius: 6px; border: none; background: transparent; color: var(--text-4); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; }
+.kv-row .del:hover { background: var(--err-bg); color: var(--err); }
+.kv-head { display: grid; grid-template-columns: 1fr 1fr 36px; gap: 10px; margin-bottom: 6px; font-size: 11.5px; font-weight: 600; color: var(--text-4); text-transform: uppercase; letter-spacing: .05em; }
+.add-row { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; padding: 6px 12px; border: 1px dashed #C7CBD4; border-radius: 6px; color: var(--text-3); font-size: 12.5px; cursor: pointer; transition: all .15s; }
+.add-row:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+/* Body 类型切换 */
+.seg { display: inline-flex; padding: 3px; background: #F1F2F4; border-radius: 7px; gap: 2px; }
+.seg button { border: none; background: transparent; padding: 5px 14px; border-radius: 5px; font-size: 12.5px; font-weight: 500; color: var(--text-3); cursor: pointer; font-family: var(--sans); transition: all .15s; }
+.seg button.active { background: #fff; color: var(--text-1); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.07); }
+
+/* 代码编辑区 */
+.editor { margin-top: 12px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.editor-bar { display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; background: #FAFAFB; border-bottom: 1px solid var(--border-soft); font-size: 11.5px; color: var(--text-4); }
+.editor-bar .tag-mono { font-family: var(--mono); }
+.editor-body { display: flex; background: #FCFCFD; }
+.gutter { padding: 12px 0; width: 40px; text-align: center; font-family: var(--mono); font-size: 12px; line-height: 1.7; color: #C3C7CE; user-select: none; border-right: 1px solid var(--border-soft); }
+.code { flex: 1; padding: 12px 14px; font-family: var(--mono); font-size: 12.5px; line-height: 1.7; color: var(--text-2); white-space: pre; overflow-x: auto; }
+.code .k { color: #9333EA; } .code .s { color: #059669; } .code .n { color: #2563EB; } .code .b { color: #D97706; }
+
+/* 响应区 */
+.resp { display: none; }
+.resp.show { display: block; }
+.resp-meta { display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-bottom: 1px solid var(--border-soft); }
+.status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 5px; font-size: 12px; font-weight: 600; font-family: var(--mono); }
+.status-pill.ok { background: var(--ok-bg); color: var(--ok); }
+.status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+.meta-item { font-size: 12px; color: var(--text-3); font-family: var(--mono); }
+.meta-item b { color: var(--text-1); font-weight: 600; }
+
+/* 文件上传 */
+.upload-box { border: 1.5px dashed #C7CBD4; border-radius: 8px; padding: 28px 20px; text-align: center; transition: border-color .15s, background .15s; cursor: pointer; }
+.upload-box:hover { border-color: var(--accent); background: var(--accent-soft); }
+.up-title { margin-top: 8px; font-size: 13.5px; font-weight: 600; color: var(--text-1); }
+.up-sub { margin-top: 4px; font-size: 12px; color: var(--text-4); }
+.file-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.file-row { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid var(--border-soft); border-radius: 6px; background: #FAFAFB; }
+.file-row .file-name { flex: 1; font-size: 13px; color: var(--text-2); display: flex; align-items: center; gap: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-row .file-name i { color: var(--accent); font-size: 15px; }
+.file-row .file-size { font-size: 12px; color: var(--text-4); font-family: var(--mono); }
+.file-row .del { width: 28px; height: 28px; border: none; background: transparent; border-radius: 5px; color: var(--text-4); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.file-row .del:hover { background: var(--err-bg); color: var(--err); }
+
+/* 开关 */
+.switch { position: relative; display: inline-flex; cursor: pointer; }
+.switch input { display: none; }
+.switch .track { width: 36px; height: 20px; border-radius: 10px; background: #D1D5DB; position: relative; transition: background .18s; }
+.switch .knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .18s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.switch input:checked + .track { background: var(--accent); }
+.switch input:checked + .track .knob { transform: translateX(16px); }
+
+/* 数据驱动表格 */
+.ddt-table-wrap { border: 1px solid var(--border); border-radius: 6px; overflow: auto; }
+.ddt-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ddt-table th { padding: 8px 10px; background: #F9FAFB; border-bottom: 1px solid var(--border-soft); font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--text-2); text-align: left; white-space: nowrap; }
+.ddt-table td { padding: 4px 6px; border-bottom: 1px solid var(--border-soft); }
+.ddt-table tr:last-child td { border-bottom: none; }
+.ddt-table input { width: 100%; min-width: 90px; height: 32px; padding: 0 8px; border: 1px solid transparent; border-radius: 5px; font-size: 12.5px; font-family: var(--mono); background: transparent; outline: none; }
+.ddt-table input:focus { border-color: var(--accent); background: #fff; box-shadow: 0 0 0 2px rgba(91,106,240,.1); }
+.ddt-table .row-op { width: 40px; text-align: center; }
+.ddt-table .row-op button { width: 26px; height: 26px; border: none; background: transparent; border-radius: 5px; color: var(--text-4); cursor: pointer; }
+.ddt-table .row-op button:hover { background: var(--err-bg); color: var(--err); }
+
+/* 底部操作条 */
+.footer-bar { position: fixed; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,.92); backdrop-filter: blur(8px); border-top: 1px solid var(--border); z-index: 50; }
+.footer-inner { max-width: 1080px; margin: 0 auto; padding: 12px 28px; display: flex; align-items: center; justify-content: space-between; }
+.footer-inner .left { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-3); }
+.footer-inner .left .ok-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.footer-actions { display: flex; gap: 10px; }
+
+@media (max-width: 760px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .req-line { flex-wrap: wrap; }
+  .method { width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<div class="page">
+  <!-- 页头 -->
+  <div class="page-head">
+    <div>
+      <h1>接口详情</h1>
+      <div class="sub">配置接口基本信息与请求参数，支持在线调试</div>
+    </div>
+    <div class="head-actions">
+      <button class="btn"><i class="ph ph-arrow-counter-clockwise"></i>重置</button>
+      <button class="btn btn-primary"><i class="ph ph-floppy-disk"></i>保存</button>
+    </div>
+  </div>
+
+  <!-- 基本信息 -->
+  <div class="card">
+    <div class="card-title"><i class="ph ph-info"></i>基本信息</div>
+    <div class="form-body">
+      <div class="grid-2">
+        <div class="field">
+          <label>接口名称<span class="req">*</span></label>
+          <input class="input" value="用户登录" placeholder="请输入接口名称">
+        </div>
+        <div class="field">
+          <label>所属项目<span class="req">*</span></label>
+          <input class="input" value="用户中心" placeholder="请选择项目">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 请求配置 -->
+  <div class="card">
+    <div class="card-title"><i class="ph ph-paper-plane-tilt"></i>请求配置</div>
+
+    <!-- 请求行 -->
+    <div class="req-line">
+      <div class="method post" id="methodWrap">
+        <select id="methodSelect">
+          <option value="get">GET</option>
+          <option value="post" selected>POST</option>
+          <option value="put">PUT</option>
+          <option value="patch">PATCH</option>
+          <option value="delete">DELETE</option>
+        </select>
+      </div>
+      <input class="input url-input" value="/api/v2/auth/login" spellcheck="false">
+      <button class="btn btn-primary send-btn" id="sendBtn"><i class="ph ph-play"></i><span>发送</span></button>
+    </div>
+
+    <!-- 参数 Tabs -->
+    <div class="tabs">
+      <div class="tab active" data-tab="params">Params</div>
+      <div class="tab" data-tab="headers">Headers <span class="count">3</span></div>
+      <div class="tab" data-tab="body">Body</div>
+    </div>
+
+    <!-- Params -->
+    <div class="tab-pane active" id="pane-params">
+      <div class="kv-head"><span>Key</span><span>Value</span><span></span></div>
+      <div class="kv-row">
+        <input class="input" value="platform" spellcheck="false">
+        <input class="input" value="web">
+        <button class="del" title="删除"><i class="ph ph-trash"></i></button>
+      </div>
+      <div class="add-row"><i class="ph ph-plus"></i>添加参数</div>
+      <div class="hint" style="margin-top:10px">查询参数将拼接到 URL 末尾</div>
+    </div>
+
+    <!-- Headers -->
+    <div class="tab-pane" id="pane-headers">
+      <div class="kv-head"><span>Key</span><span>Value</span><span></span></div>
+      <div class="kv-row">
+        <input class="input" value="Content-Type" spellcheck="false">
+        <input class="input" value="application/json">
+        <button class="del"><i class="ph ph-trash"></i></button>
+      </div>
+      <div class="kv-row">
+        <input class="input" value="x-tenant-id" spellcheck="false">
+        <input class="input" value="10001">
+        <button class="del"><i class="ph ph-trash"></i></button>
+      </div>
+      <div class="kv-row">
+        <input class="input" value="x-trace-id" spellcheck="false">
+        <input class="input" value="${traceId}">
+        <button class="del"><i class="ph ph-trash"></i></button>
+      </div>
+      <div class="add-row"><i class="ph ph-plus"></i>添加请求头</div>
+      <div class="hint" style="margin-top:10px">支持 <span style="font-family:var(--mono)">${变量名}</span> 引用提取变量</div>
+    </div>
+
+    <!-- Body -->
+    <div class="tab-pane" id="pane-body">
+      <div class="seg" id="bodySeg">
+        <button class="active" data-body="json">JSON</button>
+        <button data-body="data">Data</button>
+        <button data-body="params">Params</button>
+        <button data-body="files">Files</button>
+      </div>
+
+      <!-- JSON 模式 -->
+      <div class="editor" id="body-json">
+        <div class="editor-bar">
+          <span>JSON 请求体</span>
+          <span class="tag-mono">application/json</span>
+        </div>
+        <div class="editor-body">
+          <div class="gutter">1<br>2<br>3<br>4<br>5<br>6</div>
+          <div class="code">{
+  <span class="k">"memberId"</span>: <span class="s">"$ddt{memberId}"</span>,
+  <span class="k">"amount"</span>: <span class="s">"$ddt{amount}"</span>,
+  <span class="k">"remark"</span>: <span class="s">"$ddt{remark}"</span>,
+  <span class="k">"requestNo"</span>: <span class="s">"${build_order_no}"</span>,
+  <span class="k">"token"</span>: <span class="s">"${token}"</span>
+}</div>
+        </div>
+      </div>
+
+      <!-- Data 模式（表单数据） -->
+      <div id="body-data" style="display:none">
+        <div class="kv-head" style="margin-top:12px"><span>Key</span><span>Value</span><span></span></div>
+        <div class="kv-row">
+          <input class="input" value="memberId" spellcheck="false">
+          <input class="input" value="$ddt{memberId}">
+          <button class="del"><i class="ph ph-trash"></i></button>
+        </div>
+        <div class="kv-row">
+          <input class="input" value="amount" spellcheck="false">
+          <input class="input" value="$ddt{amount}">
+          <button class="del"><i class="ph ph-trash"></i></button>
+        </div>
+        <div class="add-row"><i class="ph ph-plus"></i>添加表单项</div>
+        <div class="hint" style="margin-top:10px">表单数据（application/x-www-form-urlencoded），Content-Type 自动处理</div>
+      </div>
+
+      <!-- Params 模式（查询参数体） -->
+      <div id="body-params" style="display:none">
+        <div class="kv-head" style="margin-top:12px"><span>Key</span><span>Value</span><span></span></div>
+        <div class="kv-row">
+          <input class="input" value="page" spellcheck="false">
+          <input class="input" value="1">
+          <button class="del"><i class="ph ph-trash"></i></button>
+        </div>
+        <div class="kv-row">
+          <input class="input" value="pageSize" spellcheck="false">
+          <input class="input" value="20">
+          <button class="del"><i class="ph ph-trash"></i></button>
+        </div>
+        <div class="add-row"><i class="ph ph-plus"></i>添加查询参数</div>
+        <div class="hint" style="margin-top:10px">查询参数将拼接到 URL 末尾</div>
+      </div>
+
+      <!-- Files 模式 -->
+      <div id="body-files" style="display:none;margin-top:12px">
+        <div class="upload-box">
+          <i class="ph ph-cloud-arrow-up" style="font-size:26px;color:var(--accent)"></i>
+          <div class="up-title">选择并上传文件</div>
+          <div class="up-sub">支持一个或多个文件，保存接口时随表单一起提交</div>
+          <button class="btn" style="margin-top:12px"><i class="ph ph-upload-simple"></i>选择文件</button>
+        </div>
+        <div class="file-list">
+          <div class="file-row">
+            <input class="input" value="file" style="width:160px" placeholder="文件字段名">
+            <span class="file-name"><i class="ph ph-file-image"></i>avatar.png</span>
+            <span class="file-size">128 KB</span>
+            <button class="del"><i class="ph ph-trash"></i></button>
+          </div>
+          <div class="file-row">
+            <input class="input" value="attachment" style="width:160px" placeholder="文件字段名">
+            <span class="file-name"><i class="ph ph-file-csv"></i>members.csv</span>
+            <span class="file-size">2.4 MB</span>
+            <button class="del"><i class="ph ph-trash"></i></button>
+          </div>
+        </div>
+        <div class="hint" style="margin-top:10px">文本字段与文件一起以 multipart/form-data 发送，无需手动填写 Content-Type</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 数据驱动 -->
+  <div class="card" id="ddtCard">
+    <div class="card-title">
+      <i class="ph ph-table"></i>数据驱动
+      <label class="switch" style="margin-left:auto">
+        <input type="checkbox" id="ddtSwitch" checked>
+        <span class="track"><span class="knob"></span></span>
+      </label>
+    </div>
+    <div class="form-body" id="ddtBody">
+      <div class="field">
+        <label>字段名</label>
+        <input class="input" id="ddtFields" value="memberId, amount, remark" placeholder="多个字段用英文逗号分隔，例如 memberId, amount, remark" style="font-family:var(--mono)">
+        <div class="hint">请求参数中使用 <span style="font-family:var(--mono)">$ddt{字段名}</span> 引用当前行的值，每行数据将展开为一次独立执行</div>
+      </div>
+      <div class="field">
+        <label>数据行</label>
+        <div class="ddt-table-wrap">
+          <table class="ddt-table" id="ddtTable">
+            <thead><tr id="ddtHead"></tr></thead>
+            <tbody id="ddtBodyRows"></tbody>
+          </table>
+        </div>
+        <div class="add-row" id="ddtAddRow" style="margin-top:10px"><i class="ph ph-plus"></i>添加一行数据</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 响应预览 -->
+  <div class="card resp" id="respCard">
+    <div class="card-title"><i class="ph ph-terminal"></i>响应预览</div>
+    <div class="resp-meta">
+      <span class="status-pill ok"><span class="dot"></span>200 OK</span>
+      <span class="meta-item">耗时 <b>386ms</b></span>
+      <span class="meta-item">大小 <b>1.2KB</b></span>
+      <span class="meta-item" style="margin-left:auto;color:var(--text-4)">示例数据</span>
+    </div>
+    <div class="editor-body" style="background:#FCFCFD">
+      <div class="gutter">1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9</div>
+      <div class="code">{
+  <span class="k">"code"</span>: <span class="n">200</span>,
+  <span class="k">"message"</span>: <span class="s">"ok"</span>,
+  <span class="k">"result"</span>: {
+    <span class="k">"token"</span>: <span class="s">"eyJhbGciOiJIUzI1NiJ9…"</span>,
+    <span class="k">"expiresIn"</span>: <span class="n">604800</span>,
+    <span class="k">"userId"</span>: <span class="n">10086</span>,
+    <span class="k">"nickname"</span>: <span class="s">"测试账号"</span>
+  }
+}</div>
+    </div>
+  </div>
+</div>
+
+<!-- 底部操作条 -->
+<div class="footer-bar">
+  <div class="footer-inner">
+    <div class="left"><span class="ok-dot"></span>编辑状态已同步</div>
+    <div class="footer-actions">
+      <button class="btn">取消</button>
+      <button class="btn btn-primary"><i class="ph ph-floppy-disk"></i>保存接口</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// 方法颜色切换
+const methodSelect = document.getElementById('methodSelect');
+const methodWrap = document.getElementById('methodWrap');
+methodSelect.addEventListener('change', () => {
+  methodWrap.className = 'method ' + methodSelect.value;
+});
+
+// Tabs 切换
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('pane-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// Body 类型切换（四种模式，对应后端 json / data / params / files）
+const bodyPanels = { json: 'body-json', data: 'body-data', params: 'body-params', files: 'body-files' };
+document.querySelectorAll('#bodySeg button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#bodySeg button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    Object.values(bodyPanels).forEach(id => document.getElementById(id).style.display = 'none');
+    document.getElementById(bodyPanels[btn.dataset.body]).style.display = 'block';
+  });
+});
+
+// 数据驱动：开关
+const ddtSwitch = document.getElementById('ddtSwitch');
+const ddtBody = document.getElementById('ddtBody');
+ddtSwitch.addEventListener('change', () => {
+  ddtBody.style.display = ddtSwitch.checked ? 'block' : 'none';
+});
+
+// 数据驱动：字段名驱动表格列
+const ddtFieldsInput = document.getElementById('ddtFields');
+const ddtHead = document.getElementById('ddtHead');
+const ddtBodyRows = document.getElementById('ddtBodyRows');
+const sampleRows = [
+  ['10001', '10', '正常充值'],
+  ['10002', '0', '金额边界'],
+  ['10003', '-1', '非法金额'],
+];
+
+function renderDdtTable() {
+  const fields = ddtFieldsInput.value.split(',').map(s => s.trim()).filter(Boolean);
+  ddtHead.innerHTML = fields.map(f => `<th>${f}</th>`).join('') + '<th class="row-op"></th>';
+  ddtBodyRows.innerHTML = '';
+  sampleRows.forEach(row => addDdtRow(row));
+}
+
+function addDdtRow(values = []) {
+  const fields = ddtFieldsInput.value.split(',').map(s => s.trim()).filter(Boolean);
+  const tr = document.createElement('tr');
+  tr.innerHTML = fields.map((_, i) =>
+    `<td><input value="${values[i] ?? ''}" spellcheck="false"></td>`
+  ).join('') + `<td class="row-op"><button title="删除本行"><i class="ph ph-trash"></i></button></td>`;
+  tr.querySelector('.row-op button').addEventListener('click', () => tr.remove());
+  ddtBodyRows.appendChild(tr);
+}
+
+ddtFieldsInput.addEventListener('input', renderDdtTable);
+document.getElementById('ddtAddRow').addEventListener('click', () => addDdtRow());
+renderDdtTable();
+
+// 删除行
+document.querySelectorAll('.kv-row .del, .file-row .del').forEach(del => {
+  del.addEventListener('click', () => del.closest('.kv-row, .file-row').remove());
+});
+
+// 发送模拟
+const sendBtn = document.getElementById('sendBtn');
+const respCard = document.getElementById('respCard');
+sendBtn.addEventListener('click', () => {
+  sendBtn.disabled = true;
+  sendBtn.querySelector('span').textContent = '执行中…';
+  respCard.classList.remove('show');
+  setTimeout(() => {
+    respCard.classList.add('show');
+    respCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    sendBtn.disabled = false;
+    sendBtn.querySelector('span').textContent = '发送';
+  }, 800);
+});
+</script>
+</body>
+</html>

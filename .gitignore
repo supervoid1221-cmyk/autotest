@@ -1,0 +1,43 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+venv/
+.venv/
+db.sqlite3
+*.log
+
+# Node
+node_modules/
+dist/
+dist.zip
+pnpm-debug.log*
+npm-debug.log*
+
+# Runtime data and generated artifacts
+backend/logs/
+backend/screenshots/
+backend/temps/
+backend/upload_yaml/
+backend/uploaded_api_files/
+backend/runtime_auth_locks/
+backend/account/static/user_*/
+backend/aaa.py
+backend/extract.yaml
+backend/fullstack_framework/extract.yaml
+backend/fullstack_framework/files/extract.yaml
+backend/fullstack_framework/files/extract.bak.yaml
+backend/fullstack_framework/report/
+backend/playwright_native_result_*.json
+frontend/screenshots/

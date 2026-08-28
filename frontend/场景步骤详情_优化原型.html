@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>场景步骤详情 · 优化原型</title>
+<style>
+  :root{
+    --blue:#376bff; --blue-weak:#eaf0ff; --blue-weak2:#f4f7ff;
+    --green:#18a058; --green-weak:#e9f7ef;
+    --red:#d03050; --red-weak:#fff0f1;
+    --ink:#172033; --ink2:#303844; --ink3:#58677d; --muted:#8290a5; --muted2:#a1a9b5;
+    --line:#e6eaf1; --line2:#eef1f6; --bg:#f6f8fb; --card:#fff;
+    --radius:12px; --radius-sm:8px;
+    --shadow:0 10px 30px rgb(20 38 72 / 6%);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--ink2); font-size:14px; line-height:1.5;
+    padding:26px 18px 60px;
+  }
+  .page{max-width:1080px;margin:0 auto}
+  .proto-note{
+    display:flex;gap:10px;align-items:flex-start;margin:0 0 18px;
+    padding:12px 14px;border:1px solid #d8e2fb;border-radius:var(--radius-sm);
+    background:linear-gradient(180deg,#f7faff,#fff);color:var(--ink3);font-size:12.5px;
+  }
+  .proto-note b{color:var(--blue)}
+  .proto-note .tag{display:inline-block;padding:1px 7px;border-radius:999px;background:var(--blue-weak);color:var(--blue);font-weight:600;font-size:11px;white-space:nowrap}
+
+  /* ---- step card (mock) ---- */
+  .step-card{border:1px solid #c9d9ff;border-radius:var(--radius);background:var(--card);box-shadow:var(--shadow);overflow:hidden}
+  .step-head{display:flex;align-items:center;gap:14px;min-height:70px;padding:0 22px;background:var(--card)}
+  .step-no{width:40px;height:40px;flex:none;display:grid;place-items:center;border:1px solid #b8d0ff;border-radius:50%;color:var(--blue);font-weight:600;background:#f4f8ff}
+  .method-pill{flex:none;padding:3px 8px;border-radius:6px;font-size:12px;font-weight:700;color:#1d7a3f;background:#e7f6ec}
+  .step-titles{min-width:0;flex:1}
+  .step-name{font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.01em}
+  .step-url{margin-top:3px;color:var(--muted);font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .step-ops{display:flex;gap:6px;flex:none}
+  .op{background:transparent;border:0;color:var(--blue);font-size:13px;cursor:pointer;padding:4px 6px;border-radius:6px}
+  .op:hover{background:var(--blue-weak2)}
+  .op.danger{color:var(--red)}
+  .op.danger:hover{background:var(--red-weak)}
+  .chevron{color:var(--muted2);font-size:18px}
+
+  /* ---- tab bar ---- */
+  .step-body{border-top:1px solid var(--line);padding:0}
+  .tabbar{display:flex;gap:6px;padding:12px 18px 0;background:var(--blue-weak2);border-bottom:1px solid var(--line);overflow-x:auto}
+  .tab{
+    display:inline-flex;align-items:center;gap:8px;position:relative;
+    padding:11px 14px 13px;border:0;background:transparent;cursor:pointer;
+    color:var(--ink3);font-size:14px;font-weight:600;white-space:nowrap;border-radius:8px 8px 0 0;
+  }
+  .tab svg{width:17px;height:17px}
+  .tab:hover{color:var(--ink2);background:#eef3ff}
+  .tab.active{color:var(--blue)}
+  .tab.active::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:3px;border-radius:3px;background:var(--blue)}
+  .count{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#e9edf3;color:var(--ink3);font-size:11px;font-weight:700}
+  .tab.active .count{background:var(--blue-weak);color:var(--blue)}
+  .count.on{background:var(--green-weak);color:var(--green)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(24,160,88,.14)}
+
+  .pane{display:none;padding:20px 22px 24px;animation:fade .18s ease}
+  .pane.active{display:block}
+  @keyframes fade{from{opacity:.4;transform:translateY(3px)}to{opacity:1;transform:none}}
+
+  .pane-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px}
+  .pane-title{font-size:15px;font-weight:700;color:var(--ink)}
+  .pane-desc{margin-top:3px;color:var(--muted);font-size:12px}
+  .btn{border:1px solid var(--line);background:#fff;color:var(--ink2);border-radius:7px;padding:6px 12px;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .btn:hover{border-color:#afc5f7;color:var(--blue);background:var(--blue-weak2)}
+  .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  .btn.primary:hover{background:#2a5cf0;color:#fff}
+  .btn.ghost{background:transparent;border-color:transparent;color:var(--blue)}
+  .btn.ghost:hover{background:var(--blue-weak2)}
+
+  /* ---- override: 2 column ---- */
+  .workspace{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:start}
+  .editor-panel{border:1px solid var(--line);border-radius:var(--radius);background:#fff;overflow:hidden;min-width:0}
+  .editor-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line2);background:#fbfcfe}
+  .editor-toolbar .left{display:flex;align-items:center;gap:7px;color:var(--ink2);font-weight:600;font-size:13.5px}
+  .editor-toolbar .left svg{width:16px;height:16px;color:var(--muted)}
+  .json-editor{display:grid;grid-template-columns:44px minmax(0,1fr);min-height:380px;background:#fff}
+  .gutter{margin:0;padding:14px 8px 14px 0;overflow:hidden;border-right:1px solid var(--line2);color:var(--muted2);font:13px/22px ui-monospace,SFMono-Regular,Menlo,monospace;text-align:right;user-select:none}
+  .code{margin:0;padding:14px 16px;color:#364152;font:13px/22px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow:auto}
+  .code .k{color:var(--blue)} .code .s{color:#0d8a5b} .code .n{color:#b25c00}
+  .tip{display:flex;align-items:center;gap:8px;margin:0;padding:11px 14px;border-top:1px solid var(--line2);color:var(--muted);background:var(--blue-weak2);font-size:12px}
+  .tip svg{width:16px;height:16px;color:var(--blue);flex:none}
+
+  .side{display:grid;gap:14px}
+  .panel{border:1px solid var(--line);border-radius:var(--radius);background:#fff;overflow:hidden}
+  .panel>header{display:flex;align-items:center;gap:8px;min-height:48px;padding:0 14px;border-bottom:1px solid var(--line2);font-weight:700;color:var(--ink);font-size:14px}
+  .panel>header svg{width:17px;height:17px;color:var(--muted)}
+  .panel .body{padding:14px}
+  .panel .hint{color:var(--muted);font-size:12.5px;line-height:1.6;margin:0 0 10px}
+  .chips{display:flex;flex-wrap:wrap;gap:7px}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border:1px solid #d7e2fb;border-radius:6px;background:var(--blue-weak2);font-size:12px}
+  .chip code{color:var(--blue);font:12px ui-monospace,Menlo,monospace}
+  .chip em{color:#8996a8;font-style:normal;font-size:11px}
+  .overview-row{display:flex;align-items:center;justify-content:space-between;min-height:42px;padding:0 2px}
+  .overview-row+.overview-row{border-top:1px solid var(--line2)}
+  .overview-row .lbl{display:flex;align-items:center;gap:9px;color:var(--ink3);font-size:13px}
+  .overview-row .lbl svg{width:17px;height:17px;color:var(--muted)}
+  .badge{display:inline-grid;place-items:center;min-width:24px;height:24px;padding:0 7px;border-radius:999px;background:var(--blue-weak);color:var(--blue);font-size:12px;font-weight:700}
+  .empty{text-align:center;padding:26px 14px;color:var(--muted)}
+  .empty .ic{width:46px;height:46px;margin:0 auto 10px;display:grid;place-items:center;border:1px solid #dce7ff;border-radius:12px;color:#5e88ff;background:var(--blue-weak2);font-size:22px}
+
+  /* ---- rule tables (extract / validate) ---- */
+  .rule-table{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .rule-row{display:grid;gap:10px;align-items:center;padding:10px 14px;border-top:1px solid var(--line2)}
+  .rule-row:first-child{border-top:0}
+  .rule-row.head{background:#f8fafc;color:var(--muted);font-size:12px;font-weight:600}
+  .rule-row:hover:not(.head){background:#fbfcff}
+  .rule-table.extract .rule-row{grid-template-columns:minmax(110px,1.1fr) 120px 120px minmax(160px,1.8fr) 96px 44px}
+  .rule-table.validate .rule-row{grid-template-columns:minmax(160px,1fr) 130px minmax(160px,1fr) 44px}
+  .field{border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:13px;color:var(--ink2);background:#fff;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .field.area{white-space:normal;font-family:ui-monospace,Menlo,monospace;color:#364152}
+  .select{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:13px;color:var(--ink2);background:#fff}
+  .select::after{content:"▾";color:var(--muted2);margin-left:6px}
+  .del{background:transparent;border:0;color:var(--red);cursor:pointer;font-size:13px;padding:4px}
+  .del:hover{text-decoration:underline}
+  .rule-empty{padding:24px;text-align:center;color:var(--muted);font-size:13px}
+
+  /* ---- post sql ---- */
+  .sql-list{display:grid;gap:12px}
+  .sql-card{border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px 14px;background:#fbfcfe;position:relative}
+  .sql-card .code{background:#fff;border:1px solid var(--line2);border-radius:6px;padding:10px 12px;min-height:42px;color:#364152;font:12.5px/1.6 ui-monospace,Menlo,monospace;white-space:pre-wrap}
+  .sql-card .del{position:absolute;top:10px;right:12px}
+
+  /* ---- polling ---- */
+  .poll{border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+  .poll-top{display:flex;align-items:center;justify-content:space-between;padding-bottom:14px;border-bottom:1px solid var(--line2)}
+  .poll-top .t{font-size:15px;font-weight:700;color:var(--ink)}
+  .switch{width:42px;height:24px;border-radius:999px;background:#cfd6e0;position:relative;cursor:pointer}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.18s}
+  .switch.on{background:var(--blue)} .switch.on::after{left:21px}
+  .poll-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:16px}
+  .poll-grid label{display:grid;gap:7px;color:var(--muted);font-size:12px}
+  .num{border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:13px;color:var(--ink2);background:#fff}
+  .checks{display:flex;flex-wrap:wrap;gap:18px;margin-top:16px}
+  .check{display:flex;align-items:center;gap:8px;color:var(--ink2);font-size:13px}
+  .box{width:16px;height:16px;border:1px solid #c2cad6;border-radius:4px;display:grid;place-items:center;color:#fff;font-size:11px}
+  .box.on{background:var(--blue);border-color:var(--blue)} .box.on::after{content:"✓"}
+  .alert{margin-top:14px;padding:11px 13px;border-radius:7px;background:var(--blue-weak2);border:1px solid #dbe6ff;color:var(--ink3);font-size:12.5px;line-height:1.6}
+
+  .resp{margin-top:18px;border:1px solid #b8e0c6;border-radius:var(--radius);overflow:hidden}
+  .resp .rt{display:flex;align-items:center;justify-content:space-between;padding:0 14px;min-height:46px;background:var(--green-weak);color:#287b47;font-weight:700;font-size:14px}
+  .resp .rb{margin:12px 14px 14px;padding:11px 12px;border:1px solid var(--line2);border-radius:6px;background:#f8fafc;color:#344254;font:12px/1.55 ui-monospace,Menlo,monospace;white-space:pre-wrap;max-height:240px;overflow:auto}
+
+  @media (max-width:860px){
+    .workspace{grid-template-columns:1fr}
+    .poll-grid{grid-template-columns:1fr}
+    .rule-table.extract .rule-row,.rule-table.validate .rule-row{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="proto-note">
+    <span class="tag">原型预览</span>
+    <div>这是「场景步骤展开详情」的<b>优化原型</b>（非最终代码）。主要改进：① 标签页改为左对齐的<b>分段式导航</b>并带数量/状态徽标；② JSON 编辑器由刺眼的深色改为<b>浅色主题</b>，与整体一致；③ 五个 Tab 统一为<b>卡片容器 + 一致间距</b>；④ 提取/断言表格去掉横向滚动，列自适应。确认方向后我再套用到 <code>scenario_edit.vue</code>。</div>
+  </div>
+
+  <!-- mock step card -->
+  <div class="step-card">
+    <div class="step-head">
+      <div class="step-no">3</div>
+      <span class="method-pill">POST</span>
+      <div class="step-titles">
+        <div class="step-name">提交订单</div>
+        <div class="step-url">/api/order/submit</div>
+      </div>
+      <div class="step-ops">
+        <button class="op">运行</button>
+        <button class="op">复制</button>
+        <button class="op danger">删除</button>
+        <span class="chevron">⌃</span>
+      </div>
+    </div>
+
+    <div class="step-body">
+      <!-- tab bar -->
+      <div class="tabbar" id="tabbar">
+        <button class="tab active" data-tab="override">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h4l8 8h4M4 16h4l2-2M16 8h4"/></svg>
+          参数覆盖 <span class="count">3</span>
+        </button>
+        <button class="tab" data-tab="extract">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg>
+          数据提取 <span class="count on">2</span>
+        </button>
+        <button class="tab" data-tab="validate">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+          断言 <span class="count on">1</span>
+        </button>
+        <button class="tab" data-tab="sql">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/></svg>
+          后置数据库 <span class="count">0</span>
+        </button>
+        <button class="tab" data-tab="poll">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>
+          轮询 <span class="dot"></span>
+        </button>
+      </div>
+
+      <!-- override pane -->
+      <section class="pane active" data-pane="override">
+        <div class="workspace">
+          <div class="editor-panel">
+            <div class="editor-toolbar">
+              <div class="left">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h4l8 8h4M4 16h4l2-2M16 8h4"/></svg>
+                参数覆盖
+              </div>
+              <div style="display:flex;gap:8px">
+                <button class="btn">格式化</button>
+                <button class="btn">从接口默认值恢复</button>
+              </div>
+            </div>
+            <div class="json-editor">
+              <pre class="gutter">1
+2
+3
+4
+5
+6
+7
+8</pre>
+              <pre class="code">{
+  <span class="k">"headers"</span>: {
+    <span class="k">"X-Tenant"</span>: <span class="s">"${tenantId}"</span>
+  },
+  <span class="k">"json"</span>: {
+    <span class="k">"orderId"</span>: <span class="s">"${orderId}"</span>,
+    <span class="k">"amount"</span>: <span class="n">199.00</span>
+  }
+}</pre>
+            </div>
+            <div class="tip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+              支持直接填写参数对象；关联 Headers、Params、Data 或 JSON 时将自动应用到对应请求区域。
+            </div>
+          </div>
+
+          <aside class="side">
+            <div class="panel">
+              <header>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3v4M15 3v4M5 9h14M6 7h12v13H6z"/></svg>
+                变量关联
+              </header>
+              <div class="body">
+                <p class="hint">选择上游接口已提取的变量，填充到当前请求参数。</p>
+                <div class="chips">
+                  <span class="chip"><code>${tenantId}</code><em>第 1 步</em></span>
+                  <span class="chip"><code>${orderId}</code><em>第 2 步</em></span>
+                </div>
+                <button class="btn primary" style="width:100%;margin-top:12px;justify-content:center">智能关联（2）</button>
+              </div>
+            </div>
+            <div class="panel">
+              <header>请求概览</header>
+              <div class="body" style="padding:6px 14px">
+                <div class="overview-row"><span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Params</span><span class="badge">0</span></div>
+                <div class="overview-row"><span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h7l4 4v14H7z"/></svg>Data</span><span class="badge">0</span></div>
+                <div class="overview-row"><span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H6v18h2M16 3h-4v18h4"/></svg>JSON</span><span class="badge">2</span></div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- extract pane -->
+      <section class="pane" data-pane="extract">
+        <div class="pane-head">
+          <div>
+            <div class="pane-title">数据提取</div>
+            <div class="pane-desc">执行后保存变量，后续接口优先使用 ${变量名}，同时兼容 {{变量名}}。</div>
+          </div>
+          <button class="btn primary">＋ 添加提取规则</button>
+        </div>
+        <div class="rule-table extract">
+          <div class="rule-row head"><span>变量名</span><span>提取方式</span><span>响应来源</span><span>表达式</span><span>结果索引</span><span></span></div>
+          <div class="rule-row">
+            <span class="field">orderId</span>
+            <span class="select">JSONPath</span>
+            <span class="select">body</span>
+            <span class="field area">$.data.orderId</span>
+            <span class="field">0</span>
+            <button class="del">删除</button>
+          </div>
+          <div class="rule-row">
+            <span class="field">traceNo</span>
+            <span class="select">正则</span>
+            <span class="select">body</span>
+            <span class="field area">trace=(.*?)&amp;</span>
+            <span class="field">1</span>
+            <button class="del">删除</button>
+          </div>
+        </div>
+        <div class="tip" style="margin-top:14px;border:1px solid var(--line2);border-radius:var(--radius-sm)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+          JSONPath 示例：<code>$.data.token</code>；正则示例：<code>token=(.*?)&amp;</code>。正则的“捕获组”填 <code>1</code> 取括号内容，<code>0</code> 表示完整匹配。
+        </div>
+      </section>
+
+      <!-- validate pane -->
+      <section class="pane" data-pane="validate">
+        <div class="pane-head">
+          <div>
+            <div class="pane-title">断言</div>
+            <div class="pane-desc">实际值使用 JSONPath：$.data.code、$.status_code；期望值支持 ${变量名}。</div>
+          </div>
+          <button class="btn primary">＋ 添加断言</button>
+        </div>
+        <div class="rule-table validate">
+          <div class="rule-row head"><span>实际值</span><span>断言方式</span><span>期望值</span><span></span></div>
+          <div class="rule-row">
+            <span class="field area">$.data.code</span>
+            <span class="select">等于</span>
+            <span class="field area">200</span>
+            <button class="del">删除</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- post sql pane -->
+      <section class="pane" data-pane="sql">
+        <div class="pane-head">
+          <div>
+            <div class="pane-title">后置数据库</div>
+            <div class="pane-desc">仅在接口响应、断言、数据提取均成功后执行。UPDATE 需开启写入权限。</div>
+          </div>
+          <button class="btn primary">＋ 添加数据库操作</button>
+        </div>
+        <div class="sql-list">
+          <div class="sql-card">
+            <button class="del">删除</button>
+            <div class="code">${execute_sql_mysql("UPDATE orders SET status=%s WHERE order_id=%s")}</div>
+          </div>
+          <div class="rule-empty">暂无后置数据库操作</div>
+        </div>
+      </section>
+
+      <!-- polling pane -->
+      <section class="pane" data-pane="poll">
+        <div class="poll">
+          <div class="poll-top">
+            <div class="t">轮询等待</div>
+            <div class="switch on"></div>
+          </div>
+          <div class="poll-grid">
+            <label>总超时时间（秒）<span class="num">30</span></label>
+            <label>轮询间隔（秒）<span class="num">3</span></label>
+            <label>首次等待（秒）<span class="num">0</span></label>
+          </div>
+          <div class="checks">
+            <span class="check"><span class="box on"></span>HTTP 4xx/5xx 时继续重试</span>
+            <span class="check"><span class="box on"></span>断言不满足时继续重试</span>
+          </div>
+          <div class="alert">当前“断言”即轮询成功条件，请至少配置一条断言；满足全部断言即停止。超时后当前接口标记失败，且仅成功响应的数据提取会写入后续变量。</div>
+        </div>
+      </section>
+
+      <!-- mock response -->
+      <div class="resp">
+        <div class="rt"><span>Response</span><span>200 · 86 ms</span></div>
+        <pre class="rb">{
+  "code": 200,
+  "data": { "orderId": "O20260816xxxx", "amount": 199.00 },
+  "trace": "trace=abc123&t=..."
+}</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const bar = document.getElementById('tabbar');
+  bar.addEventListener('click', (e) => {
+    const btn = e.target.closest('.tab');
+    if (!btn) return;
+    const tab = btn.dataset.tab;
+    bar.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === btn));
+    document.querySelectorAll('.pane').forEach(p => p.classList.toggle('active', p.dataset.pane === tab));
+  });
+</script>
+</body>
+</html>

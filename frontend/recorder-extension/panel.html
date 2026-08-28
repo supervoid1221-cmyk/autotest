@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><link rel="stylesheet" href="panel.css"><title>接口录制</title></head>
+<body><header><strong>接口录制</strong><span id="count">0 条</span><button id="start">开始录制</button><button id="stop" disabled>停止</button><button id="clear">清空</button></header>
+<main><section class="records"><table><thead><tr><th>保留</th><th>方法</th><th>请求</th><th>状态</th><th>耗时</th></tr></thead><tbody id="rows"><tr><td colspan="5" class="empty">点击“开始录制”后操作业务页面。</td></tr></tbody></table></section>
+<section class="actions"><button id="copy">复制 JSON</button><button id="download">下载 HAR</button></section>
+<details><summary>直接推送到平台（可选）</summary><div class="push-grid"><label>平台地址<input id="platform" placeholder="http://127.0.0.1:8001"></label><label>登录 Token<input id="token" type="password" placeholder="平台登录 Token"></label><label>项目 ID<input id="project" type="number"></label><label>模块 ID<input id="module" type="number"></label><label>重复处理<select id="conflict"><option value="skip">忽略已存在</option><option value="overwrite">覆盖</option><option value="copy">创建副本</option></select></label><button id="push">推送已选接口</button></div></details></main><script src="panel.js"></script></body></html>

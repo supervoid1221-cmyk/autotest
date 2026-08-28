@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>用户详情 · 优化原型</title>
+<style>
+  :root{
+    --primary:#536dfe; --primary-soft:#eef2ff; --ink:#172033; --ink-2:#263549;
+    --muted:#8793a5; --line:#edf1f6; --line-2:#e3e8f0; --bg:#f7f9fc;
+    --green:#1d9b69; --green-soft:#e8f7ef; --amber:#c48214; --amber-soft:#fff2d8;
+    --red:#e5484d; --red-soft:#ffeaed;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink);padding:24px;}
+  .wrap{max-width:1080px;margin:0 auto;}
+  .crumb{font-size:12px;color:var(--muted);margin-bottom:10px;}
+  .crumb b{color:var(--ink-2);font-weight:600;}
+
+  /* Header */
+  .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+  .head .id{display:flex;align-items:center;gap:14px;}
+  .avatar{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#536dfe,#7c8cff);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;}
+  .head h1{font-size:20px;font-weight:750;}
+  .head .sub{font-size:12px;color:var(--muted);margin-top:3px;}
+  .actions{display:flex;gap:10px;}
+  .btn{border:1px solid var(--line);background:#fff;color:var(--ink-2);padding:0 18px;height:38px;border-radius:7px;font-size:14px;cursor:pointer;}
+  .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600;box-shadow:0 6px 16px rgba(83,109,254,.2);}
+  .btn.danger{color:var(--red);background:var(--red-soft);border-color:transparent;}
+
+  /* Two columns */
+  .cols{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;align-items:start;}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:16px;overflow:hidden;}
+  .card>.ttl{padding:14px 20px;border-bottom:1px solid var(--line);font-size:15px;font-weight:650;color:var(--ink-2);}
+  .card>.body{padding:18px 20px;}
+
+  /* profile rows */
+  .pro{display:grid;grid-template-columns:140px 1fr;gap:14px 18px;}
+  .pro .lab{font-size:13px;color:var(--muted);display:flex;align-items:center;}
+  .pro .val{font-size:14px;color:var(--ink);display:flex;align-items:center;gap:8px;}
+  .input,.sel{height:36px;border:1px solid var(--line-2);border-radius:7px;background:#fff;display:flex;align-items:center;padding:0 12px;font-size:14px;color:var(--ink);width:100%;}
+  .input.ph{color:#b9c1cf;}
+  .switch{width:44px;height:24px;border-radius:20px;background:var(--green);position:relative;flex:none;}
+  .switch::after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;right:3px;}
+  .switch.off{background:#cbd2dd;}
+
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;}
+  .badge.on{background:var(--green-soft);color:var(--green);}
+  .badge.off{background:#eef1f5;color:var(--muted);}
+  .badge.amber{background:var(--amber-soft);color:var(--amber);}
+  .badge.admin{background:var(--primary-soft);color:var(--primary);}
+
+  .tag{font-size:12px;padding:3px 10px;border-radius:6px;background:var(--primary-soft);color:var(--primary);}
+
+  /* right column info list */
+  .meta{display:grid;gap:14px;}
+  .meta .row{display:flex;justify-content:space-between;font-size:13px;}
+  .meta .row .k{color:var(--muted);}
+  .meta .row .v{color:var(--ink-2);font-weight:600;}
+  .divider{height:1px;background:var(--line);margin:4px 0;}
+  .danger-zone{border:1px solid var(--red-soft);background:var(--red-soft);border-radius:12px;padding:14px 16px;}
+  .danger-zone .t{font-size:13px;font-weight:700;color:var(--red);margin-bottom:6px;}
+  .danger-zone .d{font-size:12px;color:#a23a3e;margin-bottom:10px;line-height:1.5;}
+  .danger-zone .btn.danger{width:100%;text-align:center;justify-content:center;display:flex;}
+
+  .tip{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.6;}
+  .tip code{background:var(--primary-soft);color:var(--primary);padding:1px 5px;border-radius:4px;}
+
+  .empty{border:1.5px dashed #d6deea;border-radius:10px;padding:26px 18px;text-align:center;color:var(--muted);font-size:13px;}
+
+  @media (max-width:900px){ .cols{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="crumb">系统管理&nbsp;/&nbsp;<b>用户管理</b>&nbsp;/&nbsp;用户详情</div>
+
+  <div class="head">
+    <div class="id">
+      <div class="avatar">Z</div>
+      <div>
+        <h1>zhangsan</h1>
+        <div class="sub">ID 12 · 创建于 2026-03-12 09:24 · 最近登录 2026-08-25 18:02</div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn">返回</button>
+      <button class="btn primary">保存修改</button>
+    </div>
+  </div>
+
+  <div class="cols">
+    <!-- LEFT -->
+    <div>
+      <div class="card">
+        <div class="ttl">基本资料</div>
+        <div class="body">
+          <div class="pro">
+            <div class="lab">用户名</div>
+            <div class="val"><div class="input">zhangsan</div></div>
+
+            <div class="lab">登录密码</div>
+            <div class="val"><div class="input ph">留空则不修改密码</div></div>
+
+            <div class="lab">账号状态</div>
+            <div class="val"><span class="switch"></span><span class="badge on"><span style="width:7px;height:7px;border-radius:50%;background:var(--green)"></span>启用</span></div>
+
+            <div class="lab">平台管理员</div>
+            <div class="val"><span class="switch off"></span><span class="badge off">否</span></div>
+
+            <div class="lab">所属项目</div>
+            <div class="val"><span class="tag">电商回归</span><span class="tag">支付压测</span><span class="tag">+ 添加</span></div>
+
+            <div class="lab">角色 / 权限</div>
+            <div class="val"><span class="badge admin">测试工程师</span><span class="badge amber">仅读权限</span></div>
+          </div>
+          <p class="tip">用户名创建后不可修改；密码留空表示保持原密码。账号状态为「禁用」时该用户将无法登录。</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="ttl">操作记录 <span style="font-weight:400;font-size:12px;color:var(--muted)">最近 5 条</span></div>
+        <div class="body">
+          <div class="empty">暂无操作记录</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div>
+      <div class="card">
+        <div class="ttl">账号概览</div>
+        <div class="body">
+          <div class="meta">
+            <div class="row"><span class="k">用户 ID</span><span class="v">12</span></div>
+            <div class="divider"></div>
+            <div class="row"><span class="k">创建时间</span><span class="v">2026-03-12 09:24</span></div>
+            <div class="row"><span class="k">最近登录</span><span class="v">2026-08-25 18:02</span></div>
+            <div class="row"><span class="k">登录次数</span><span class="v">186</span></div>
+            <div class="divider"></div>
+            <div class="row"><span class="k">账号状态</span><span class="v"><span class="badge on">启用</span></span></div>
+            <div class="row"><span class="k">管理员</span><span class="v"><span class="badge off">否</span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="ttl">安全</div>
+        <div class="body">
+          <div class="meta">
+            <div class="row"><span class="k">两步验证</span><span class="v"><span class="badge off">未开启</span></span></div>
+            <div class="row"><span class="k">上次改密</span><span class="v">2026-06-01</span></div>
+          </div>
+          <button class="btn danger" style="width:100%;margin-top:14px;display:flex;justify-content:center;">强制退出全部会话</button>
+        </div>
+      </div>
+
+      <div class="danger-zone">
+        <div class="t">危险操作</div>
+        <div class="d">删除用户后，其创建的套件、场景等数据将一并移除且不可恢复。</div>
+        <button class="btn danger">删除用户</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

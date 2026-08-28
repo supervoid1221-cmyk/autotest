@@ -1,0 +1,4 @@
+[flake8]
+
+exclude = venv,fullstack_framework, case, beifan
+extend-ignore = E501

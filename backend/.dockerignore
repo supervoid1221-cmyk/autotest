@@ -1,0 +1,17 @@
+.git
+.env
+.idea
+.pytest_cache
+__pycache__
+*.pyc
+venv
+.venv
+deploy/data
+logs
+screenshots
+temps
+upload_yaml
+uploaded_api_files
+runtime_auth_locks
+db.sqlite3
+frontend

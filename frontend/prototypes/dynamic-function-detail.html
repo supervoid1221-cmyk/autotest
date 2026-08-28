@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>动态函数详情 - 优化原型</title>
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+<style>
+:root {
+  --accent: #5B6AF0;
+  --accent-soft: #EEF0FF;
+  --bg: #F8F9FA;
+  --card: #FFFFFF;
+  --border: #E5E7EB;
+  --border-soft: #F3F4F6;
+  --text-1: #111827;
+  --text-2: #374151;
+  --text-3: #6B7280;
+  --text-4: #9CA3AF;
+  --ok: #059669; --ok-bg: #ECFDF5;
+  --err: #E11D48; --err-bg: #FFF1F2;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); font-family: var(--sans); color: var(--text-1); font-size: 14px; }
+
+.page { max-width: 1220px; margin: 0 auto; padding: 20px 28px 40px; }
+
+/* 页头 */
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+.page-head h1 { font-size: 20px; font-weight: 600; }
+.page-head .sub { margin-top: 4px; font-size: 13px; color: var(--text-3); }
+.head-actions { display: flex; gap: 10px; }
+
+/* 布局 */
+.layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(360px, 0.9fr); gap: 16px; align-items: start; }
+.right { position: sticky; top: 20px; display: grid; gap: 16px; }
+
+/* 卡片 */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.card-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 20px; border-bottom: 1px solid var(--border-soft); background: #FAFAFB; }
+.card-head h3 { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.card-head h3 i { color: var(--accent); font-size: 15px; }
+.card-body { padding: 16px 20px 20px; }
+
+/* 按钮 */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--border); background: #fff; color: var(--text-2); font-size: 13px; font-weight: 500; cursor: pointer; font-family: var(--sans); transition: all .15s; }
+.btn:hover { border-color: #C7CBD4; background: #F9FAFB; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary:hover { background: #4A5AE8; border-color: #4A5AE8; }
+.btn-block { width: 100%; }
+
+/* 开关 */
+.switch { position: relative; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12.5px; color: var(--text-3); }
+.switch input { display: none; }
+.switch .track { width: 36px; height: 20px; border-radius: 10px; background: #D1D5DB; position: relative; transition: background .18s; flex-shrink: 0; }
+.switch .knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .18s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.switch input:checked + .track { background: var(--accent); }
+.switch input:checked + .track .knob { transform: translateX(16px); }
+
+/* 代码编辑器 */
+.editor { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.editor-bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; background: #FAFAFB; border-bottom: 1px solid var(--border-soft); font-size: 11.5px; color: var(--text-4); }
+.editor-bar .lang { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); }
+.editor-bar .lang .py-dot { width: 8px; height: 8px; border-radius: 2px; background: linear-gradient(135deg, #3B82F6, #F59E0B); }
+.editor-body { display: flex; background: #FCFCFD; max-height: 460px; overflow: auto; }
+.gutter { padding: 12px 10px 12px 0; width: 44px; text-align: right; font-family: var(--mono); font-size: 12px; line-height: 1.75; color: #C3C7CE; user-select: none; border-right: 1px solid var(--border-soft); flex-shrink: 0; }
+.code { flex: 1; padding: 12px 16px; font-family: var(--mono); font-size: 12.5px; line-height: 1.75; color: var(--text-2); white-space: pre; overflow-x: auto; }
+.code .kw { color: #9333EA; }
+.code .fn { color: #2563EB; }
+.code .str { color: #059669; }
+.code .cm { color: #9CA3AF; font-style: italic; }
+.code .var { color: #D97706; }
+
+/* 函数 chips */
+.fn-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.fn-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--border); border-radius: 6px; background: #fff; font-family: var(--mono); font-size: 12px; color: var(--text-2); cursor: pointer; transition: all .15s; }
+.fn-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.fn-chip.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.fn-chip i { font-size: 13px; }
+.fn-tip { margin-top: 10px; font-size: 12px; color: var(--text-4); }
+.fn-tip code { margin: 0 2px; padding: 1px 5px; border-radius: 3px; color: var(--accent); background: var(--accent-soft); font-family: var(--mono); }
+
+/* 表单 */
+.field { margin-bottom: 14px; }
+.field:last-child { margin-bottom: 0; }
+.field label { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; }
+.input, .select { width: 100%; height: 38px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: var(--sans); color: var(--text-1); background: #fff; outline: none; transition: border-color .15s, box-shadow .15s; }
+.input:focus, .select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91,106,240,.12); }
+.input.mono { font-family: var(--mono); font-size: 12.5px; }
+.input-group { display: flex; gap: 8px; }
+.input-group .input { flex: 1; }
+
+/* 运行结果 */
+.result-box { border: 1px solid var(--border); border-left-width: 3px; border-radius: 6px; background: #FCFCFD; min-height: 96px; }
+.result-box pre { margin: 0; padding: 12px 14px; font-family: var(--mono); font-size: 12.5px; line-height: 1.7; color: var(--text-2); white-space: pre-wrap; word-break: break-word; }
+.result-box.empty pre { color: var(--text-4); }
+.result-box.ok { border-left-color: var(--ok); }
+.result-box.ok pre { color: var(--ok); }
+.result-box.err { border-left-color: var(--err); }
+.result-box.err pre { color: var(--err); }
+.debug-note { margin-top: 10px; font-size: 12px; color: var(--text-4); line-height: 1.6; }
+
+/* 白名单 */
+.wl-group { margin-bottom: 14px; }
+.wl-group:last-child { margin-bottom: 0; }
+.wl-label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-3); margin-bottom: 7px; }
+.wl-label i { font-size: 13px; color: var(--accent); }
+.wl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.wl-chip { padding: 3px 9px; border-radius: 4px; background: #F3F4F6; font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
+.wl-forbid { margin-top: 14px; padding: 10px 12px; border-radius: 6px; background: var(--err-bg); font-size: 12px; color: var(--err); line-height: 1.6; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  .right { position: static; }
+}
+</style>
+</head>
+<body>
+
+<div class="page">
+  <!-- 页头 -->
+  <div class="page-head">
+    <div>
+      <h1>动态函数详情</h1>
+      <div class="sub">集中维护测试数据生成函数，保存前可即时验证结果</div>
+    </div>
+    <div class="head-actions">
+      <button class="btn"><i class="ph ph-arrow-left"></i>返回</button>
+      <button class="btn btn-primary"><i class="ph ph-floppy-disk"></i>保存</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- 左栏：代码 -->
+    <div class="card">
+      <div class="card-head">
+        <h3><i class="ph ph-code"></i>函数代码</h3>
+        <label class="switch">
+          <input type="checkbox" checked>
+          <span class="track"><span class="knob"></span></span>
+          启用
+        </label>
+      </div>
+      <div class="card-body">
+        <div class="editor">
+          <div class="editor-bar">
+            <span class="lang"><span class="py-dot"></span>python</span>
+            <span>3 个函数已识别</span>
+          </div>
+          <div class="editor-body">
+            <div class="gutter">1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13</div>
+            <div class="code"><span class="kw">def</span> <span class="fn">build_order_no</span>(context):
+    <span class="cm"># 生成订单号：前缀 + 时间戳</span>
+    <span class="kw">return</span> <span class="str">f"TEST_{context['timestamp']}"</span>
+
+<span class="kw">def</span> <span class="fn">random_phone</span>():
+    <span class="cm"># 随机手机号</span>
+    <span class="kw">return</span> <span class="str">f"13{randint(100000000, 999999999)}"</span>
+
+<span class="kw">def</span> <span class="fn">amount_boundary</span>(low, high):
+    <span class="cm"># 边界金额生成</span>
+    <span class="kw">return</span> round(random.uniform(low, high), <span class="var">2</span>)</div>
+          </div>
+        </div>
+
+        <!-- 识别出的函数 -->
+        <div class="fn-chips">
+          <button class="fn-chip active" data-fn="build_order_no"><i class="ph ph-function"></i>build_order_no</button>
+          <button class="fn-chip" data-fn="random_phone"><i class="ph ph-function"></i>random_phone</button>
+          <button class="fn-chip" data-fn="amount_boundary"><i class="ph ph-function"></i>amount_boundary</button>
+        </div>
+        <p class="fn-tip">调用格式：<code>${build_order_no}</code>，带参数：<code>${amount_boundary("0.01", "9999.99")}</code>；关闭启用后场景与套件不再引用这组函数</p>
+      </div>
+    </div>
+
+    <!-- 右栏 -->
+    <aside class="right">
+      <!-- 函数调试 -->
+      <div class="card">
+        <div class="card-head"><h3><i class="ph ph-bug"></i>函数调试</h3></div>
+        <div class="card-body">
+          <div class="field">
+            <label>选择函数</label>
+            <select class="select" id="fnSelect">
+              <option value="build_order_no" selected>build_order_no</option>
+              <option value="random_phone">random_phone</option>
+              <option value="amount_boundary">amount_boundary</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>调用示例</label>
+            <div class="input-group">
+              <input class="input mono" id="callInput" value='${build_order_no}' spellcheck="false">
+              <button class="btn" id="copyBtn" title="复制"><i class="ph ph-copy"></i></button>
+            </div>
+          </div>
+          <div class="field">
+            <button class="btn btn-primary btn-block" id="runBtn"><i class="ph ph-play"></i><span>运行测试</span></button>
+          </div>
+          <div class="field">
+            <label>运行结果</label>
+            <div class="result-box empty" id="resultBox">
+              <pre id="resultText">点击「运行测试」查看本次生成的数据</pre>
+            </div>
+          </div>
+          <p class="debug-note">调试结果仅用于预览，不会写入场景变量或保存到数据库</p>
+        </div>
+      </div>
+
+      <!-- 白名单 -->
+      <div class="card">
+        <div class="card-head"><h3><i class="ph ph-shield-check"></i>允许使用的白名单</h3></div>
+        <div class="card-body">
+          <div class="wl-group">
+            <div class="wl-label"><i class="ph ph-package"></i>允许导入模块</div>
+            <div class="wl-chips">
+              <span class="wl-chip">random</span>
+              <span class="wl-chip">datetime</span>
+              <span class="wl-chip">json</span>
+              <span class="wl-chip">re</span>
+              <span class="wl-chip">hashlib</span>
+            </div>
+          </div>
+          <div class="wl-group">
+            <div class="wl-label"><i class="ph ph-terminal-window"></i>允许内置函数</div>
+            <div class="wl-chips">
+              <span class="wl-chip">len</span>
+              <span class="wl-chip">str</span>
+              <span class="wl-chip">int</span>
+              <span class="wl-chip">float</span>
+              <span class="wl-chip">round</span>
+              <span class="wl-chip">range</span>
+              <span class="wl-chip">enumerate</span>
+              <span class="wl-chip">zip</span>
+            </div>
+          </div>
+          <div class="wl-group">
+            <div class="wl-label"><i class="ph ph-wrench"></i>平台辅助函数</div>
+            <div class="wl-chips">
+              <span class="wl-chip">randint</span>
+              <span class="wl-chip">date</span>
+              <span class="wl-chip">uuid</span>
+            </div>
+          </div>
+          <div class="wl-group">
+            <div class="wl-label"><i class="ph ph-brackets-curly"></i>context 可用字段</div>
+            <div class="wl-chips">
+              <span class="wl-chip">timestamp</span>
+              <span class="wl-chip">env_name</span>
+              <span class="wl-chip">project_id</span>
+            </div>
+          </div>
+          <div class="wl-forbid">不允许使用：文件读写、系统命令、网络 Socket、任意导入、exec、eval 等操作</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+// 函数 chips 联动选择器
+const fnSelect = document.getElementById('fnSelect');
+const callInput = document.getElementById('callInput');
+const chips = document.querySelectorAll('.fn-chip');
+
+function syncCall(name) {
+  callInput.value = '${' + name + '}';
+  chips.forEach(c => c.classList.toggle('active', c.dataset.fn === name));
+  fnSelect.value = name;
+}
+
+chips.forEach(chip => chip.addEventListener('click', () => syncCall(chip.dataset.fn)));
+fnSelect.addEventListener('change', () => syncCall(fnSelect.value));
+
+// 复制
+const copyBtn = document.getElementById('copyBtn');
+copyBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(callInput.value);
+    copyBtn.innerHTML = '<i class="ph ph-check"></i>';
+    setTimeout(() => copyBtn.innerHTML = '<i class="ph ph-copy"></i>', 1200);
+  } catch {}
+});
+
+// 运行测试模拟
+const runBtn = document.getElementById('runBtn');
+const resultBox = document.getElementById('resultBox');
+const resultText = document.getElementById('resultText');
+const mockResults = {
+  build_order_no: '"TEST_1755237412"',
+  random_phone: '"13847291063"',
+  amount_boundary: '4721.38',
+};
+runBtn.addEventListener('click', () => {
+  runBtn.disabled = true;
+  runBtn.querySelector('span').textContent = '执行中…';
+  resultBox.className = 'result-box';
+  resultText.textContent = '执行中…';
+  setTimeout(() => {
+    resultBox.className = 'result-box ok';
+    resultText.textContent = mockResults[fnSelect.value] || 'null';
+    runBtn.disabled = false;
+    runBtn.querySelector('span').textContent = '运行测试';
+  }, 700);
+});
+</script>
+</body>
+</html>

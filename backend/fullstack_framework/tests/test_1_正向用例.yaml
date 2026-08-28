@@ -1,0 +1,21 @@
+test_name: 正向用例
+title: 创建新的标签
+story: 标签功能
+
+request:
+  data:
+    a: 1
+  headers:
+    b: '2'
+  method: GET
+  url: http://baidu.com
+
+
+extract:
+  resp_headers: [headers,   (.*)]
+
+validate:
+  equals:
+    断言状态码等于200:
+    - status_code
+    - 200
