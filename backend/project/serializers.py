@@ -170,6 +170,8 @@ class DatabaseConnectionSerializer(serializers.ModelSerializer):
     database_type_display = serializers.CharField(source="get_database_type_display", read_only=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     password_configured = serializers.SerializerMethodField()
+    ssh_private_key_passphrase = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    ssh_private_key_passphrase_configured = serializers.SerializerMethodField()
 
     class Meta:
         model = DatabaseConnection
@@ -177,6 +179,9 @@ class DatabaseConnectionSerializer(serializers.ModelSerializer):
 
     def get_password_configured(self, obj):
         return bool(obj.password)
+
+    def get_ssh_private_key_passphrase_configured(self, obj):
+        return bool(obj.ssh_private_key_passphrase)
 
     def get_project_names(self, obj):
         return [project.name for project in obj.projects.all()]
@@ -206,9 +211,27 @@ class DatabaseConnectionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"projects": "所选项目中已存在相同环境和调用函数的数据库连接。"}
             )
+        use_ssh_tunnel = attrs.get(
+            "use_ssh_tunnel", getattr(self.instance, "use_ssh_tunnel", False)
+        )
+        if use_ssh_tunnel:
+            required_fields = {
+                "ssh_host": "请输入 SSH 主机。",
+                "ssh_username": "请输入 SSH 用户名。",
+                "ssh_private_key_path": "请输入后端服务器可访问的 SSH 私钥路径。",
+            }
+            errors = {}
+            for field, message in required_fields.items():
+                value = attrs.get(field, getattr(self.instance, field, "") if self.instance else "")
+                if not str(value or "").strip():
+                    errors[field] = message
+            if errors:
+                raise serializers.ValidationError(errors)
         return attrs
 
     def update(self, instance, validated_data):
         if not validated_data.get("password"):
             validated_data.pop("password", None)
+        if not validated_data.get("ssh_private_key_passphrase"):
+            validated_data.pop("ssh_private_key_passphrase", None)
         return super().update(instance, validated_data)

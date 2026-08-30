@@ -1,5 +1,3 @@
-import type { GlobEnvConfig } from '/#/config';
-
 import { warn } from '@/utils/log';
 import pkg from '../../package.json';
 
@@ -15,17 +13,14 @@ export function getStorageShortName() {
 
 export function getAppEnvConfig() {
   // 当前项目不再依赖模板的 build/ 配置生成脚本；Vite 会在构建时注入环境变量。
-  const ENV = import.meta.env as unknown as GlobEnvConfig;
-
-  const {
-    VITE_GLOB_APP_TITLE,
-    VITE_GLOB_API_URL,
-    VITE_GLOB_APP_SHORT_NAME,
-    VITE_GLOB_API_URL_PREFIX,
-    VITE_GLOB_UPLOAD_URL,
-    VITE_GLOB_PROD_MOCK,
-    VITE_GLOB_IMG_URL,
-  } = ENV;
+  // 使用静态属性访问，确保 Vite 在生产构建时能够可靠替换这些变量。
+  const VITE_GLOB_APP_TITLE = import.meta.env.VITE_GLOB_APP_TITLE;
+  const VITE_GLOB_API_URL = import.meta.env.VITE_GLOB_API_URL;
+  const VITE_GLOB_APP_SHORT_NAME = import.meta.env.VITE_GLOB_APP_SHORT_NAME;
+  const VITE_GLOB_API_URL_PREFIX = import.meta.env.VITE_GLOB_API_URL_PREFIX;
+  const VITE_GLOB_UPLOAD_URL = import.meta.env.VITE_GLOB_UPLOAD_URL;
+  const VITE_GLOB_PROD_MOCK = import.meta.env.VITE_GLOB_PROD_MOCK;
+  const VITE_GLOB_IMG_URL = import.meta.env.VITE_GLOB_IMG_URL;
 
   if (!/^[a-zA-Z\_]*$/.test(VITE_GLOB_APP_SHORT_NAME)) {
     warn(

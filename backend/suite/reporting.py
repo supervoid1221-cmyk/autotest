@@ -1,5 +1,5 @@
 """原生执行报告的状态汇总与异常收口。"""
-from datetime import datetime
+from datetime import datetime, timedelta
 from copy import deepcopy
 from pathlib import Path
 import json
@@ -13,6 +13,27 @@ SENSITIVE_VARIABLE_KEY = re.compile(
     r"(?:token|password|passwd|secret|authorization|cookie|api[_-]?key|access[_-]?key|refresh[_-]?token|private[_-]?key|webhook|hook[_-]?key)",
     re.IGNORECASE,
 )
+
+
+def _step_duration_ms(step):
+    """优先保留执行器耗时；缺失时按步骤起止时间补齐。"""
+    value = step.get("duration_ms")
+    if value not in (None, ""):
+        try:
+            return round(max(0, float(value)), 2)
+        except (TypeError, ValueError):
+            pass
+    started_at = step.get("started_at")
+    finished_at = step.get("finished_at")
+    if not started_at or not finished_at:
+        return None
+    try:
+        return round(
+            max(0, (datetime.fromisoformat(str(finished_at)) - datetime.fromisoformat(str(started_at))).total_seconds() * 1000),
+            2,
+        )
+    except (TypeError, ValueError):
+        return None
 
 
 def _snapshot_value(value, sensitive=False):
@@ -222,10 +243,30 @@ def merge_ui_runtime_results(report, run_path):
         if not group:
             continue
         native_steps = {str(item.get("source_step_id")): item for item in group.get("steps", [])}
+        # 旧版 Playwright 快照只保存了 duration_ms。按同一用例内的执行顺序
+        # 回填展示时间，避免历史报告的“执行时间”为空；新版快照优先使用真实时间。
+        fallback_started_at = group.get("started_at") or report.get("started_at")
+        try:
+            fallback_cursor = datetime.fromisoformat(str(fallback_started_at)) if fallback_started_at else None
+        except (TypeError, ValueError):
+            fallback_cursor = None
         for executed_step in execution_report.get("steps", []):
             target = native_steps.get(str(executed_step.get("id")))
             if not target:
                 continue
+            duration_ms = _step_duration_ms(executed_step)
+            if fallback_cursor and not executed_step.get("started_at"):
+                executed_step = {
+                    **executed_step,
+                    "started_at": fallback_cursor.isoformat(),
+                    **(
+                        {"finished_at": (fallback_cursor + timedelta(milliseconds=duration_ms)).isoformat()}
+                        if duration_ms is not None and not executed_step.get("finished_at")
+                        else {}
+                    ),
+                }
+            if duration_ms is not None and fallback_cursor:
+                fallback_cursor += timedelta(milliseconds=duration_ms)
             for key in (
                 "status", "passed", "started_at", "finished_at", "duration_ms",
                 "action_key", "element_name", "by", "locator", "detail",
@@ -257,6 +298,10 @@ def recalculate_native_report(report):
     all_steps = []
     for group in groups:
         steps = group.setdefault("steps", [])
+        for step in steps:
+            duration_ms = _step_duration_ms(step)
+            if duration_ms is not None:
+                step["duration_ms"] = duration_ms
         all_steps.extend(steps)
         statuses = [step.get("status", "pending") for step in steps]
         if any(status == "failed" for status in statuses):

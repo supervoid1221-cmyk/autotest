@@ -34,6 +34,42 @@ class SuiteProjectPermissionTests(TestCase):
         self.client = APIClient()
         self.client.force_authenticate(self.member)
 
+    @staticmethod
+    def response_items(response):
+        if not isinstance(response.data, dict):
+            return response.data
+        return response.data.get("list", response.data.get("results", []))
+
+    def test_suite_and_result_lists_filter_by_any_related_project(self):
+        self.project_b.user_list.add(self.member)
+        scenario_b = Scenario.objects.create(
+            project=self.project_b,
+            created_by=self.other_owner,
+            name="跨项目筛选场景",
+        )
+        scenario_b.projects.add(self.project_b)
+        SuiteScenario.objects.create(suite=self.suite_a, scenario=scenario_b, order=1)
+        result_a = RunResult.objects.create(
+            suite=self.suite_a,
+            project=self.project_a,
+            path="upload_yaml/project-filter-result",
+        )
+
+        suite_response = self.client.get(f"/api/suite/suite/?project={self.project_b.id}")
+        result_response = self.client.get(f"/api/suite/run_result/?project={self.project_b.id}")
+
+        self.assertEqual(suite_response.status_code, 200)
+        self.assertEqual(result_response.status_code, 200)
+        self.assertIn(self.suite_a.id, [item["id"] for item in self.response_items(suite_response)])
+        self.assertIn(result_a.id, [item["id"] for item in self.response_items(result_response)])
+
+    def test_invalid_project_filter_returns_empty_lists(self):
+        suite_response = self.client.get("/api/suite/suite/?project=invalid")
+        result_response = self.client.get("/api/suite/run_result/?project=invalid")
+
+        self.assertEqual(self.response_items(suite_response), [])
+        self.assertEqual(self.response_items(result_response), [])
+
     def test_notification_rule_cannot_use_shared_channel_without_all_project_access(self):
         response = self.client.post(
             "/api/suite/notification-rule/",

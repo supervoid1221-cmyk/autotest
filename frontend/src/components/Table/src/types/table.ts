@@ -20,6 +20,7 @@ export interface BasicColumn<T = InternalRowData> extends TableBaseColumn<T> {
 
 export interface TableActionType {
   reload: (opt) => Promise<void>;
+  removeRowByKey: (key: string | number) => Promise<void>;
   emit?: any;
   getColumns: (opt?) => BasicColumn[];
   setColumns: (columns: BasicColumn[] | string[]) => void;

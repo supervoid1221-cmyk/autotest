@@ -16,6 +16,7 @@ export interface EndpointRunResult {
   duration_ms?: number;
   response_body?: string;
   response_json?: unknown;
+  response_headers?: Record<string, string>;
   errors?: string[];
   attempts?: number;
   data_driven_results?: Array<Record<string, unknown>>;

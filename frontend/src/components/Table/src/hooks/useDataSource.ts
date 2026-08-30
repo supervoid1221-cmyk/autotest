@@ -135,6 +135,21 @@ export function useDataSource(
     return getDataSourceRef.value;
   }
 
+  async function removeRowByKey(key: string | number) {
+    const rowKey: any = unref(getRowKey);
+    const resolveKey = (row: Recordable) => isFunction(rowKey) ? rowKey(row) : row?.[rowKey || 'key'];
+    const nextRows = unref(dataSourceRef).filter((row) => resolveKey(row) !== key);
+    if (nextRows.length === unref(dataSourceRef).length) return;
+    dataSourceRef.value = nextRows;
+    const pagination = unref(getPaginationInfo) as PaginationProps;
+    const itemCount = Math.max(0, Number(pagination?.itemCount || 0) - 1);
+    setPagination({ itemCount });
+    if (!nextRows.length && Number(pagination?.page || 1) > 1) {
+      const pageField = APISETTING.pageField;
+      await fetch({ [pageField]: Number(pagination.page) - 1 });
+    }
+  }
+
   async function reload(opt?) {
     await fetch(opt);
   }
@@ -144,6 +159,7 @@ export function useDataSource(
     getRowKey,
     getDataSourceRef,
     getDataSource,
+    removeRowByKey,
     setTableData,
     reload,
   };

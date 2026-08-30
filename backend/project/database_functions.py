@@ -4,6 +4,7 @@ import re
 import time
 
 from .models import DatabaseConnection
+from .ssh_tunnel import ssh_tunnel
 
 
 SQL_FUNCTION_PATTERN = re.compile(
@@ -98,64 +99,58 @@ def _is_transient_connection_error(exc):
 def _execute_select(config, password, sql, params=None, fetch_one=True):
     """执行只读查询；连接或 TLS 异常时重新建连并额外尝试一次。"""
     for attempt in range(2):
-        connection = None
         try:
-            connection = _connect(config, password)
-            with connection.cursor() as cursor:
-                if params:
-                    cursor.execute(sql, params)
-                else:
-                    cursor.execute(sql)
-                row = cursor.fetchone() if fetch_one else None
-                columns = [item[0] for item in (cursor.description or [])]
+            with ssh_tunnel(config) as connect_config:
+                connection = _connect(connect_config, password)
+                try:
+                    with connection.cursor() as cursor:
+                        if params:
+                            cursor.execute(sql, params)
+                        else:
+                            cursor.execute(sql)
+                        row = cursor.fetchone() if fetch_one else None
+                        columns = [item[0] for item in (cursor.description or [])]
+                finally:
+                    connection.close()
             return row, columns
         except Exception as exc:
             if attempt == 0 and _is_transient_connection_error(exc):
                 time.sleep(0.3)
                 continue
             raise
-        finally:
-            if connection is not None:
-                try:
-                    connection.close()
-                except Exception:
-                    pass
 
 
 def _execute_update(config, password, sql, params=None):
     """执行一次事务性 UPDATE；写操作不自动重试，避免网络异常造成重复写入。"""
-    connection = None
     try:
-        connection = _connect(config, password)
-        with connection.cursor() as cursor:
-            cursor.execute(sql, params or None)
-            affected_rows = cursor.rowcount
-        connection.commit()
+        with ssh_tunnel(config) as connect_config:
+            connection = _connect(connect_config, password)
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(sql, params or None)
+                    affected_rows = cursor.rowcount
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+            finally:
+                connection.close()
         return affected_rows
     except Exception:
-        if connection is not None:
-            try:
-                connection.rollback()
-            except Exception:
-                pass
         raise
-    finally:
-        if connection is not None:
-            try:
-                connection.close()
-            except Exception:
-                pass
 
 
 def test_database_connection(config, password):
     started = time.perf_counter()
-    connection = _connect(config, password)
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
-            cursor.fetchone()
-    finally:
-        connection.close()
+    connection = None
+    with ssh_tunnel(config) as connect_config:
+        connection = _connect(connect_config, password)
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+        finally:
+            connection.close()
     return round((time.perf_counter() - started) * 1000)
 
 
@@ -206,6 +201,13 @@ def execute_database_query(function_name, sql, variables, project_id, environmen
         "database": connection_config.database,
         "connect_timeout": connection_config.connect_timeout,
         "ssl_mode": connection_config.ssl_mode,
+        "use_ssh_tunnel": connection_config.use_ssh_tunnel,
+        "ssh_host": connection_config.ssh_host,
+        "ssh_port": connection_config.ssh_port,
+        "ssh_username": connection_config.ssh_username,
+        "ssh_private_key_path": connection_config.ssh_private_key_path,
+        "ssh_private_key_passphrase": connection_config.ssh_private_key_passphrase,
+        "ssh_strict_host_key": connection_config.ssh_strict_host_key,
     }
     if operation == "update":
         if not connection_config.allow_write:

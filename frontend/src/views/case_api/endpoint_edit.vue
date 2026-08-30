@@ -3,7 +3,7 @@
     <div class="endpoint-page-inner">
       <div class="page-toolbar">
         <div class="breadcrumb-row"
-          ><span>接口测试</span><i>/</i><span>接口管理</span><i>/</i><b>接口详情</b></div
+          ><span>API测试</span><i>/</i><span>接口管理</span><i>/</i><b>接口详情</b></div
         >
         <div class="page-actions">
           <n-button @click="back">返回</n-button>
@@ -534,7 +534,6 @@
       }
 
       if (runAfterSave) {
-        message.success('保存成功，正在执行接口');
         await prepareDebugRun(savedId, Number(formValue.project));
       } else {
         message.success('保存成功');

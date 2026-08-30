@@ -46,6 +46,12 @@ export const columns = [
     width: 180,
   },
   {
+    title: '执行环境',
+    key: 'environment_name',
+    width: 120,
+    render: (row: any) => h('span', {}, row.environment_name || '-'),
+  },
+  {
     title: '运行模式',
     key: 'run_type',
     width: 100,

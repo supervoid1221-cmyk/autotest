@@ -10,9 +10,12 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
+import base64
+import hashlib
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -21,23 +24,58 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # 加载项目根目录 .env 中的环境变量（如 DEEPSEEK_API_KEY）
 load_dotenv(BASE_DIR / ".env")
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
+def env_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return bool(default)
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ImproperlyConfigured(f"环境变量 {name} 必须为 true 或 false。")
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    "DJANGO_SECRET_KEY",
-    "django-insecure-*#(kb(5xb_swrb3s-&ae)6=-2n=a0zlw@)w#t+_+vfbad4p=e$",
+
+def env_list(name, default=""):
+    return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
+
+
+# development 用于本地开发；production 用于部署。禁止使用隐式 DEBUG
+# 推断环境，避免生产因漏配单个变量而回退到不安全状态。
+DJANGO_ENV = os.getenv("DJANGO_ENV", "development").strip().lower()
+if DJANGO_ENV not in {"development", "production"}:
+    raise ImproperlyConfigured("DJANGO_ENV 仅支持 development 或 production。")
+IS_PRODUCTION = DJANGO_ENV == "production"
+
+DEVELOPMENT_SECRET_KEY = "django-insecure-local-development-only-change-me"
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "").strip() or DEVELOPMENT_SECRET_KEY
+DEBUG = env_bool("DJANGO_DEBUG", default=not IS_PRODUCTION)
+ALLOWED_HOSTS = env_list(
+    "DJANGO_ALLOWED_HOSTS",
+    "127.0.0.1,localhost" if not IS_PRODUCTION else "",
 )
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DJANGO_DEBUG", "true").strip().lower() in {"1", "true", "yes", "on"}
+if IS_PRODUCTION:
+    if DEBUG:
+        raise ImproperlyConfigured("生产环境禁止开启 DJANGO_DEBUG。")
+    if SECRET_KEY == DEVELOPMENT_SECRET_KEY or SECRET_KEY.startswith("django-insecure-") or len(SECRET_KEY) < 50:
+        raise ImproperlyConfigured("生产环境必须配置至少 50 位的强随机 DJANGO_SECRET_KEY。")
+    if not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
+        raise ImproperlyConfigured("生产环境必须配置明确的 DJANGO_ALLOWED_HOSTS，不允许使用 *。")
 
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
-    if host.strip()
-]
+# 敏感字段静态加密密钥。第一个密钥负责新写入，后续密钥用于读取轮换前的
+# 历史密文。生产环境必须独立配置，不能复用 Django SECRET_KEY。
+DATA_ENCRYPTION_KEYS = tuple(env_list("DATA_ENCRYPTION_KEYS"))
+if IS_PRODUCTION and not DATA_ENCRYPTION_KEYS:
+    raise ImproperlyConfigured("生产环境必须配置 DATA_ENCRYPTION_KEYS 用于敏感数据静态加密。")
+if not DATA_ENCRYPTION_KEYS:
+    development_key = base64.urlsafe_b64encode(
+        hashlib.sha256(f"local-data-encryption:{SECRET_KEY}".encode("utf-8")).digest()
+    ).decode("ascii")
+    DATA_ENCRYPTION_KEYS = (development_key,)
+
+# 在生产环境默认关闭 OpenAPI/Swagger/Redoc，确有运维需求时再显式开启。
+API_DOCS_ENABLED = env_bool("DJANGO_API_DOCS_ENABLED", default=not IS_PRODUCTION)
 
 # 用于通知消息中的平台执行报告绝对地址。线上环境请在 .env 中配置，
 # 例如 REPORT_PUBLIC_BASE_URL=https://test.example.com
@@ -80,6 +118,7 @@ INSTALLED_APPS = [
     "suite",
     "ai_assistant",
     "execution_template",
+    "monitor",
 ]
 
 MIDDLEWARE = [
@@ -87,7 +126,7 @@ MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
-    # "django.middleware.csrf.CsrfViewMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -225,5 +264,30 @@ Q_CLUSTER = {
 
 
 FRAMEWORK_DIR = "fullstack_framework"
-CORS_ORIGIN_ALLOW_ALL =True # 所有网址都允CORS
-X_FRAME_OPTIONS = 'SAMEORIGIN'
+
+# 开发环境默认允许跨域，方便 Vite 本地调试；生产环境默认仅允许
+# Nginx 同源请求。需要独立前端域名时，通过白名单显式配置。
+CORS_ALLOW_ALL_ORIGINS = env_bool("DJANGO_CORS_ALLOW_ALL", default=not IS_PRODUCTION)
+if IS_PRODUCTION and CORS_ALLOW_ALL_ORIGINS:
+    raise ImproperlyConfigured("生产环境禁止开启 DJANGO_CORS_ALLOW_ALL。")
+CORS_ALLOWED_ORIGINS = env_list("DJANGO_CORS_ALLOWED_ORIGINS")
+CORS_ALLOW_CREDENTIALS = env_bool("DJANGO_CORS_ALLOW_CREDENTIALS", default=False)
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
+
+# Nginx/Ingress 应传递 X-Forwarded-Proto。HTTPS 生产部署保持以下安全默认值；
+# 暂时使用 HTTP 的私网部署必须在 backend.env 中显式关闭相关项。
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
+SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", default=IS_PRODUCTION)
+SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", default=IS_PRODUCTION)
+CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", default=IS_PRODUCTION)
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
+SECURE_HSTS_SECONDS = max(0, int(os.getenv("DJANGO_SECURE_HSTS_SECONDS", "31536000" if IS_PRODUCTION and SECURE_SSL_REDIRECT else "0")))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False)
+SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", default=False)
+X_FRAME_OPTIONS = "SAMEORIGIN"

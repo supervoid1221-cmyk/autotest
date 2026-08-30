@@ -1,9 +1,20 @@
 {
   "manifest_version": 3,
-  "name": "自动化测试平台 - 接口录制",
-  "version": "1.0.0",
-  "description": "在 Chrome DevTools 中录制网络请求并导入自动化测试平台。",
+  "name": "自动化测试平台 - 录制器",
+  "version": "2.1.5",
+  "description": "在 Chrome DevTools 中录制 UI 操作或网络请求，并生成平台用例。",
   "devtools_page": "devtools.html",
-  "permissions": ["storage"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "permissions": ["storage", "tabs"],
   "host_permissions": ["http://*/*", "https://*/*"]
 }

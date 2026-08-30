@@ -32,7 +32,7 @@ const actionColumn = reactive({ width: 250, title: '操作', key: 'action', fixe
   return h('div', { style: 'display:flex;gap:12px' }, children);
 } });
 function add() { router.push({ name: 'system_user_edit', params: { id: 0 } }); }
-function remove(row) { dialog.warning({ title: '确认删除', content: `确认删除用户「${row.username}」？`, positiveText: '删除', negativeText: '取消', onPositiveClick: async () => { await api.deleteData(row.id); message.success('删除成功'); actionRef.value.reload(); } }); }
+function remove(row) { dialog.warning({ title: '确认删除', content: `确认删除用户「${row.username}」？`, positiveText: '删除', negativeText: '取消', onPositiveClick: async () => { await api.deleteData(row.id); await actionRef.value?.removeRowByKey(row.id); message.success('删除成功'); } }); }
 
 function resetPassword(row: any) {
   // 用闭包 reactive 承载输入与错误；不在 dialog content 里传 ref（ref 在该场景下不可靠）

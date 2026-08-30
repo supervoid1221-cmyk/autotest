@@ -17,10 +17,13 @@ from fullstack_framework.commons.api_executor import (
     execute_api_step_with_failure_retry,
 )
 from fullstack_framework.commons.case_util import (
+    DEFAULT_API_STEP_INTERVAL_SECONDS,
     NATIVE_RESPONSE_BODY_PREVIEW_BYTES,
     _execute_case_info,
+    _wait_for_api_step_interval,
     _response_body_preview,
 )
+from fullstack_framework.commons import case_util as case_util_module
 from fullstack_framework.commons.models import CaseInfo
 
 
@@ -36,6 +39,36 @@ class FakeResponse:
 
 
 class SharedApiExecutorTests(unittest.TestCase):
+    def tearDown(self):
+        case_util_module._last_api_step_finished_at = None
+
+    @patch.dict(os.environ, {"PLATFORM_RUN_RESULT_ID": "123", "PLATFORM_API_STEP_INTERVAL_SECONDS": "1"})
+    @patch("fullstack_framework.commons.case_util.time")
+    def test_api_step_waits_for_remaining_minimum_interval(self, mocked_time):
+        case_util_module._last_api_step_finished_at = 10.0
+        mocked_time.monotonic.return_value = 10.25
+
+        _wait_for_api_step_interval("下游查询")
+
+        mocked_time.sleep.assert_called_once_with(0.75)
+
+    @patch.dict(os.environ, {"PLATFORM_RUN_RESULT_ID": "123", "PLATFORM_API_STEP_INTERVAL_SECONDS": "1"})
+    @patch("fullstack_framework.commons.case_util.time")
+    def test_first_api_step_does_not_wait(self, mocked_time):
+        case_util_module._last_api_step_finished_at = None
+
+        _wait_for_api_step_interval("首个接口")
+
+        mocked_time.sleep.assert_not_called()
+
+    def test_api_step_interval_uses_one_second_default(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("PLATFORM_API_STEP_INTERVAL_SECONDS", None)
+            self.assertEqual(
+                case_util_module._api_step_interval_seconds(),
+                DEFAULT_API_STEP_INTERVAL_SECONDS,
+            )
+
     def test_generated_suite_case_continues_on_failure_by_default(self):
         case = CaseInfo(
             test_name="充值记录",

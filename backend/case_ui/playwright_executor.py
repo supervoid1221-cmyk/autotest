@@ -40,6 +40,10 @@ OCR_LANGUAGES = {
     "zh": "chi_sim",
     "en": "eng",
 }
+COMMIT_CLICK_TARGETS = {
+    "创建", "确定", "确认", "提交", "保存", "完成", "登录", "注册",
+    "create", "ok", "confirm", "submit", "save", "finish", "login", "register",
+}
 
 
 def _persist_native_result(report):
@@ -108,13 +112,86 @@ def _input_text(locator, value, timeout, clear_before_input=True):
 
 
 def _toggle_checked(locator, timeout):
-    """统一勾选操作：未选中则选中，已选中则取消。"""
+    """统一切换原生复选框及 ``role=switch`` 自定义开关。"""
+    get_attribute = getattr(locator, "get_attribute", None)
+    aria_checked = get_attribute("aria-checked", timeout=timeout) if get_attribute else None
+    data_state = get_attribute("data-state", timeout=timeout) if get_attribute else None
+    custom_state = None
+    if aria_checked in {"true", "false"}:
+        custom_state = aria_checked == "true"
+    elif data_state in {"checked", "unchecked", "on", "off"}:
+        custom_state = data_state in {"checked", "on"}
+
+    if custom_state is not None:
+        locator.click(timeout=timeout)
+        aria_after = locator.get_attribute("aria-checked", timeout=timeout)
+        state_after = locator.get_attribute("data-state", timeout=timeout)
+        checked_after = (
+            aria_after == "true"
+            if aria_after in {"true", "false"}
+            else state_after in {"checked", "on"}
+        )
+        return {"checked_before": custom_state, "checked_after": checked_after}
+
     checked_before = bool(locator.is_checked(timeout=timeout))
     if checked_before:
         locator.uncheck(timeout=timeout)
     else:
         locator.check(timeout=timeout)
     return {"checked_before": checked_before, "checked_after": not checked_before}
+
+
+def _ensure_unchecked(locator, timeout):
+    """兼容原生复选框和自定义开关的显式取消勾选。"""
+    get_attribute = getattr(locator, "get_attribute", None)
+    aria_checked = get_attribute("aria-checked", timeout=timeout) if get_attribute else None
+    data_state = get_attribute("data-state", timeout=timeout) if get_attribute else None
+    if aria_checked in {"true", "false"} or data_state in {"checked", "unchecked", "on", "off"}:
+        checked_before = aria_checked == "true" if aria_checked in {"true", "false"} else data_state in {"checked", "on"}
+        if checked_before:
+            locator.click(timeout=timeout)
+        return {"checked_before": checked_before, "checked_after": False}
+    checked_before = bool(locator.is_checked(timeout=timeout))
+    if checked_before:
+        locator.uncheck(timeout=timeout)
+    return {"checked_before": checked_before, "checked_after": False}
+
+
+def _is_commit_click(target, resolution):
+    """识别会触发表单提交或异步保存的点击操作。"""
+    element = (resolution or {}).get("element") or {}
+    return (
+        normalize(target) in {normalize(item) for item in COMMIT_CLICK_TARGETS}
+        or str(element.get("type") or "").lower() == "submit"
+    )
+
+
+def _wait_for_commit_click(page, target, resolution, was_in_dialog, timeout):
+    """等待提交型点击真正完成，避免末步骤尚在请求时就关闭浏览器。"""
+    if not _is_commit_click(target, resolution):
+        return {"commit_click": False}
+
+    wait_timeout = min(max(int(timeout), 1000), 5000)
+    network_idle = False
+    try:
+        page.wait_for_load_state("networkidle", timeout=wait_timeout)
+        network_idle = True
+    except PlaywrightTimeoutError:
+        # 长连接或轮询页面可能一直达不到 networkidle，继续以弹窗状态判断结果。
+        network_idle = False
+
+    dialog_closed = None
+    if was_in_dialog:
+        dialog_closed = wait_for_dialog_state(page, visible=False, timeout=min(wait_timeout, 3000))
+        if not dialog_closed:
+            raise RuntimeError(
+                f"点击“{target}”后弹窗未关闭，提交可能被表单校验或接口错误阻止。"
+            )
+    return {
+        "commit_click": True,
+        "network_idle": network_idle,
+        **({"dialog_closed": dialog_closed} if dialog_closed is not None else {}),
+    }
 
 
 def _load_runtime_variables():
@@ -140,6 +217,24 @@ def _save_runtime_variables(values):
 def _capture_step_screenshot(page, case_id, step_id, status):
     """保存步骤当前视区，路径相对本次执行目录，便于原生报告展示。"""
     if page is None:
+        return ""
+    try:
+        normalized_status = "passed" if status == "passed" else "failed"
+        relative_path = Path("screenshots") / (
+            f"playwright_{normalized_status}_{case_id}_{step_id}_{int(time.time() * 1000)}.png"
+        )
+        target = Path.cwd() / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        page.screenshot(
+            path=str(target),
+            full_page=False,
+            animations="disabled",
+            caret="hide",
+            scale="css",
+        )
+        return relative_path.as_posix()
+    except Exception:
+        # 截图失败不能覆盖步骤本身的执行结果。
         return ""
 
 
@@ -199,18 +294,6 @@ def _ocr_image(relative_path, language="auto"):
         if recognized:
             return recognized, ""
     return "", f"OCR 识别失败：{last_error}" if last_error else ""
-    try:
-        normalized_status = "passed" if status == "passed" else "failed"
-        relative_path = Path("screenshots") / (
-            f"playwright_{normalized_status}_{case_id}_{step_id}_{int(time.time() * 1000)}.png"
-        )
-        target = Path.cwd() / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        page.screenshot(path=str(target), full_page=False, animations="disabled", caret="hide", scale="css")
-        return relative_path.as_posix()
-    except Exception:
-        # 截图失败不能覆盖步骤本身的执行结果。
-        return ""
 
 
 def _safe(step, value):
@@ -321,6 +404,12 @@ def _xpath_literal(value):
     return "concat(" + ", \"'\", ".join(f"'{part}'" for part in text.split("'")) + ")"
 
 
+def _valid_xpath_expression(value):
+    """识别可直接交给 Playwright 的 XPath，排除 email 这类语义名称。"""
+    expression = str(value or "").strip()
+    return expression.startswith(("/", "./", "(", "id(", "ancestor::", "descendant::"))
+
+
 def _resolve_manual(page, step, timeout):
     if step.locator_mode == "manual" or step.fallback_value:
         locator_type = (step.fallback_type or "css_selector").lower()
@@ -353,10 +442,141 @@ def _resolve_manual(page, step, timeout):
         return locator, {"strategy": f"manual:{locator_type}", "confidence": 100, "candidates": []}
 
 
+def _resolve_recorded_select_trigger(page, step, timeout):
+    """用录制时显示值锁定自定义下拉触发器，避免通用 Select option 冲突。"""
+    options = getattr(step, "options", None) or {}
+    if str(getattr(step, "action", "")) != "select" or not options.get("recorded_select_option"):
+        return None
+    smart = options.get("smart_locator") or {}
+    generic = {
+        "select option", "choose option", "select", "choose",
+        "选择选项", "请选择", "选择", "下拉选择", "页面元素",
+    }
+    normalized_generic = {normalize(item) for item in generic}
+    option_value = normalize(getattr(step, "value", ""))
+    phrases = []
+    for raw in [getattr(step, "target", ""), *(smart.get("aliases") or [])]:
+        phrase = str(raw or "").strip()
+        if not phrase or normalize(phrase) in normalized_generic or normalize(phrase) == option_value:
+            continue
+        if phrase not in phrases:
+            phrases.append(phrase)
+    for phrase in phrases:
+        candidates = []
+        for role in ("combobox", "button"):
+            candidates = _visible_matches(page.get_by_role(role, name=phrase, exact=True))
+            if candidates:
+                break
+        if not candidates:
+            candidates = _visible_matches(
+                page.get_by_text(phrase, exact=True).locator(
+                    "xpath=ancestor-or-self::*[self::button or @role='combobox'][1]"
+                )
+            )
+        if len(candidates) == 1:
+            locator = candidates[0]
+            locator.wait_for(state="visible", timeout=timeout)
+            locator.scroll_into_view_if_needed(timeout=timeout)
+            return locator, {
+                "strategy": "recorded_select_trigger",
+                "confidence": 100,
+                "matched_phrase": phrase,
+                "candidates": [],
+            }
+    return None
+
+
+def _resolve_recorded_generic_element(page, step, timeout):
+    """恢复旧版录制中缺失语义名称的控件。
+
+    仅处理明确标记为录制生成的步骤，并以刚执行过的控件为锚点，在同一弹窗内
+    选择紧随其后的同类型表单控件，避免对人工创建步骤进行猜测。
+    """
+    options = getattr(step, "options", None) or {}
+    if not options.get("recorded") or normalize(getattr(step, "target", "")) not in {
+        normalize("页面元素"), normalize("输入框"), normalize("数字输入框")
+    }:
+        return None
+    smart = options.get("smart_locator") or {}
+    input_types = [str(item or "").lower() for item in smart.get("input_types") or [] if item]
+    if not input_types:
+        return None
+    token = f"pw-recorded-generic-{int(time.time() * 1000000)}"
+    try:
+        result = page.evaluate("""({token, inputTypes}) => {
+            const visible = element => {
+                const style = getComputedStyle(element), box = element.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden'
+                    && Number(style.opacity || 1) !== 0 && box.width > 0 && box.height > 0;
+            };
+            const anchor = window.__autotestPreviousElementRect;
+            if (!anchor) return {count: 0};
+            const activeDialog = [...document.querySelectorAll('[role="dialog"],dialog,[aria-modal="true"]')]
+                .filter(visible).at(-1) || null;
+            const controls = [...document.querySelectorAll('input,textarea,select')].filter(element => {
+                if (!visible(element) || element.disabled) return false;
+                if (activeDialog && !activeDialog.contains(element)) return false;
+                const type = String(element.getAttribute('type') || element.tagName).toLowerCase();
+                return inputTypes.includes(type);
+            });
+            const ranked = controls.map(element => {
+                const box = element.getBoundingClientRect();
+                const vertical = box.top - anchor.bottom;
+                const horizontal = Math.abs(box.left - anchor.left);
+                const score = (vertical < -8 ? 10000 + Math.abs(vertical) : vertical) + horizontal * .25;
+                return {element, score, vertical};
+            }).filter(item => item.vertical >= -8).sort((a, b) => a.score - b.score);
+            if (!ranked.length) return {count: 0};
+            ranked[0].element.setAttribute('data-pw-recorded-generic', token);
+            return {count: 1};
+        }""", {"token": token, "inputTypes": input_types})
+    except Exception:
+        return None
+    if int((result or {}).get("count") or 0) != 1:
+        return None
+    locator = page.locator(f'[data-pw-recorded-generic="{token}"]')
+    locator.wait_for(state="visible", timeout=timeout)
+    locator.scroll_into_view_if_needed(timeout=timeout)
+    return locator, {
+        "strategy": "recorded_relative_control",
+        "confidence": 96,
+        "candidates": [],
+    }
+
+
+def _remember_runtime_anchor(locator):
+    """记录已定位控件位置，供下一条旧版录制步骤恢复语义。"""
+    try:
+        locator.evaluate("""element => {
+            const box = element.getBoundingClientRect();
+            window.__autotestPreviousElementRect = {
+                left: box.left, right: box.right, top: box.top, bottom: box.bottom,
+                width: box.width, height: box.height
+            };
+        }""")
+    except Exception:
+        pass
+
+
 def _resolve(page, step, timeout):
     """自动定位优先；仅在自动定位失败且已配置兜底时使用手动表达式。"""
     if step.locator_mode == "manual":
+        if str(step.fallback_type or "").lower() == "xpath" and not _valid_xpath_expression(step.fallback_value):
+            # 早期页面会把录制得到的语义名称（例如 email）误存为 XPath。
+            # 该值仍可作为智能定位描述使用，但不能拼成 xpath=email。
+            runtime_step = copy.copy(step)
+            runtime_step.target = str(step.target or step.fallback_value or "").strip()
+            runtime_step.locator_mode = "auto"
+            runtime_step.fallback_value = ""
+            fingerprint = load_for_step(runtime_step.id, getattr(runtime_step, "environment_name", ""))
+            return resolve_smart(page, runtime_step, timeout, fingerprint=fingerprint)
         return _resolve_manual(page, step, timeout)
+    recorded_generic = _resolve_recorded_generic_element(page, step, timeout)
+    if recorded_generic:
+        return recorded_generic
+    recorded_select = _resolve_recorded_select_trigger(page, step, timeout)
+    if recorded_select:
+        return recorded_select
     try:
         fingerprint = load_for_step(step.id, getattr(step, "environment_name", ""))
         return resolve_smart(page, step, timeout, fingerprint=fingerprint)
@@ -609,13 +829,15 @@ def execute_playwright_case(case, tab_key=None):
             page = browser.new_page(viewport=viewport)
             for step in steps:
                 started = time.perf_counter()
+                started_at = datetime.now().astimezone().isoformat()
                 item = {
                     "id": step.id, "name": _step_name(step), "action": step.action,
-                    "target": step.target, "tab_key": getattr(step, "tab_key", ""), "status": "running",
+                    "target": step.target, "tab_key": getattr(step, "tab_key", ""),
+                    "status": "running", "started_at": started_at,
                 }
                 report["steps"].append(item)
                 _persist_native_result(report)
-                _update_native_step(case_id, step.id, status="running", started_at=datetime.now().astimezone().isoformat())
+                _update_native_step(case_id, step.id, status="running", started_at=started_at)
                 timeout = _step_timeout(step.options, default_timeout)
                 try:
                     value = _replace(step.value, variables)
@@ -636,6 +858,7 @@ def execute_playwright_case(case, tab_key=None):
                         detail = {"seconds": float(value)}
                     else:
                         locator, resolution = _resolve(page, runtime_step, timeout)
+                        _remember_runtime_anchor(locator)
                         if step.action == "upload_file":
                             from case_ui.file_utils import resolve_uploaded_file
                             file_ids = (runtime_step.options or {}).get("file_ids", [])
@@ -656,7 +879,14 @@ def execute_playwright_case(case, tab_key=None):
                             transition_token = start_ui_transition_watch(page)
                             locator.click(timeout=timeout)
                             transition = wait_for_ui_transition(page, transition_token, timeout=min(timeout, 1500))
-                            detail = {"resolution": resolution, "ui_transition": transition}
+                            commit = _wait_for_commit_click(
+                                page, target, resolution, was_in_dialog, timeout
+                            )
+                            detail = {
+                                "resolution": resolution,
+                                "ui_transition": transition,
+                                **commit,
+                            }
                             # 删除通常是“列表删除 → 弹窗确认删除”两步。第一步等待弹窗
                             # 完成挂载，第二步等待弹窗关闭，确保两次点击都产生实际效果。
                             if normalize(target) in {"删除", "移除", "delete", "remove"}:
@@ -669,7 +899,7 @@ def execute_playwright_case(case, tab_key=None):
                             detail = {"resolution": resolution, **_toggle_checked(locator, timeout)}
                         elif step.action == "uncheck":
                             # 兼容历史步骤；新建和编辑页面不再提供“取消勾选”。
-                            locator.uncheck(timeout=timeout); detail = {"resolution": resolution, "checked_after": False}
+                            detail = {"resolution": resolution, **_ensure_unchecked(locator, timeout)}
                         elif step.action == "assert_visible":
                             locator.is_visible(timeout=timeout); detail = {"resolution": resolution, "passed": True}
                         elif step.action == "assert_text":
@@ -720,19 +950,21 @@ def execute_playwright_case(case, tab_key=None):
                             "path": screenshot_path,
                             "label": "失败时页面截图",
                         }
-                        # 保留历史字段供旧版报告使用；开启步骤截图时同时写入统一字段。
+                        # 失败步骤不受“执行后截图”开关影响，必须写入报告标准字段。
+                        failure_detail["screenshot"] = screenshot
+                        # 保留历史字段供旧版报告使用。
                         failure_detail["failure_screenshot"] = screenshot
-                        if bool((getattr(step, "options", None) or {}).get("screenshot")):
-                            failure_detail["screenshot"] = screenshot
                     item.update({
                         "status": "failed", "passed": False, "error": str(exc),
                         "detail": failure_detail,
                     })
                     report["passed"] = False
+                finished_at = datetime.now().astimezone().isoformat()
+                item["finished_at"] = finished_at
                 item["duration_ms"] = round((time.perf_counter() - started) * 1000, 2)
                 _update_native_step(
                     case_id, step.id, status=item["status"], passed=item.get("passed"),
-                    finished_at=datetime.now().astimezone().isoformat(), duration_ms=item["duration_ms"],
+                    started_at=started_at, finished_at=finished_at, duration_ms=item["duration_ms"],
                     action_key=step.action, detail=item.get("detail", {}),
                     errors=[item["error"]] if item.get("error") else [], exception=item.get("error", ""),
                 )

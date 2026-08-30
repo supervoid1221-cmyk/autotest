@@ -38,7 +38,7 @@
     dialog.warning({
       title: '删除数据库连接', content: `确认删除调用函数「${row.function_name}」吗？`,
       positiveText: '删除', negativeText: '取消',
-      onPositiveClick: async () => { await api.DeleteDataByID(row.id); message.success('删除成功'); actionRef.value?.reload(); },
+      onPositiveClick: async () => { await api.DeleteDataByID(row.id); await actionRef.value?.removeRowByKey(row.id); message.success('删除成功'); },
     });
   }
 </script>

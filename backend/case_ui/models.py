@@ -1,5 +1,7 @@
 from django.conf import settings
 from django.db import models
+
+from Tesla.model_fields import EncryptedJSONField, EncryptedTextField
 from selenium.webdriver.common.by import By
 
 from project.models import Project
@@ -172,8 +174,8 @@ class UiStep(models.Model):
     order = models.PositiveIntegerField("执行顺序", default=1)
     action = models.CharField("操作", max_length=24, choices=Action.choices)
     element = models.ForeignKey(Element, null=True, blank=True, on_delete=models.SET_NULL, related_name="ui_steps")
-    value = models.TextField("操作值", blank=True)
-    options = models.JSONField("扩展配置", default=dict, blank=True)
+    value = EncryptedTextField("操作值", blank=True)
+    options = EncryptedJSONField("扩展配置", default=dict, blank=True)
     continue_on_failure = models.BooleanField("失败后继续", default=False)
 
     class Meta:
@@ -238,11 +240,11 @@ class PlaywrightStep(models.Model):
     order = models.PositiveIntegerField("执行顺序", default=1)
     action = models.CharField("操作方式", max_length=32, choices=Action.choices)
     target = models.CharField("页面元素/访问地址", max_length=512, blank=True, default="")
-    value = models.TextField("操作值", blank=True, default="")
+    value = EncryptedTextField("操作值", blank=True, default="")
     locator_mode = models.CharField("定位方式", max_length=16, choices=[("auto", "智能定位"), ("manual", "手动兜底")], default="auto")
     fallback_type = models.CharField("备用定位类型", max_length=32, blank=True, default="")
     fallback_value = models.CharField("备用定位表达式", max_length=512, blank=True, default="")
-    options = models.JSONField("扩展配置", default=dict, blank=True)
+    options = EncryptedJSONField("扩展配置", default=dict, blank=True)
     continue_on_failure = models.BooleanField("失败后继续", default=False)
 
     class Meta:

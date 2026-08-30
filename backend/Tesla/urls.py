@@ -15,6 +15,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from django.conf import settings
 from django.urls import include, path
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -32,17 +33,20 @@ urlpatterns = [
     path("api/suite/", include("suite.urls")),
     path("api/ai/", include("ai_assistant.urls")),
     path("api/template/", include("execution_template.urls")),
-    # OpenAPI
-    path("api/schema/openapi.json", SpectacularAPIView.as_view(), name="schema"),
-    # 在线文档
-    path(
-        "api/schema/swagger/",
-        SpectacularSwaggerView.as_view(url_name="schema"),
-        name="swagger-ui",
-    ),
-    path(
-        "api/schema/redoc/",
-        SpectacularRedocView.as_view(url_name="schema"),
-        name="redoc",
-    ),
+    path("api/monitor/", include("monitor.urls")),
 ]
+
+if settings.API_DOCS_ENABLED:
+    urlpatterns += [
+        path("api/schema/openapi.json", SpectacularAPIView.as_view(), name="schema"),
+        path(
+            "api/schema/swagger/",
+            SpectacularSwaggerView.as_view(url_name="schema"),
+            name="swagger-ui",
+        ),
+        path(
+            "api/schema/redoc/",
+            SpectacularRedocView.as_view(url_name="schema"),
+            name="redoc",
+        ),
+    ]

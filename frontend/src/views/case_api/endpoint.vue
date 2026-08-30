@@ -176,7 +176,7 @@
   import { computed, reactive, ref, h, onMounted } from 'vue';
   import { BasicTable } from '@/components/Table';
   import { createEndpointColumns } from './endpointColumns';
-  import { NButton, useDialog, useMessage } from 'naive-ui';
+  import { NButton, NSpace, useDialog, useMessage } from 'naive-ui';
   import { useRouter } from 'vue-router';
   import { EndpointAPI, EndpointModuleAPI } from '@/api/case_api/http';
   import { EnvironmentAPI, ProjectAPI } from '@/api/project/http';
@@ -260,10 +260,10 @@
     fixed: 'right',
     align: 'center',
     render(record) {
-      return h('div', { style: 'display:flex;gap:12px' }, [
+      return h(NSpace, { size: 14, wrap: false, align: 'center' }, { default: () => [
         h(NButton, { text: true, type: 'primary', onClick: () => handleEdit(record) }, { default: () => '编辑' }),
         h(NButton, { text: true, type: 'error', onClick: () => handleDelete(record) }, { default: () => '删除' }),
-      ]);
+      ] });
     },
   });
 

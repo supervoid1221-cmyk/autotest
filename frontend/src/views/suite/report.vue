@@ -113,6 +113,12 @@
             "
             class="empty"
           />
+          <div v-if="visibleScenarios.length" class="scenario-columns" aria-hidden="true">
+            <span>场景名称</span>
+            <span>状态</span>
+            <span>耗时</span>
+            <span></span>
+          </div>
           <div v-if="visibleScenarios.length" class="scenarios">
             <n-card
               v-for="scenario in visibleScenarios"
@@ -126,28 +132,28 @@
                   class="scenario-title scenario-title-button"
                   :aria-expanded="isScenarioExpanded(scenario)"
                   @click="toggleScenario(scenario)"
-                  ><strong>{{ scenario.name }}</strong
-                  ><n-tag size="small" :type="isUiScenario(scenario) ? 'info' : 'default'">{{
-                    scenarioTypeLabel(scenario)
-                  }}</n-tag
-                  ><n-tag v-if="isUiScenario(scenario)" size="small" :bordered="false"
-                    >{{ uiBrowserLabel(scenario.browser) }} ·
-                    {{ scenario.run_mode === 'headed' ? '有界面' : '无头' }}</n-tag
-                  ><span class="scenario-meta"
-                    >{{ scenario.steps?.length || 0 }} 个步骤 ·
-                    {{ formatDuration(scenario.duration_ms) }}</span
-                  ><n-tag size="small" :type="stepStatus(scenario).type">{{
-                    stepStatus(scenario).label
-                  }}</n-tag></button
-                ></template
-              >
-              <template #header-extra
-                ><button
-                  class="scenario-toggle"
-                  :class="{ collapsed: !isScenarioExpanded(scenario) }"
-                  :aria-label="isScenarioExpanded(scenario) ? '折叠场景' : '展开场景'"
-                  @click.stop="toggleScenario(scenario)"
-                  >⌄</button
+                  ><span class="scenario-identity"
+                    ><strong>{{ scenario.name }}</strong
+                    ><n-tag size="small" :type="isUiScenario(scenario) ? 'info' : 'default'">{{
+                      scenarioTypeLabel(scenario)
+                    }}</n-tag
+                    ><n-tag v-if="isUiScenario(scenario)" size="small" :bordered="false"
+                      >{{ uiBrowserLabel(scenario.browser) }} ·
+                      {{ scenario.run_mode === 'headed' ? '有界面' : '无头' }}</n-tag
+                    ><span class="scenario-meta">{{ scenario.steps?.length || 0 }} 个步骤</span></span
+                  ><span
+                    class="scenario-status"
+                    :class="`scenario-status--${stepStatus(scenario).type}`"
+                    ><i></i>{{ stepStatus(scenario).label }}</span
+                  ><span class="scenario-value">{{
+                    formatDuration(scenarioDuration(scenario))
+                  }}</span
+                  ><span
+                    class="scenario-toggle"
+                    :class="{ collapsed: !isScenarioExpanded(scenario) }"
+                    aria-hidden="true"
+                    >⌄</span
+                  ></button
                 ></template
               >
               <div v-if="isScenarioExpanded(scenario)" class="scenario-content">
@@ -248,27 +254,32 @@
                         >
                           <template #header>
                             <div class="step-header">
-                              <span class="step-index">{{ index + 1 }}</span>
-                              <span class="method" :style="methodStyle(step.method)">{{
-                                step.method ||
-                                (isUiScenario(scenario) ? step.action || 'UI' : 'API')
-                              }}</span>
-                              <strong>{{ step.name }}</strong>
-                              <span class="url">{{
-                                isUiScenario(scenario) ? formatUiLocator(step) : step.url
-                              }}</span>
+                              <span class="step-identity">
+                                <span class="step-index">{{ index + 1 }}</span>
+                                <span class="method" :style="methodStyle(step.method)">{{
+                                  step.method ||
+                                  (isUiScenario(scenario) ? step.action || 'UI' : 'API')
+                                }}</span>
+                                <strong>{{ step.name }}</strong>
+                                <span class="url">{{
+                                  isUiScenario(scenario) ? formatUiLocator(step) : step.url
+                                }}</span>
+                              </span>
                               <span class="step-status"
                                 ><n-tag :type="stepStatus(step).type" size="small">{{
                                   stepStatus(step).label
                                 }}</n-tag></span
                               >
+                              <span class="step-column-value">{{
+                                formatDuration(step.duration_ms, step)
+                              }}</span>
                             </div>
                           </template>
                           <div class="step-meta">
                             <span>执行时间：{{ formatTime(step.started_at) }}</span
                             ><span v-if="!isUiScenario(scenario)"
                               >状态码：{{ step.status_code ?? '-' }}</span
-                            ><span>耗时：{{ formatDuration(step.duration_ms) }}</span
+                            ><span>耗时：{{ formatDuration(step.duration_ms, step) }}</span
                             ><span v-if="!isUiScenario(scenario)"
                               >请求次数：{{ step.attempts || 1 }}</span
                             >
@@ -438,7 +449,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+  import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import { useMessage } from 'naive-ui';
   import { RunResultAPI } from '@/api/suite/http';
@@ -468,7 +479,9 @@
   const screenshotUrls = ref<Record<string, string>>({});
   const message = useMessage();
   const api = new RunResultAPI();
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let progressRequestVersion = 0;
+  let progressPollingVersion = 0;
   const report = computed(() => result.value?.native_report || {});
   const scenarios = computed(() => report.value?.scenarios || []);
   const isPaused = computed(() => String(result.value?.status || '') === '已暂停');
@@ -715,6 +728,10 @@
   };
   const screenshotUrl = (step: any) => screenshotUrls.value[screenshotSource(step)] || '';
   const screenshotLabel = (step: any) => screenshotMeta(step)?.label || '步骤截图';
+  function clearScreenshotCache() {
+    Object.values(screenshotUrls.value).forEach((url) => URL.revokeObjectURL(url));
+    screenshotUrls.value = {};
+  }
   async function loadScreenshots() {
     const sources = scenarios.value.flatMap((scenario: any) =>
       (scenario.steps || []).map(screenshotSource).filter(Boolean)
@@ -736,8 +753,13 @@
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
   };
-  const formatDuration = (value?: number) => {
-    const milliseconds = Number(value || 0);
+  const formatDuration = (value?: number, step?: any) => {
+    let milliseconds = Number(value);
+    if (!Number.isFinite(milliseconds) && step?.started_at && step?.finished_at) {
+      milliseconds = new Date(step.finished_at).getTime() - new Date(step.started_at).getTime();
+    }
+    if (!Number.isFinite(milliseconds)) return '-';
+    milliseconds = Math.max(0, milliseconds);
     return milliseconds >= 1000
       ? `${(milliseconds / 1000).toFixed(2)} 秒`
       : `${milliseconds.toFixed(0)} ms`;
@@ -988,6 +1010,23 @@
         ? (group.branches || []).flatMap((branch: any) => branch.steps || [])
         : group.steps || []
     );
+  const scenarioDuration = (scenario: any) => {
+    if (scenario?.duration_ms !== undefined && scenario?.duration_ms !== null) {
+      return Number(scenario.duration_ms) || 0;
+    }
+    return scenarioSteps(scenario).reduce(
+      (total: number, step: any) => {
+        const duration = Number(step?.duration_ms);
+        if (Number.isFinite(duration)) return total + Math.max(0, duration);
+        if (step?.started_at && step?.finished_at) {
+          const derived = new Date(step.finished_at).getTime() - new Date(step.started_at).getTime();
+          return total + (Number.isFinite(derived) ? Math.max(0, derived) : 0);
+        }
+        return total;
+      },
+      0,
+    );
+  };
   const scenarioFailed = (scenario: any) =>
     scenarioSteps(scenario).some((step: any) => stepStatus(step).type === 'error');
   const scenarioFilterOptions = computed(() => [
@@ -1040,24 +1079,41 @@
       return { label: '已跳过', type: 'warning' };
     return { label: '未完成', type: 'default' };
   };
+  function stopProgressPolling() {
+    progressPollingVersion += 1;
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+  }
+  async function pollProgress(pollingVersion: number) {
+    try {
+      await refreshProgress();
+    } catch {
+      // 临时网络波动不终止本次执行的状态跟踪，下一轮继续获取最新报告。
+    }
+    if (pollingVersion !== progressPollingVersion || !active.value) return;
+    timer = setTimeout(() => pollProgress(pollingVersion), 1500);
+  }
+  function startProgressPolling() {
+    stopProgressPolling();
+    if (!active.value) return;
+    const pollingVersion = ++progressPollingVersion;
+    void pollProgress(pollingVersion);
+  }
   async function refreshProgress() {
+    const requestVersion = ++progressRequestVersion;
     const data: any = await api.getProgress(Number(route.params.id));
+    if (requestVersion !== progressRequestVersion) return;
     result.value = data.result;
     progressLog.value = data.log || '';
     active.value = Boolean(data.active);
-    await loadScreenshots();
-    if (!active.value && timer) {
-      clearInterval(timer);
-      timer = undefined;
-    }
+    // 截图下载可能较慢，不能阻塞执行状态和步骤状态的实时刷新。
+    void loadScreenshots();
+    if (!active.value) stopProgressPolling();
   }
   async function init() {
     try {
       await refreshProgress();
-      if (active.value)
-        timer = setInterval(() => {
-          refreshProgress().catch(() => undefined);
-        }, 2000);
+      startProgressPolling();
     } finally {
       loading.value = false;
     }
@@ -1093,9 +1149,18 @@
   async function retryRun() {
     rerunning.value = true;
     try {
+      // 使上一轮轮询中的响应失效，避免旧报告覆盖刚提交的新一轮执行状态。
+      progressRequestVersion += 1;
+      stopProgressPolling();
       const response: any = await api.retryById(Number(route.params.id));
       message.success(`已重新提交执行记录：${response.result_id}`);
-      await refreshProgress();
+      // 与“直接运行套件”保持同一条进入报告页路径：使用相同执行编号重建
+      // 报告页面实例，避免 keep-alive 中的旧状态、旧轮询和旧报告快照残留。
+      await router.replace({
+        name: 'suite_report',
+        params: { id: response.result_id },
+        query: { ...route.query, rerun: String(Date.now()) },
+      });
     } catch (error: any) {
       message.error(error?.detail || error?.message || '重新执行失败');
     } finally {
@@ -1106,9 +1171,15 @@
     router.push({ name: 'suite_run_result' });
   }
   onMounted(init);
+  onActivated(() => {
+    refreshProgress()
+      .then(() => startProgressPolling())
+      .catch(() => undefined);
+  });
+  onDeactivated(stopProgressPolling);
   onUnmounted(() => {
-    if (timer) clearInterval(timer);
-    Object.values(screenshotUrls.value).forEach((url) => URL.revokeObjectURL(url));
+    stopProgressPolling();
+    clearScreenshotCache();
   });
 </script>
 
@@ -1565,6 +1636,21 @@
     display: grid;
     gap: 14px;
   }
+  .scenario-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 104px 108px 30px;
+    gap: 16px;
+    align-items: center;
+    margin: 0 1px 8px;
+    padding: 0 20px;
+    color: #8a96a8;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .scenario-columns > :nth-child(2),
+  .scenario-columns > :nth-child(3) {
+    transform: translateX(54px);
+  }
   .scenario-card {
     overflow: hidden;
     border-color: #dfe6f0;
@@ -1576,11 +1662,12 @@
     box-shadow: 0 8px 24px rgb(33 58 99 / 5%);
   }
   .scenario-title {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 104px 108px 30px;
     width: 100%;
     align-items: center;
     min-width: 0;
-    gap: 10px;
+    gap: 16px;
   }
   .scenario-title-button {
     padding: 2px 0;
@@ -1596,7 +1683,13 @@
     outline: 2px solid #7da7ff;
     outline-offset: 4px;
   }
-  .scenario-title > strong {
+  .scenario-identity {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+  }
+  .scenario-identity > strong {
     overflow: hidden;
     color: #1f2d42;
     font-size: 15px;
@@ -1609,6 +1702,35 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
+  .scenario-status,
+  .scenario-value {
+    color: #5f6f85;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    transform: translateX(54px);
+    white-space: nowrap;
+  }
+  .scenario-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 600;
+  }
+  .scenario-status i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #98a2b3;
+    box-shadow: 0 0 0 3px rgb(152 162 179 / 12%);
+  }
+  .scenario-status--success { color: #15945f; }
+  .scenario-status--success i { background: #19a66a; box-shadow: 0 0 0 3px rgb(25 166 106 / 12%); }
+  .scenario-status--error { color: #e0444d; }
+  .scenario-status--error i { background: #ef4d57; box-shadow: 0 0 0 3px rgb(239 77 87 / 12%); }
+  .scenario-status--warning { color: #d97706; }
+  .scenario-status--warning i { background: #f59e0b; box-shadow: 0 0 0 3px rgb(245 158 11 / 14%); }
+  .scenario-status--info { color: #2563eb; }
+  .scenario-status--info i { background: #3b82f6; box-shadow: 0 0 0 3px rgb(59 130 246 / 12%); }
   .scenario-toggle {
     display: grid;
     width: 30px;
@@ -1858,15 +1980,31 @@
     background: #fff3df;
   }
   .step-header {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 104px 108px;
     flex: 1;
     align-items: center;
     min-width: 0;
+    gap: 16px;
+  }
+  .step-identity {
+    display: flex;
+    min-width: 0;
+    align-items: center;
     gap: 9px;
   }
   .step-status {
     flex: none;
-    margin-left: auto;
+  }
+  .step-status,
+  .step-column-value {
+    transform: translateX(26px);
+  }
+  .step-column-value {
+    color: #69778c;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
   .step-index {
     display: grid;
@@ -2056,6 +2194,24 @@
       align-items: flex-start;
       flex-wrap: wrap;
       padding: 9px 12px;
+    }
+    .scenario-columns {
+      display: none;
+    }
+    .scenario-title {
+      grid-template-columns: minmax(0, 1fr) 30px;
+      gap: 10px;
+    }
+    .scenario-status,
+    .scenario-value {
+      display: none;
+    }
+    .step-header {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+    }
+    .step-column-value {
+      display: none;
     }
     .live-log {
       width: 100%;

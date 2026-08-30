@@ -59,6 +59,12 @@ export class UiUploadedFileAPI {
 
 export class PlaywrightCaseAPI extends BaseModelAPI<PlaywrightCase> {
   base_url = '/case_ui/playwright-case/';
+  previewRecording(events: Record<string, any>[]) {
+    return http.request<any>({ url: `${this.base_url}preview-recording/`, method: 'post', data: { events } });
+  }
+  importRecording(data: Record<string, any>) {
+    return http.request<any>({ url: `${this.base_url}import-recording/`, method: 'post', data });
+  }
   syncSteps(id: number, steps: PlaywrightStep[]) {
     return http.request<PlaywrightStep[]>({ url: `${this.base_url}${id}/sync-steps/`, method: 'post', data: { steps } });
   }

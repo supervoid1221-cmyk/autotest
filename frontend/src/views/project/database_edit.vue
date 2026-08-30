@@ -104,6 +104,44 @@
                 ></n-form-item
               >
             </div>
+            <div class="ssh-tunnel-card" :class="{ active: formValue.use_ssh_tunnel }">
+              <div class="ssh-tunnel-heading">
+                <div>
+                  <strong>SSH 隧道</strong>
+                  <span>通过跳板机安全访问未开放公网端口的数据库</span>
+                </div>
+                <n-switch v-model:value="formValue.use_ssh_tunnel" />
+              </div>
+              <div v-if="formValue.use_ssh_tunnel" class="ssh-tunnel-form">
+                <n-form-item label="SSH 主机" path="ssh_host">
+                  <n-input v-model:value="formValue.ssh_host" placeholder="47.103.158.1" />
+                </n-form-item>
+                <n-form-item label="SSH 端口" path="ssh_port">
+                  <n-input-number v-model:value="formValue.ssh_port" :min="1" :max="65535" :show-button="false" />
+                </n-form-item>
+                <n-form-item label="SSH 用户" path="ssh_username">
+                  <n-input v-model:value="formValue.ssh_username" placeholder="deployer" />
+                </n-form-item>
+                <n-form-item label="私钥文件" path="ssh_private_key_path">
+                  <n-input v-model:value="formValue.ssh_private_key_path" placeholder="后端机器可访问的绝对路径" />
+                </n-form-item>
+                <n-form-item label="私钥口令" path="ssh_private_key_passphrase">
+                  <n-input
+                    v-model:value="formValue.ssh_private_key_passphrase"
+                    type="password"
+                    show-password-on="click"
+                    :placeholder="formValue.ssh_private_key_passphrase_configured ? '留空表示不修改' : '无口令可留空'"
+                  />
+                </n-form-item>
+                <div class="host-key-control">
+                  <div><strong>校验主机指纹</strong><span>要求 SSH 主机已存在于后端 known_hosts</span></div>
+                  <n-switch v-model:value="formValue.ssh_strict_host_key" />
+                </div>
+              </div>
+              <div v-if="formValue.use_ssh_tunnel" class="ssh-path-tip">
+                私钥路径相对于后端运行环境；生产容器无法读取本机 /Users 路径。
+              </div>
+            </div>
             <div class="encryption-tip"
               ><n-icon><InformationCircleOutline /></n-icon
               >连接信息将被加密存储，仅在执行时使用。</div
@@ -321,6 +359,13 @@
     database: '',
     username: '',
     password: '',
+    use_ssh_tunnel: false,
+    ssh_host: '',
+    ssh_port: 22,
+    ssh_username: '',
+    ssh_private_key_path: '',
+    ssh_private_key_passphrase: '',
+    ssh_strict_host_key: true,
     ssl_mode: 'preferred',
     connect_timeout: 10,
     allow_write: false,
@@ -467,7 +512,11 @@
   async function load() {
     const projects = normalizeList<any>(await projectApi.getDataList({}));
     projectOptions.value = projects.map((item: any) => ({ label: item.name, value: item.id }));
-    if (id) Object.assign(formValue, await api.getDataByID(id), { password: '' });
+    if (id)
+      Object.assign(formValue, await api.getDataByID(id), {
+        password: '',
+        ssh_private_key_passphrase: '',
+      });
   }
   async function validate() {
     await formRef.value?.validate();
@@ -724,6 +773,57 @@
     margin-top: 2px;
     color: #778398;
     font-size: 12px;
+  }
+  .ssh-tunnel-card {
+    margin: 4px 0 10px;
+    border: 1px solid #dfe5ee;
+    border-radius: 6px;
+    background: #f8fafc;
+  }
+  .ssh-tunnel-card.active {
+    border-color: #bfd0fb;
+    background: #f7f9ff;
+  }
+  .ssh-tunnel-heading,
+  .host-key-control {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+  }
+  .ssh-tunnel-heading {
+    padding: 13px 15px;
+  }
+  .ssh-tunnel-heading > div,
+  .host-key-control > div {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .ssh-tunnel-heading strong,
+  .host-key-control strong {
+    color: #253047;
+    font-size: 13px;
+  }
+  .ssh-tunnel-heading span,
+  .host-key-control span,
+  .ssh-path-tip {
+    color: #8491a5;
+    font-size: 12px;
+  }
+  .ssh-tunnel-form {
+    display: grid;
+    grid-template-columns: 1.1fr 0.55fr 0.85fr 1.45fr 1fr;
+    gap: 14px;
+    padding: 14px 15px 4px;
+    border-top: 1px solid #e3e9f2;
+  }
+  .host-key-control {
+    grid-column: 1 / -1;
+    padding: 2px 0 10px;
+  }
+  .ssh-path-tip {
+    padding: 0 15px 13px;
   }
   .encryption-tip .n-icon {
     color: #2c69f7;

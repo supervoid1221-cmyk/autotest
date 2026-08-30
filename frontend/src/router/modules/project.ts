@@ -45,12 +45,6 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/views/project/project_edit.vue'),
       },
       {
-        path: 'variable',
-        name: 'project_variable',
-        meta: { title: '项目参数' },
-        component: () => import('@/views/project/project_variable.vue'),
-      },
-      {
         path: 'environment',
         name: 'project_environment',
         meta: { title: '环境与认证' },

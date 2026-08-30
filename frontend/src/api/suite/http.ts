@@ -62,7 +62,13 @@ export class RunResultAPI extends BaseModelAPI<RunResult> {
   }
 
   getProgress(id: number) {
-    return http.request({ url: `${this.base_url}${id}/progress/`, method: 'get' });
+    // 运行状态是实时数据，避免浏览器、代理或生产网关复用上一轮执行的 GET 缓存。
+    return http.request({
+      url: `${this.base_url}${id}/progress/`,
+      method: 'get',
+      params: { _t: Date.now() },
+      headers: { 'Cache-Control': 'no-cache' },
+    });
   }
 
   fetchScreenshot(url: string): Promise<Blob> {

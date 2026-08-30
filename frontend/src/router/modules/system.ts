@@ -1,6 +1,6 @@
 import { RouteRecordRaw } from 'vue-router';
 import { Layout } from '@/router/constant';
-import { PhGearSix } from '@phosphor-icons/vue';
+import { PhGearSix, PhHardDrives } from '@phosphor-icons/vue';
 import { renderIcon } from '@/utils/index';
 
 /**
@@ -16,14 +16,55 @@ import { renderIcon } from '@/utils/index';
  * */
 const routes: Array<RouteRecordRaw> = [
   {
-    path: '/system',
-    name: 'System',
-    redirect: '/system/403',
+    path: '/server-configuration',
+    name: 'ServerConfiguration',
+    redirect: '/server-configuration/connection',
     component: Layout,
     meta: {
-      title: '系统设置',
+      title: '服务器配置',
+      icon: renderIcon(PhHardDrives),
+      sort: 20,
+      // 即使当前只有“服务器连接”一个子项，也保留一级菜单层级。
+      alwaysShow: true,
+    },
+    children: [
+      {
+        path: 'connection', alias: '/system/server', name: 'system_server', meta: { title: '服务器连接' },
+        component: () => import('@/views/system/server.vue'),
+      },
+      {
+        path: 'monitor-settings', name: 'monitor_check_settings', meta: { title: '监控设置', hidden: true, activeMenu: 'monitor_config' },
+        component: () => import('@/views/monitor/settings.vue'),
+      },
+      {
+        path: 'monitor-config', name: 'monitor_config', meta: { title: '监控配置' },
+        component: () => import('@/views/monitor/config.vue'),
+      },
+      {
+        path: 'service-monitor', name: 'monitor_service', meta: { title: '服务监控' },
+        component: () => import('@/views/monitor/config.vue'),
+        props: { defaultTab: 'services' },
+      },
+      {
+        path: 'notification', name: 'monitor_notification', meta: { title: '告警通知' },
+        component: () => import('@/views/monitor/notification.vue'),
+      },
+      {
+        path: 'alerts', name: 'monitor_alerts', meta: { title: '告警事件' },
+        component: () => import('@/views/monitor/alerts.vue'),
+      },
+    ],
+  },
+  {
+    path: '/system',
+    name: 'System',
+    redirect: '/system/user',
+    component: Layout,
+    meta: {
+      title: '系统管理',
       icon: renderIcon(PhGearSix),
       sort: 21,
+      alwaysShow: true,
     },
     children: [
       {
@@ -33,6 +74,10 @@ const routes: Array<RouteRecordRaw> = [
       {
         path: 'user/:id?', name: 'system_user_edit', meta: { title: '用户详情', hidden: true, activeMenu: 'system_user' },
         component: () => import('@/views/system/user_edit.vue'),
+      },
+      {
+        path: 'notifications', name: 'suite_notifications', meta: { title: '通知管理' },
+        component: () => import('@/views/suite/notifications.vue'),
       },
     ],
   },

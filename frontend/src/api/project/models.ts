@@ -72,6 +72,14 @@ export interface DatabaseConnection {
   username: string;
   password?: string;
   password_configured?: boolean;
+  use_ssh_tunnel: boolean;
+  ssh_host: string;
+  ssh_port: number;
+  ssh_username: string;
+  ssh_private_key_path: string;
+  ssh_private_key_passphrase?: string;
+  ssh_private_key_passphrase_configured?: boolean;
+  ssh_strict_host_key: boolean;
   ssl_mode: 'preferred' | 'required' | 'disabled';
   connect_timeout: number;
   allow_write: boolean;

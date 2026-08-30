@@ -125,6 +125,35 @@ class SuiteScenarioOrderingTests(ExecutionFixtureMixin, TestCase):
 
         self.assertEqual(result.executor_name, "runner")
         self.assertEqual(RunResultSerializer(result).data["executor_name"], "runner")
+        self.assertEqual(RunResultSerializer(result).data["environment_name"], self.environment.name)
+
+    def test_run_without_suite_environment_does_not_create_result(self):
+        suite = Suite.objects.create(name="未配置环境套件", environment=None)
+        before_count = RunResult.objects.count()
+
+        with self.assertRaisesRegex(ValueError, "未配置执行环境"):
+            suite.run()
+
+        self.assertEqual(RunResult.objects.count(), before_count)
+
+    def test_run_missing_cross_project_environment_does_not_create_result(self):
+        other_project = Project.objects.create(name="缺少环境项目", pm=self.user)
+        scenario = Scenario.objects.create(project=other_project, name="跨项目场景")
+        scenario.projects.add(other_project)
+        endpoint = Endpoint.objects.create(
+            name="跨项目接口",
+            project=other_project,
+            method="GET",
+            url="/cross-project",
+        )
+        ScenarioStep.objects.create(scenario=scenario, endpoint=endpoint, order=1)
+        SuiteScenario.objects.create(suite=self.suite, scenario=scenario, order=1)
+        before_count = RunResult.objects.count()
+
+        with self.assertRaisesRegex(ValueError, "缺少环境项目"):
+            self.suite.run()
+
+        self.assertEqual(RunResult.objects.count(), before_count)
 
     def test_legacy_report_recovers_condition_at_current_flow_position(self):
         scenario = self._create_scenario("历史分支")

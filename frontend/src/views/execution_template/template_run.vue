@@ -7,7 +7,7 @@
             <nav class="breadcrumb" aria-label="面包屑">
               <span>执行</span>
               <span>/</span>
-              <button type="button" class="breadcrumb-link" @click="router.back()">数据工厂</button>
+              <button type="button" class="breadcrumb-link" @click="router.back()">模块管理</button>
               <span>/</span>
               <strong>执行详情</strong>
             </nav>

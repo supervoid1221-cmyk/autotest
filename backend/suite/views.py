@@ -19,7 +19,7 @@ from project.access import project_access_q, require_project_access, require_pro
 from case_api.models import Scenario
 from case_ui.models import PlaywrightCase, UiCase
 from .reporting import merge_ui_runtime_results
-from .access import accessible_suites, filter_suite_access, require_suite_access
+from .access import accessible_suites, filter_suite_access, filter_suite_project, require_suite_access
 
 
 def _request_executor_name(request):
@@ -145,7 +145,9 @@ class SuiteViewSet(viewsets.ModelViewSet):
     queryset = Suite.objects.all()
 
     def get_queryset(self):
-        return filter_suite_access(self.queryset, self.request.user)
+        queryset = filter_suite_access(self.queryset, self.request.user)
+        project_id = self.request.query_params.get("project")
+        return filter_suite_project(queryset, project_id) if project_id else queryset
 
     def perform_create(self, serializer):
         require_project_access(self.request.user, serializer.validated_data["environment"].project)
@@ -373,7 +375,9 @@ class RunResultViewSet(
 
     def get_queryset(self):
         queryset = self.queryset.filter(project_access_q(self.request.user, "project__"))
-        return filter_suite_access(queryset, self.request.user, "suite__")
+        queryset = filter_suite_access(queryset, self.request.user, "suite__")
+        project_id = self.request.query_params.get("project")
+        return filter_suite_project(queryset, project_id, "suite__") if project_id else queryset
 
     @action(methods=["POST"], detail=True)
     def retry(self, request, pk=None):
@@ -456,8 +460,13 @@ class RunResultViewSet(
                     chunks.append(log_path.read_text(encoding="utf-8", errors="replace")[-12000:])
                 except OSError:
                     pass
-        return Response({
+        response = Response({
             "result": serialized,
             "log": "\n".join(chunks),
             "active": result.status in (result.RunStatus.Ready, result.RunStatus.Running, result.RunStatus.Reporting, result.RunStatus.Paused),
         })
+        # 执行进度不能被浏览器或反向代理缓存，否则报告页会一直展示旧的“执行中”状态。
+        response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response["Pragma"] = "no-cache"
+        response["Expires"] = "0"
+        return response

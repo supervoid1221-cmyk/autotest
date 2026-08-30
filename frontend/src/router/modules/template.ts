@@ -9,7 +9,7 @@ const routes: Array<RouteRecordRaw> = [
     name: 'Template',
     component: Layout,
     meta: {
-      title: '执行',
+      title: '数据工厂',
       icon: renderIcon(PhFactory),
       sort: 1,
     },
@@ -17,8 +17,14 @@ const routes: Array<RouteRecordRaw> = [
       {
         path: '',
         name: 'template_list',
-        meta: { title: '数据工厂' },
+        meta: { title: '模块管理' },
         component: () => import('@/views/execution_template/template.vue'),
+      },
+      {
+        path: 'tools',
+        name: 'template_tools',
+        meta: { title: '工具' },
+        component: () => import('@/views/execution_template/tools.vue'),
       },
       {
         path: 'edit/:id?',

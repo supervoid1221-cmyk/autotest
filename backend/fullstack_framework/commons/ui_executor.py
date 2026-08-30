@@ -469,15 +469,17 @@ def execute_ui_case(case):
                 message = f"步骤「{_step_name(step)}」失败：{exc}"
                 failures.append(message)
                 failure_detail = _page_context(driver)
-                if bool((step.get("options") or {}).get("screenshot")):
-                    screenshot_path = _capture_step_screenshot(
-                        driver, case.get("id"), step.get("id"), "failed"
-                    )
-                    if screenshot_path:
-                        failure_detail["screenshot"] = {
-                            "path": screenshot_path,
-                            "label": "失败时页面截图",
-                        }
+                # 失败步骤始终截图，不受“执行后截图”开关影响。
+                screenshot_path = _capture_step_screenshot(
+                    driver, case.get("id"), step.get("id"), "failed"
+                )
+                if screenshot_path:
+                    screenshot = {
+                        "path": screenshot_path,
+                        "label": "失败时页面截图",
+                    }
+                    failure_detail["screenshot"] = screenshot
+                    failure_detail["failure_screenshot"] = screenshot
                 assertions = []
                 if isinstance(exc, UiAssertionError):
                     assertions.append({

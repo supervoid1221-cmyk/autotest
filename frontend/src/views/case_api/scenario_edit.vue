@@ -2,7 +2,7 @@
   <div class="scene-page">
     <header class="scene-header">
       <div class="scene-breadcrumb">
-        <span>接口测试</span><i>/</i><span>场景管理</span><i>/</i><strong>场景详情</strong>
+        <span>API测试</span><i>/</i><span>场景管理</span><i>/</i><strong>场景详情</strong>
       </div>
       <div class="scene-heading">
         <div class="scene-heading-copy">
@@ -33,7 +33,12 @@
           </div>
           <div class="basic-field">
             <span class="basic-field-label">执行环境</span>
-            <n-select v-model:value="runEnvironment" :options="environmentOptions" placeholder="请选择环境" />
+            <n-select
+              v-model:value="runEnvironment"
+              :options="environmentOptions"
+              :placeholder="environmentPlaceholder"
+              :disabled="!form.projects.length"
+            />
           </div>
           <div class="basic-field">
             <span class="basic-field-label">场景描述</span>
@@ -172,10 +177,11 @@
                               <div class="extract-rule-table">
                                 <div class="extract-rule-row extract-rule-header"><span>变量名</span><span>提取方式</span><span>响应来源</span><span>表达式</span><span>结果索引 / 捕获组</span><span></span></div>
                                 <div v-for="(rule, ruleIndex) in extractRules[child.step_info.id] || []" :key="`${child.step_info.id}-${ruleIndex}`" class="extract-rule-row">
-                                  <n-input v-model:value="rule.name" placeholder="如：token" size="small" @blur="saveStep(child.step_info)" />
+                                  <n-input v-model:value="rule.name" placeholder="如：token" size="small" @update:value="handleExtractNameInput(rule, $event)" @blur="saveStep(child.step_info)" />
                                   <n-select v-model:value="rule.mode" :options="extractModeOptions" size="small" @update:value="handleExtractModeChange(child.step_info, rule)" />
                                   <n-select v-model:value="rule.source" :options="rule.mode === 'jsonpath' ? jsonPathSourceOptions : extractSourceOptions" size="small" @update:value="saveStep(child.step_info)" />
-                                  <n-input v-model:value="rule.expression" :placeholder="rule.mode === 're' ? '如：token=(.*?)& 或 code=(.+?)$' : '如：$.data.token'" size="small" @blur="saveStep(child.step_info)" />
+                                  <n-auto-complete v-if="rule.mode === 'jsonpath'" v-model:value="rule.expression" :options="responseExpressionOptions(child.step_info, rule)" :render-label="renderResponsePathLabel" :get-show="() => true" blur-after-select clearable size="small" placeholder="运行接口后可选择响应路径" @select="handleResponsePathSelect(rule, $event)" @blur="saveStep(child.step_info)" />
+                                  <n-input v-else v-model:value="rule.expression" placeholder="如：token=(.*?)& 或 code=(.+?)$" size="small" @blur="saveStep(child.step_info)" />
                                   <n-input-number v-model:value="rule.index" :min="0" :show-button="false" size="small" @update:value="saveStep(child.step_info)" />
                                   <n-button text type="error" class="delete-button" size="small" @click.stop="removeExtractRule(child.step_info, ruleIndex)">删除</n-button>
                                 </div>
@@ -342,10 +348,11 @@
                       <span>变量名</span><span>提取方式</span><span>响应来源</span><span>表达式</span><span>结果索引 / 捕获组</span><span></span>
                     </div>
                     <div v-for="(rule, ruleIndex) in extractRules[element.id] || []" :key="`${element.id}-${ruleIndex}`" class="extract-rule-row">
-                      <n-input v-model:value="rule.name" placeholder="如：token" size="small" @blur="saveStep(element)" />
+                      <n-input v-model:value="rule.name" placeholder="如：token" size="small" @update:value="handleExtractNameInput(rule, $event)" @blur="saveStep(element)" />
                       <n-select v-model:value="rule.mode" :options="extractModeOptions" size="small" @update:value="handleExtractModeChange(element, rule)" />
                       <n-select v-model:value="rule.source" :options="rule.mode === 'jsonpath' ? jsonPathSourceOptions : extractSourceOptions" size="small" @update:value="saveStep(element)" />
-                      <n-input v-model:value="rule.expression" :placeholder="rule.mode === 're' ? '如：token=(.*?)& 或 code=(.+?)$' : '如：$.data.token'" size="small" @blur="saveStep(element)" />
+                      <n-auto-complete v-if="rule.mode === 'jsonpath'" v-model:value="rule.expression" :options="responseExpressionOptions(element, rule)" :render-label="renderResponsePathLabel" :get-show="() => true" blur-after-select clearable size="small" placeholder="运行接口后可选择响应路径" @select="handleResponsePathSelect(rule, $event)" @blur="saveStep(element)" />
+                      <n-input v-else v-model:value="rule.expression" placeholder="如：token=(.*?)& 或 code=(.+?)$" size="small" @blur="saveStep(element)" />
                       <n-input-number v-model:value="rule.index" :min="0" :show-button="false" size="small" @update:value="saveStep(element)" />
                       <n-button text type="error" class="delete-button" size="small" @click.stop="removeExtractRule(element, ruleIndex)">删除</n-button>
                     </div>
@@ -513,7 +520,7 @@
     <n-modal v-model:show="branchStepEditorVisible" preset="card" :title="`编辑分支接口 · ${branchEditingStep?.endpoint_name || ''}`" :style="{ width: 'min(920px, calc(100vw - 32px))' }">
       <template v-if="branchEditingStep"><div class="branch-step-editor-info"><span class="method-pill" :style="methodStyle(branchEditingStep.endpoint_info?.method)">{{ formatMethod(branchEditingStep.endpoint_info?.method) }}</span><strong>{{ branchEditingStep.endpoint_name }}</strong><code>{{ branchEditingStep.endpoint_info?.url }}</code></div><n-tabs v-model:value="activeConfigTabs[branchEditingStep.id]" type="line">
         <n-tab-pane name="request_override" tab="参数覆盖"><div class="editor-modal-actions"><span>支持静态值、变量和函数。</span><n-space><n-button size="small" @click="formatOverride(branchEditingStep)">格式化</n-button><n-button size="small" @click="restoreOverride(branchEditingStep)">从接口默认值恢复</n-button></n-space></div><div class="json-editor compact-editor"><pre class="editor-gutter">{{ lineNumbers(editText[branchEditingStep.id]?.request_override) }}</pre><n-input v-model:value="editText[branchEditingStep.id].request_override" type="textarea" :autosize="{ minRows: 12, maxRows: 20 }" @blur="saveStep(branchEditingStep)" /></div></n-tab-pane>
-        <n-tab-pane name="extract" tab="数据提取"><div class="extract-actions"><span>执行后保存变量，供之后接口引用。</span><n-button size="small" @click="addExtractRule(branchEditingStep)">＋ 添加提取规则</n-button></div><div class="extract-rule-table"><div v-for="(rule, ruleIndex) in extractRules[branchEditingStep.id] || []" :key="ruleIndex" class="extract-rule-row"><n-input v-model:value="rule.name" placeholder="变量名" size="small" @blur="saveStep(branchEditingStep)" /><n-select v-model:value="rule.mode" :options="extractModeOptions" size="small" @update:value="handleExtractModeChange(branchEditingStep, rule)" /><n-select v-model:value="rule.source" :options="rule.mode === 'jsonpath' ? jsonPathSourceOptions : extractSourceOptions" size="small" @update:value="saveStep(branchEditingStep)" /><n-input v-model:value="rule.expression" placeholder="$.data.id" size="small" @blur="saveStep(branchEditingStep)" /><n-input-number v-model:value="rule.index" :min="0" :show-button="false" size="small" @update:value="saveStep(branchEditingStep)" /><n-button text type="error" @click="removeExtractRule(branchEditingStep, ruleIndex)">删除</n-button></div></div></n-tab-pane>
+        <n-tab-pane name="extract" tab="数据提取"><div class="extract-actions"><span>执行后保存变量，供之后接口引用。</span><n-button size="small" @click="addExtractRule(branchEditingStep)">＋ 添加提取规则</n-button></div><div class="extract-rule-table"><div v-for="(rule, ruleIndex) in extractRules[branchEditingStep.id] || []" :key="ruleIndex" class="extract-rule-row"><n-input v-model:value="rule.name" placeholder="变量名" size="small" @update:value="handleExtractNameInput(rule, $event)" @blur="saveStep(branchEditingStep)" /><n-select v-model:value="rule.mode" :options="extractModeOptions" size="small" @update:value="handleExtractModeChange(branchEditingStep, rule)" /><n-select v-model:value="rule.source" :options="rule.mode === 'jsonpath' ? jsonPathSourceOptions : extractSourceOptions" size="small" @update:value="saveStep(branchEditingStep)" /><n-auto-complete v-if="rule.mode === 'jsonpath'" v-model:value="rule.expression" :options="responseExpressionOptions(branchEditingStep, rule)" :render-label="renderResponsePathLabel" :get-show="() => true" blur-after-select clearable size="small" placeholder="运行接口后可选择响应路径" @select="handleResponsePathSelect(rule, $event)" @blur="saveStep(branchEditingStep)" /><n-input v-else v-model:value="rule.expression" placeholder="如：token=(.*?)& 或 code=(.+?)$" size="small" @blur="saveStep(branchEditingStep)" /><n-input-number v-model:value="rule.index" :min="0" :show-button="false" size="small" @update:value="saveStep(branchEditingStep)" /><n-button text type="error" @click="removeExtractRule(branchEditingStep, ruleIndex)">删除</n-button></div></div></n-tab-pane>
         <n-tab-pane name="validate" tab="断言"><div class="extract-actions"><span>使用 JSONPath 或变量进行断言。</span><n-button size="small" @click="addValidateRule(branchEditingStep)">＋ 添加断言</n-button></div><div class="validate-rule-table"><div v-for="(rule, ruleIndex) in validateRules[branchEditingStep.id] || []" :key="ruleIndex" class="validate-rule-row"><n-input v-model:value="rule.actual" placeholder="$.data.code" size="small" @blur="saveStep(branchEditingStep)" /><n-select v-model:value="rule.type" :options="validateTypeOptions" size="small" @update:value="saveStep(branchEditingStep)" /><n-input v-model:value="rule.expected" placeholder="期望值" size="small" @blur="saveStep(branchEditingStep)" /><n-button text type="error" @click="removeValidateRule(branchEditingStep, ruleIndex)">删除</n-button></div></div></n-tab-pane>
         <n-tab-pane name="post_sql" tab="后置数据库"><div class="extract-actions"><span>接口成功后执行数据库操作。</span><n-button size="small" @click="addPostSql(branchEditingStep)">＋ 添加数据库操作</n-button></div><div class="post-sql-list"><div v-for="(_sql, sqlIndex) in postSqlRules[branchEditingStep.id] || []" :key="sqlIndex" class="post-sql-row"><n-input v-model:value="postSqlRules[branchEditingStep.id][sqlIndex]" type="textarea" placeholder="${execute_sql_mysql(...)}" @blur="saveStep(branchEditingStep)" /><n-button text type="error" @click="removePostSql(branchEditingStep, sqlIndex)">删除</n-button></div></div></n-tab-pane>
         <n-tab-pane name="polling" tab="轮询"><n-form label-placement="left" label-width="120"><n-form-item label="开启轮询"><n-switch v-model:value="pollingConfigs[branchEditingStep.id].enabled" @update:value="saveStep(branchEditingStep)" /></n-form-item><template v-if="pollingConfigs[branchEditingStep.id].enabled"><n-form-item label="超时时间（秒）"><n-input-number v-model:value="pollingConfigs[branchEditingStep.id].timeout" :min="1" @update:value="saveStep(branchEditingStep)" /></n-form-item><n-form-item label="轮询间隔（秒）"><n-input-number v-model:value="pollingConfigs[branchEditingStep.id].interval" :min="1" @update:value="saveStep(branchEditingStep)" /></n-form-item><n-form-item label="首次等待（秒）"><n-input-number v-model:value="pollingConfigs[branchEditingStep.id].initial_delay" :min="0" @update:value="saveStep(branchEditingStep)" /></n-form-item><n-checkbox v-model:checked="pollingConfigs[branchEditingStep.id].retry_http_error" @update:checked="saveStep(branchEditingStep)">HTTP 4xx/5xx 时继续重试</n-checkbox><n-checkbox v-model:checked="pollingConfigs[branchEditingStep.id].retry_assertion" @update:checked="saveStep(branchEditingStep)">断言不满足时继续重试</n-checkbox></template></n-form></n-tab-pane>
@@ -592,6 +599,7 @@
   const editingRequestTargetIds = reactive(new Set<number>());
   const runEnvironment = ref<number | null>(null);
   const environmentOptions = ref<any[]>([]);
+  const allEnvironments = ref<any[]>([]);
   const scenarioRunning = ref(false);
   const latestScenarioRun = ref<{ durationMs: number; finishedAt: string } | null>(null);
   const runningStepId = ref<number | null>(null);
@@ -600,17 +608,42 @@
   const responseSearchIndex = reactive<Record<number, number>>({});
   const responseBodyRefs = new Map<number, HTMLElement>();
   const environmentNames = ['Dev', 'Test', 'Pre', 'Prod'];
-  const toUniqueEnvironmentOptions = (environments: any[]) => {
-    const environmentByName = new Map<string, any>();
-    environments
-      .filter((item) => environmentNames.includes(item.name))
-      .sort((left, right) => environmentNames.indexOf(left.name) - environmentNames.indexOf(right.name))
-      .forEach((item) => {
-        if (!environmentByName.has(item.name)) environmentByName.set(item.name, item);
-      });
-    return Array.from(environmentByName.values()).map((item) => ({ label: item.name, value: item.id }));
+  const normalizeId = (value: unknown) => {
+    const normalized = Number(value);
+    return Number.isFinite(normalized) ? normalized : null;
   };
-  type ExtractRule = { name: string; mode: 'jsonpath' | 're'; source: 'json' | 'text' | 'headers'; expression: string; index: number };
+  const buildProjectEnvironmentOptions = (environments: any[], projectIds: number[]) => {
+    const selectedProjectIds = Array.from(new Set(projectIds.map(normalizeId).filter((value): value is number => value !== null)));
+    if (!selectedProjectIds.length) return [];
+
+    // 多项目场景只能选择所有项目都已配置的同名环境。选项值取首个项目对应的
+    // Environment ID，执行器再依据环境名称为每个项目解析各自的环境配置。
+    const sharedNames = environmentNames.filter((name) => selectedProjectIds.every((projectId) =>
+      environments.some((item) => normalizeId(item.project) === projectId && item.name === name),
+    ));
+    const primaryProjectId = selectedProjectIds[0];
+    return sharedNames.map((name) => {
+      const environment = environments.find((item) => normalizeId(item.project) === primaryProjectId && item.name === name);
+      return { label: name, value: Number(environment.id) };
+    });
+  };
+  const refreshEnvironmentOptions = (notifyWhenCleared = false) => {
+    const previousEnvironmentId = runEnvironment.value;
+    const previousEnvironmentName = allEnvironments.value.find((item) => Number(item.id) === Number(previousEnvironmentId))?.name;
+    const nextOptions = buildProjectEnvironmentOptions(allEnvironments.value, form.projects);
+    environmentOptions.value = nextOptions;
+
+    if (!previousEnvironmentId) return;
+    const replacement = nextOptions.find((item) => item.label === previousEnvironmentName);
+    if (replacement) {
+      // 关联项目的顺序变化时，同名环境仍然保留，但要切换为首个项目对应的环境 ID。
+      runEnvironment.value = replacement.value;
+      return;
+    }
+    runEnvironment.value = null;
+    if (notifyWhenCleared) message.warning('当前执行环境不属于所选项目，请重新选择');
+  };
+  type ExtractRule = { name: string; mode: 'jsonpath' | 're'; source: 'json' | 'text' | 'headers'; expression: string; index: number; autoVariableName?: string };
   type ValidateRule = { type: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'contains'; actual: string; expected: string };
   type PollingConfig = { enabled: boolean; timeout: number; interval: number; initial_delay: number; retry_http_error: boolean; retry_assertion: boolean };
   type AvailableVariable = { name: string; stepId: number; stepOrder: number; stepName: string; expression: string; scope?: 'project' | 'step'; projectName?: string };
@@ -661,6 +694,11 @@
     return projectOptions.value.filter((item) => selected.has(item.value)).map((item) => item.label).join('、');
   });
   const selectedEnvironmentLabel = computed(() => environmentOptions.value.find((item) => item.value === runEnvironment.value)?.label || '');
+  const environmentPlaceholder = computed(() => {
+    if (!form.projects.length) return '请先选择关联项目';
+    if (!environmentOptions.value.length) return form.projects.length > 1 ? '所选项目没有共同环境' : '该项目暂未配置环境';
+    return '请选择环境';
+  });
   const hasFlowNodes = computed(() => steps.value.length > 0);
   const flowNodeKey = (node: any) => {
     const flowNodeId = Number(node?.node_id);
@@ -804,19 +842,32 @@
     try { return JSON.parse(normalizeBareVariables(value || '{}')); } catch { throw Error('请填写合法 JSON'); }
   };
   const defaultExtractRule = (): ExtractRule => ({ name: '', mode: 'jsonpath', source: 'json', expression: '', index: 0 });
+  const normalizeJsonPathExpression = (value: unknown) => String(value || '').replace(/\s+·\s+.*$/, '').trim();
+  const variableNameFromJsonPath = (path: unknown) => {
+    const expression = normalizeJsonPathExpression(path);
+    const bracketKey = expression.match(/\[['"]([^'"]+)['"]\]$/)?.[1];
+    const dotKey = expression.match(/\.([A-Za-z_$][\w$]*)$/)?.[1];
+    const indexedKey = expression.match(/\.([A-Za-z_$][\w$]*)\[(\d+)\]$/);
+    const rawName = bracketKey || dotKey || (indexedKey ? `${indexedKey[1]}_${indexedKey[2]}` : '');
+    const normalized = rawName.replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+|_+$/g, '');
+    if (!normalized) return '';
+    return /^\d/.test(normalized) ? `value_${normalized}` : normalized;
+  };
   const defaultValidateRule = (): ValidateRule => ({ type: 'equals', actual: '$.', expected: '' });
   const defaultPollingConfig = (): PollingConfig => ({ enabled: false, timeout: 60, interval: 3, initial_delay: 0, retry_http_error: true, retry_assertion: true });
   const normalizePollingConfig = (value?: Record<string, any>): PollingConfig => ({ ...defaultPollingConfig(), ...(value || {}) });
   const toExtractRules = (extract: Record<string, unknown> = {}) => Object.entries(extract || {}).flatMap(([name, value]) => {
     if (!Array.isArray(value)) return [];
     if (value[0] === 're') return [{ name, mode: 're' as const, source: (value[1] || 'text') as ExtractRule['source'], expression: String(value[2] || ''), index: Number(value[3] ?? 0) }];
-    return [{ name, mode: 'jsonpath' as const, source: (value[0] || 'json') as ExtractRule['source'], expression: String(value[1] || ''), index: Number(value[2] ?? 0) }];
+    const expression = normalizeJsonPathExpression(value[1]);
+    const inferredName = variableNameFromJsonPath(expression);
+    return [{ name, mode: 'jsonpath' as const, source: (value[0] || 'json') as ExtractRule['source'], expression, index: Number(value[2] ?? 0), autoVariableName: name === inferredName ? inferredName : undefined }];
   });
   const toExtractConfig = (rules: ExtractRule[] = []) => rules.reduce((result: Record<string, unknown>, rule) => {
     if (!rule.name.trim() || !rule.expression.trim()) return result;
     result[rule.name.trim()] = rule.mode === 're'
       ? ['re', rule.source, rule.expression, Number(rule.index || 0)]
-      : [rule.source, rule.expression, Number(rule.index || 0)];
+      : [rule.source, normalizeJsonPathExpression(rule.expression), Number(rule.index || 0)];
     return result;
   }, {});
   const normalizeAssertReference = (value: unknown) => {
@@ -1010,12 +1061,81 @@
     if (field === 'headers' && /authorization/i.test(parameter) && !/^\s*(?:bearer|token)\s+(?:\$\{|\{\{)/.test(String(sourceValue || ''))) return `Bearer \${${variableName}}`;
     return `\${${variableName}}`;
   };
+  const appendJsonPath = (prefix: string, key: string) => /^[A-Za-z_$][\w$]*$/.test(key)
+    ? `${prefix}.${key}`
+    : `${prefix}[${JSON.stringify(key)}]`;
   const leafResponsePaths = (value: any, prefix = '$', depth = 0): Array<{ path: string; key: string }> => {
     if (depth > 6 || value === null || value === undefined) return [];
     if (Array.isArray(value)) return value.slice(0, 10).flatMap((item, index) => leafResponsePaths(item, `${prefix}[${index}]`, depth + 1));
-    if (typeof value === 'object') return Object.entries(value).slice(0, 80).flatMap(([key, item]) => leafResponsePaths(item, `${prefix}.${key}`, depth + 1));
+    if (typeof value === 'object') return Object.entries(value).slice(0, 80).flatMap(([key, item]) => leafResponsePaths(item, appendJsonPath(prefix, key), depth + 1));
     const key = prefix.replace(/\[[0-9]+\]/g, '').split('.').filter(Boolean).pop() || '';
     return [{ path: prefix, key }];
+  };
+  const selectableResponsePaths = (value: any): Array<{ path: string; value: unknown }> => {
+    const result: Array<{ path: string; value: unknown }> = [];
+    const seen = new Set<string>();
+    const add = (path: string, item: unknown) => {
+      if (result.length >= 240 || seen.has(path)) return;
+      seen.add(path);
+      result.push({ path, value: item });
+    };
+    const visit = (item: any, prefix: string, depth: number, includeCurrent: boolean) => {
+      if (result.length >= 240 || depth > 6) return;
+      if (includeCurrent) add(prefix, item);
+      if (item === null || item === undefined) return;
+      if (Array.isArray(item)) {
+        for (const [index, child] of item.slice(0, 10).entries()) {
+          if (result.length >= 240) break;
+          visit(child, `${prefix}[${index}]`, depth + 1, true);
+        }
+      } else if (typeof item === 'object') {
+        for (const [key, child] of Object.entries(item).slice(0, 80)) {
+          if (result.length >= 240) break;
+          visit(child, appendJsonPath(prefix, key), depth + 1, true);
+        }
+      }
+    };
+    visit(value, '$', 0, value === null || typeof value !== 'object');
+    return result;
+  };
+  const responseValuePreview = (value: unknown) => {
+    if (Array.isArray(value)) return '数组';
+    if (value && typeof value === 'object') return '对象';
+    const text = String(value ?? 'null').replace(/\s+/g, ' ');
+    return text.length > 48 ? `${text.slice(0, 48)}…` : text;
+  };
+  const responseExpressionOptions = (step: any, rule: ExtractRule) => {
+    if (rule.mode !== 'jsonpath') return [];
+    const stepId = Number(step?.step_id || step?.id);
+    const result = runResults[stepId];
+    if (!result) return [];
+    let responseValue = rule.source === 'headers' ? result.response_headers : result.response_json;
+    const responseJsonIsEmpty = responseValue === undefined
+      || responseValue === null
+      || (Array.isArray(responseValue) && responseValue.length === 0)
+      || (typeof responseValue === 'object' && !Array.isArray(responseValue) && Object.keys(responseValue).length === 0);
+    if (rule.source === 'json' && responseJsonIsEmpty) {
+      try { responseValue = JSON.parse(result.response_body || ''); } catch { return []; }
+    }
+    const keyword = String(rule.expression || '').trim().toLowerCase();
+    return selectableResponsePaths(responseValue)
+      .map((item) => ({ label: item.path, value: item.path, preview: responseValuePreview(item.value) }))
+      .filter((item) => !keyword || item.value.toLowerCase().includes(keyword) || item.preview.toLowerCase().includes(keyword));
+  };
+  const renderResponsePathLabel = (option: any) => h('span', { class: 'response-path-option' }, [
+    h('code', option.value),
+    h('span', `· ${option.preview || ''}`),
+  ]);
+  const handleResponsePathSelect = (rule: ExtractRule, selectedPath: string) => {
+    const nextAutoName = variableNameFromJsonPath(selectedPath);
+    if (nextAutoName && (!rule.name.trim() || rule.name.trim() === rule.autoVariableName)) {
+      rule.name = nextAutoName;
+      rule.autoVariableName = nextAutoName;
+    }
+  };
+  const handleExtractNameInput = (rule: ExtractRule, value: string) => {
+    rule.name = value;
+    if (value.trim() !== rule.autoVariableName) rule.autoVariableName = undefined;
   };
   const variableNameFor = (baseName: string, sourceStep: any, usedNames: Set<string>) => {
     const cleaned = String(baseName || 'value').replace(/[^a-zA-Z0-9_]/g, '_') || 'value';
@@ -1240,12 +1360,13 @@
   }
   async function load() {
     projectOptions.value = (await projectApi.getDataList({})).map((item: any) => ({ label: item.name, value: item.id }));
-    environmentOptions.value = toUniqueEnvironmentOptions(await environmentApi.getDataList({}));
+    allEnvironments.value = await environmentApi.getDataList({});
     if (id) {
       const scenario = await scenarioApi.getDataByID(id);
       Object.assign(form, scenario, { projects: scenario.projects?.length ? scenario.projects : [scenario.project] });
       await loadSteps();
     }
+    refreshEnvironmentOptions();
     await loadInterfaceTree();
   }
   function generateScenarioNameFromSelectedEndpoints() {
@@ -1706,6 +1827,7 @@
   }
 
   watch(() => form.projects, async () => {
+    refreshEnvironmentOptions(Boolean(runEnvironment.value));
     await Promise.all([loadInterfaceTree(), loadProjectVariables()]);
   }, { deep: true });
   onMounted(load);

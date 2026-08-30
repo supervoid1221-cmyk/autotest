@@ -1,5 +1,41 @@
 @import 'transition/index.less';
 
+// 全局弹窗尺寸规范：默认居中限高，内容过长时仅内容区滚动。
+// 只有显式添加 modal-allow-fullscreen 的工作台类弹窗才允许占满视口。
+.n-modal.n-card:not(.modal-allow-fullscreen) {
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+
+  > .n-card__content {
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .n-modal.n-card:not(.modal-allow-fullscreen) {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 32px);
+  }
+}
+
+// 业务表单弹窗统一采用“接口管理 - 导入 cURL”的尺寸规格。
+// 新增配置类弹窗应添加 platform-form-modal，避免内容直接铺满视口。
+.platform-form-modal.n-card {
+  width: min(1100px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+}
+
+@media (max-width: 640px) {
+  .platform-form-modal.n-card {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 32px);
+  }
+}
+
 // 卡片 hover
 .ai-card-hover {
   transition: border-color 0.15s ease;

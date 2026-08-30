@@ -8,6 +8,8 @@ import jsonpath
 import requests
 import yaml
 
+from Tesla.model_fields import EncryptedJSONField, EncryptedTextField
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - Windows 开发环境的降级兼容
@@ -73,7 +75,7 @@ class ProjectVariable(models.Model):
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="variables")
     name = models.CharField("变量名", max_length=64)
-    value = models.TextField("变量值", blank=True, default="")
+    value = EncryptedTextField("变量值", blank=True, default="")
     description = models.CharField("参数描述", max_length=256, blank=True, default="")
 
     class Meta:
@@ -115,17 +117,17 @@ class Environment(models.Model):
     auth_enabled = models.BooleanField("启用自动登录", default=False)
     login_url = models.CharField("登录接口", max_length=256, blank=True)
     login_method = models.CharField("登录方法", max_length=8, default="POST")
-    login_headers = models.JSONField("登录请求头", default=dict, blank=True)
-    login_params = models.JSONField("登录查询参数", default=dict, blank=True)
-    login_data = models.JSONField("登录表单参数", default=dict, blank=True)
-    login_json = models.JSONField("登录 JSON 参数", default=dict, blank=True)
+    login_headers = EncryptedJSONField("登录请求头", default=dict, blank=True)
+    login_params = EncryptedJSONField("登录查询参数", default=dict, blank=True)
+    login_data = EncryptedJSONField("登录表单参数", default=dict, blank=True)
+    login_json = EncryptedJSONField("登录 JSON 参数", default=dict, blank=True)
     token_jsonpath = models.CharField("Token 提取表达式", max_length=256, blank=True)
     token_name = models.CharField("变量名", max_length=64, default="token")
     token_header = models.CharField("Token 请求头", max_length=64, default="Authorization")
     token_prefix = models.CharField("Token 前缀", max_length=64, default="Bearer ", blank=True)
     token_ttl = models.PositiveIntegerField("Token 默认有效期（秒）", default=1800)
     # 认证缓存仅供服务端执行器使用，序列化器不会返回这三个字段。
-    cached_token = models.TextField("共享 Token 缓存", blank=True, default="")
+    cached_token = EncryptedTextField("共享 Token 缓存", blank=True, default="")
     token_expires_at = models.DateTimeField("Token 过期时间", null=True, blank=True)
     token_refreshed_at = models.DateTimeField("Token 刷新时间", null=True, blank=True)
 
@@ -265,7 +267,14 @@ class DatabaseConnection(models.Model):
     port = models.PositiveIntegerField("Port")
     database = models.CharField("Database", max_length=128)
     username = models.CharField("用户名", max_length=128)
-    password = models.CharField("密码", max_length=512, blank=True)
+    password = EncryptedTextField("密码", blank=True)
+    use_ssh_tunnel = models.BooleanField("使用 SSH 隧道", default=False)
+    ssh_host = models.CharField("SSH Host", max_length=255, blank=True)
+    ssh_port = models.PositiveIntegerField("SSH Port", default=22)
+    ssh_username = models.CharField("SSH 用户名", max_length=128, blank=True)
+    ssh_private_key_path = models.CharField("SSH 私钥路径", max_length=512, blank=True)
+    ssh_private_key_passphrase = EncryptedTextField("SSH 私钥口令", blank=True)
+    ssh_strict_host_key = models.BooleanField("校验 SSH 主机指纹", default=True)
     ssl_mode = models.CharField("TLS 模式", max_length=16, choices=SSLMode.choices, default=SSLMode.PREFERRED)
     connect_timeout = models.PositiveIntegerField("连接超时（秒）", default=10)
     # SELECT 默认可用；写入能力必须由连接配置显式开启，避免测试过程误改数据。

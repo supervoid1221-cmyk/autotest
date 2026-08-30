@@ -319,6 +319,8 @@ class DatabaseConnectionViewSet(viewsets.ModelViewSet):
         password = serializer.validated_data.get("password") or ""
         if not password and record_id:
             password = existing.password if existing else ""
+        if record_id and existing and not serializer.validated_data.get("ssh_private_key_passphrase"):
+            serializer.validated_data["ssh_private_key_passphrase"] = existing.ssh_private_key_passphrase
         try:
             elapsed = test_database_connection(serializer.validated_data, password)
             return Response({"connected": True, "elapsed_ms": elapsed})
@@ -333,6 +335,8 @@ class DatabaseConnectionViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         require_projects_access(self.request.user, serializer.validated_data["projects"])
         password = serializer.validated_data.get("password") or (existing.password if existing else "")
+        if record_id and existing and not serializer.validated_data.get("ssh_private_key_passphrase"):
+            serializer.validated_data["ssh_private_key_passphrase"] = existing.ssh_private_key_passphrase
         sql = str(request.data.get("sql") or "").strip()
         if not sql:
             return Response({"detail": "请输入需要校验的 SQL。"}, status=status.HTTP_400_BAD_REQUEST)

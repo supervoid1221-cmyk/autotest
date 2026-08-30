@@ -1,25 +1,39 @@
 <template>
   <n-card :bordered="false" class="proCard">
     <BasicTable
-      title="表格列表"
-      titleTooltip="这是一个提示"
       :columns="columns"
       :request="loadDataTable"
       :row-key="(row) => row.id"
       ref="actionRef"
       :actionColumn="actionColumn"
-      :scroll-x="1360"
+      :scroll-x="1480"
       @update:checked-row-keys="onCheckedRow"
-    />
+    >
+      <template #tableTitle>
+        <div class="project-filter-wrap">
+          <span>所属项目</span>
+          <n-select
+            v-model:value="selectedProject"
+            :options="projectOptions"
+            placeholder="全部项目"
+            clearable
+            filterable
+            class="project-filter"
+            @update:value="reloadTable"
+          />
+        </div>
+      </template>
+    </BasicTable>
   </n-card>
 </template>
 
 <script lang="ts" setup>
   import { reactive, ref, h, onActivated, onMounted, nextTick } from 'vue';
   import { BasicTable } from '@/components/Table';
-  import { NButton, useDialog, useMessage } from 'naive-ui';
+  import { NButton, NSelect, useDialog, useMessage } from 'naive-ui';
   import { useRouter } from 'vue-router';
   import { RunResultAPI } from '@/api/suite/http';
+  import { ProjectAPI } from '@/api/project/http';
   import { columns } from './resultColumns';
 
   const message = useMessage();
@@ -28,6 +42,14 @@
   const router = useRouter();
 
   const api = new RunResultAPI();
+  const projectApi = new ProjectAPI();
+  const selectedProject = ref<number | null>(null);
+  const projectOptions = ref<Array<{ label: string; value: number }>>([]);
+
+  const asList = (payload: any): any[] => {
+    if (Array.isArray(payload)) return payload;
+    return payload?.results || payload?.list || payload?.data || [];
+  };
 
   const actionColumn = reactive({
     width: 240,
@@ -84,7 +106,11 @@
   }
 
   const loadDataTable = async (res) => {
-    return await api.getDataList({ ...res, _t: Date.now() });
+    return await api.getDataList({
+      ...res,
+      project: selectedProject.value || undefined,
+      _t: Date.now(),
+    });
   };
 
   const refreshWhenVisible = async () => {
@@ -94,7 +120,11 @@
 
   // 本页面由多标签/keep-alive 缓存。每次重新进入执行报告时主动请求第一页，
   // 否则 BasicTable 会继续展示上次离开页面时缓存的列表数据。
-  onMounted(refreshWhenVisible);
+  onMounted(async () => {
+    const projects = asList(await projectApi.getDataList({ pageSize: 1000 }));
+    projectOptions.value = projects.map((project: any) => ({ label: project.name, value: project.id }));
+    await refreshWhenVisible();
+  });
   onActivated(refreshWhenVisible);
 
   function onCheckedRow(rowKeys) {
@@ -125,4 +155,7 @@
   }
 </script>
 
-<style lang="less" scoped></style>
+<style lang="less" scoped>
+  .project-filter-wrap { display: flex; align-items: center; gap: 10px; color: #475569; font-size: 14px; font-weight: 600; }
+  .project-filter { width: 220px; font-weight: 400; }
+</style>

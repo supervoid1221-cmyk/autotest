@@ -21,7 +21,7 @@ const routes: Array<RouteRecordRaw> = [
     redirect: '/case_api/403',
     component: Layout,
     meta: {
-      title: '接口测试',
+      title: 'API测试',
       icon: renderIcon(GlobalOutlined),
       sort: 17,
     },

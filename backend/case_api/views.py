@@ -128,6 +128,7 @@ def _run_step(step, selected_environment, variables, case_data_override=None, ht
             "response_body": execution.response_body[:200000],
             # 仅用于场景编辑页的上下游变量推荐。不会写入数据库或测试报告。
             "response_json": execution.response_json,
+            "response_headers": dict(getattr(execution.response, "headers", {}) or {}),
             "errors": execution.errors,
             "attempts": execution.attempts,
         }

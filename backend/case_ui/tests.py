@@ -7,6 +7,7 @@ from unittest.mock import patch
 from project.models import Project
 
 from .models import Element, ElementModule, PlaywrightCase, PlaywrightStep, UiCase, UiStep
+from .recording import normalize_ui_recording
 from .playwright_executor import (
     _extract_text,
     _extract_text_with_ocr,
@@ -24,6 +25,142 @@ from .smart_locator.engine import (
 from .serializers import PlaywrightStepSerializer, UiCaseSerializer
 from .smart_locator.fingerprints import load_for_step, remember_for_step, similarity
 from .smart_locator.normalizer import semantic_terms
+
+
+class RecordingNormalizationTests(TestCase):
+    def test_duplicate_transport_event_is_imported_only_once(self):
+        event = {
+            "eventId": "login-click-1",
+            "action": "click",
+            "timestamp": 1,
+            "tabKey": "tab-1",
+            "target": "登录",
+            "element": {
+                "tag": "button",
+                "type": "submit",
+                "role": "button",
+                "text": "登录",
+                "css": 'button[type="submit"]',
+            },
+        }
+
+        result = normalize_ui_recording({"events": [event, dict(event)]})
+
+        self.assertEqual(len(result["steps"]), 1)
+        self.assertEqual(result["steps"][0]["target"], "登录")
+
+    def test_submit_button_uses_own_text_instead_of_password_field_label(self):
+        result = normalize_ui_recording({
+            "events": [
+                {
+                    "action": "click",
+                    "timestamp": 1,
+                    "tabKey": "tab-1",
+                    "element": {
+                        "tag": "input",
+                        "type": "password",
+                        "role": "textbox",
+                        "label": "密码",
+                        "css": 'input[type="password"]',
+                    },
+                },
+                {
+                    "action": "input",
+                    "timestamp": 2,
+                    "tabKey": "tab-1",
+                    "value": "secret",
+                    "element": {
+                        "tag": "input",
+                        "type": "password",
+                        "role": "textbox",
+                        "label": "密码",
+                        "css": 'input[type="password"]',
+                    },
+                },
+                {
+                    "action": "click",
+                    "timestamp": 3,
+                    "tabKey": "tab-1",
+                    "element": {
+                        "tag": "button",
+                        "type": "submit",
+                        "role": "button",
+                        "label": "密码",
+                        "text": "登录",
+                        "css": 'button[type="submit"]',
+                    },
+                },
+            ],
+        })
+
+        self.assertEqual(len(result["steps"]), 2)
+        self.assertEqual(result["steps"][0]["action"], "input")
+        self.assertEqual(result["steps"][0]["target"], "密码")
+        self.assertEqual(result["steps"][1]["action"], "click")
+        self.assertEqual(result["steps"][1]["target"], "登录")
+        self.assertEqual(
+            result["steps"][1]["options"]["smart_locator"]["aliases"][0],
+            "登录",
+        )
+
+    def test_submit_button_never_falls_back_to_password_nearby_label(self):
+        result = normalize_ui_recording({
+            "events": [{
+                "action": "click",
+                "timestamp": 1,
+                "tabKey": "tab-1",
+                "target": "登录",
+                "element": {
+                    "tag": "button",
+                    "type": "submit",
+                    "role": "button",
+                    "label": "密码",
+                    "nearbyLabels": [{"text": "密码", "distance": 20}],
+                    "css": 'button[type="submit"]',
+                },
+            }],
+        })
+
+        self.assertEqual(result["steps"][0]["target"], "登录")
+        self.assertNotIn(
+            "密码",
+            result["steps"][0]["options"]["smart_locator"]["aliases"],
+        )
+
+    def test_custom_select_still_uses_field_label_after_own_text_priority(self):
+        result = normalize_ui_recording({
+            "events": [
+                {
+                    "action": "click",
+                    "timestamp": 1,
+                    "tabKey": "tab-1",
+                    "element": {
+                        "tag": "button",
+                        "type": "button",
+                        "role": "button",
+                        "ariaLabel": "Select option",
+                        "label": "平台",
+                        "text": "Anthropic",
+                        "css": 'button[aria-label="Select option"]',
+                    },
+                },
+                {
+                    "action": "click",
+                    "timestamp": 2,
+                    "tabKey": "tab-1",
+                    "element": {
+                        "tag": "div",
+                        "role": "option",
+                        "text": "OpenAI",
+                    },
+                },
+            ],
+        })
+
+        self.assertEqual(len(result["steps"]), 1)
+        self.assertEqual(result["steps"][0]["action"], "select")
+        self.assertEqual(result["steps"][0]["target"], "平台")
+        self.assertEqual(result["steps"][0]["value"], "OpenAI")
 
 
 class UiCaseTabTests(TestCase):
@@ -476,6 +613,30 @@ class SmartLocatorConfigurationTests(TestCase):
         self.assertEqual(ranked[0]["strategy"], "indexed_label_below")
         self.assertGreaterEqual(ranked[0]["score"] - ranked[1]["score"], 15)
 
+    def test_primary_field_label_beats_recorded_nearby_alias(self):
+        class Page:
+            def locator(self, selector):
+                return selector
+
+        index = [
+            {"index": "username", "tag": "input", "type": "text", "role": "", "disabled": False,
+             "editable": False, "placeholder": "请输入用户名（选填）", "nearbyLabels": [
+                 {"text": "用户名", "vertical": 6, "horizontalGap": 0, "distance": 6, "valid": True},
+                 {"text": "密码", "vertical": 46, "horizontalGap": 0, "distance": 46, "valid": True},
+             ]},
+            {"index": "password", "tag": "input", "type": "text", "role": "", "disabled": False,
+             "editable": False, "placeholder": "请输入密码", "nearbyLabels": [
+                 {"text": "密码", "vertical": 6, "horizontalGap": 0, "distance": 6, "valid": True},
+             ]},
+        ]
+
+        ranked = _score_index(
+            Page(), index, "input", "用户名", {"aliases": ["密码"]}, None, [],
+        )
+
+        self.assertEqual(ranked[0]["info"]["index"], "username")
+        self.assertGreaterEqual(ranked[0]["score"] - ranked[1]["score"], 15)
+
     def test_text_assertion_ignores_elements_below_the_message(self):
         class Page:
             def locator(self, selector):
@@ -515,11 +676,12 @@ class SmartLocatorConfigurationTests(TestCase):
         for fallback_type in (
             "id", "name", "class_name", "link_text", "css_selector", "xpath"
         ):
+            fallback_value = "//button[@id='create-user']" if fallback_type == "xpath" else "create-user"
             serializer = PlaywrightStepSerializer(data={
                 "case": self.case.id, "tab_key": "tab-1", "order": 1,
                 "action": PlaywrightStep.Action.CLICK,
                 "target": "创建用户", "value": "", "locator_mode": "manual",
-                "fallback_type": fallback_type, "fallback_value": "create-user",
+                "fallback_type": fallback_type, "fallback_value": fallback_value,
                 "options": {}, "continue_on_failure": False,
             })
             self.assertTrue(serializer.is_valid(), {fallback_type: serializer.errors})

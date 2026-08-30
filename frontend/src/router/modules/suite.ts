@@ -1,6 +1,6 @@
 import { RouteRecordRaw } from 'vue-router';
 import { Layout } from '@/router/constant';
-import { PhFlask } from '@phosphor-icons/vue';
+import { PhListChecks } from '@phosphor-icons/vue';
 import { renderIcon } from '@/utils/index';
 
 /**
@@ -20,8 +20,8 @@ const routes: Array<RouteRecordRaw> = [
     name: 'Suite',
     component: Layout,
     meta: {
-      title: '测试套件',
-      icon: renderIcon(PhFlask),
+      title: '测试计划',
+      icon: renderIcon(PhListChecks),
       sort: 19,
     },
     children: [
@@ -52,7 +52,12 @@ const routes: Array<RouteRecordRaw> = [
         },
         component: () => import('@/views/suite/run_result.vue'),
       },
-      { path: 'notifications', name: 'suite_notifications', meta: { title: '通知管理' }, component: () => import('@/views/suite/notifications.vue') },
+      {
+        path: 'notifications',
+        name: 'legacy_suite_notifications',
+        redirect: '/system/notifications',
+        meta: { title: '通知管理', hidden: true, activeMenu: 'suite_notifications' },
+      },
       {
         path: 'report/:id(.*)',
         name: 'suite_report',

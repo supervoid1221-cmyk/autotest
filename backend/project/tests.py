@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 
 from fullstack_framework.commons.api_executor import run_dynamic_function
 from project.models import DatabaseConnection, DynamicFunction, Environment, Project, response_indicates_expired_token
-from project.serializers import DynamicFunctionSerializer, EnvironmentSerializer
+from project.serializers import DatabaseConnectionSerializer, DynamicFunctionSerializer, EnvironmentSerializer
 
 
 class EnvironmentTokenTtlTests(SimpleTestCase):
@@ -170,3 +170,46 @@ class SharedProjectConfigurationPermissionTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertTrue(DatabaseConnection.objects.filter(pk=connection.id).exists())
+
+
+class DatabaseConnectionSshTunnelTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="ssh-database-owner")
+        self.project = Project.objects.create(name="SSH 数据库项目", pm=self.owner)
+
+    def base_payload(self):
+        return {
+            "projects": [self.project.id], "environment_name": "Test",
+            "database_type": "mysql", "function_name": "execute_sql_mysql",
+            "host": "127.0.0.1", "port": 3306, "database": "test_platform",
+            "username": "test_platform", "password": "secret", "ssl_mode": "disabled",
+            "connect_timeout": 10, "allow_write": False, "enabled": True,
+        }
+
+    def test_direct_connection_does_not_require_ssh_fields(self):
+        serializer = DatabaseConnectionSerializer(data=self.base_payload())
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_tunnel_requires_host_user_and_private_key_path(self):
+        serializer = DatabaseConnectionSerializer(data={
+            **self.base_payload(), "use_ssh_tunnel": True,
+        })
+        self.assertFalse(serializer.is_valid())
+        self.assertEqual(
+            set(serializer.errors),
+            {"ssh_host", "ssh_username", "ssh_private_key_path"},
+        )
+
+    def test_private_key_passphrase_is_not_returned(self):
+        connection = DatabaseConnection.objects.create(
+            environment_name="Test", database_type="mysql",
+            function_name="execute_sql_mysql", host="127.0.0.1", port=3306,
+            database="test_platform", username="test_platform", use_ssh_tunnel=True,
+            ssh_host="47.103.158.1", ssh_username="deployer",
+            ssh_private_key_path="/run/secrets/database_ssh_key",
+            ssh_private_key_passphrase="private-passphrase",
+        )
+        connection.projects.add(self.project)
+        data = DatabaseConnectionSerializer(connection).data
+        self.assertNotIn("ssh_private_key_passphrase", data)
+        self.assertTrue(data["ssh_private_key_passphrase_configured"])

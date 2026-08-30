@@ -16,6 +16,7 @@ from .serializers import (
     UiUploadedFileSerializer,
 )
 from .file_utils import UPLOAD_ROOT
+from .recording import normalize_ui_recording
 from project.access import project_access_q, require_project_access
 
 
@@ -250,6 +251,54 @@ class PlaywrightCaseViewSet(viewsets.ModelViewSet):
         if "project" in serializer.validated_data:
             require_project_access(self.request.user, serializer.validated_data["project"])
         serializer.save()
+
+    @action(methods=["POST"], detail=False, url_path="preview-recording")
+    def preview_recording(self, request):
+        try:
+            return Response(normalize_ui_recording(request.data))
+        except ValueError as exc:
+            return Response({"events": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(methods=["POST"], detail=False, url_path="import-recording")
+    def import_recording(self, request):
+        project_id = request.data.get("project")
+        if not project_id:
+            return Response({"project": "请选择所属项目。"}, status=status.HTTP_400_BAD_REQUEST)
+        from project.models import Project
+        project = Project.objects.filter(pk=project_id).first()
+        if not project:
+            return Response({"project": "所选项目不存在。"}, status=status.HTTP_400_BAD_REQUEST)
+        require_project_access(request.user, project)
+        try:
+            recording = normalize_ui_recording(request.data)
+        except ValueError as exc:
+            return Response({"events": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if not recording["steps"]:
+            return Response({"events": "未识别到可保存的 UI 操作。"}, status=status.HTTP_400_BAD_REQUEST)
+
+        browser = str(request.data.get("browser") or PlaywrightCase.Browser.CHROMIUM)
+        run_mode = str(request.data.get("run_mode") or PlaywrightCase.RunMode.HEADED)
+        if browser not in PlaywrightCase.Browser.values:
+            return Response({"browser": "不支持的浏览器。"}, status=status.HTTP_400_BAD_REQUEST)
+        if run_mode not in PlaywrightCase.RunMode.values:
+            return Response({"run_mode": "不支持的运行模式。"}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            case = PlaywrightCase.objects.create(
+                name=str(request.data.get("name") or "录制的智能 UI 用例")[:64],
+                description=str(request.data.get("description") or "通过 UI 录制器生成")[:250],
+                project=project,
+                created_by=request.user,
+                environment_name=str(request.data.get("environment_name") or "")[:64],
+                browser=browser,
+                run_mode=run_mode,
+                tabs=recording["tabs"],
+            )
+            for item in recording["steps"]:
+                PlaywrightStep.objects.create(case=case, **item)
+        data = PlaywrightCaseSerializer(case, context=self.get_serializer_context()).data
+        data.update({"steps": recording["steps"], "code": recording["code"]})
+        return Response(data, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True, url_path="sync-steps")
     def sync_steps(self, request, pk=None):

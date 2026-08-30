@@ -29,6 +29,11 @@ def semantic_terms(target, configuration=None):
         aliases = [aliases]
     if isinstance(aliases, list):
         terms.extend(str(item).strip() for item in aliases if str(item).strip())
+    configured_types = configuration.get("input_types", [])
+    if isinstance(configured_types, str):
+        configured_types = [configured_types]
+    if isinstance(configured_types, list):
+        types.extend(str(item).strip().lower() for item in configured_types if str(item).strip())
 
     # 保持顺序且按标准化结果去重。
     unique = []

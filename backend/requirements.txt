@@ -44,6 +44,10 @@ referencing==0.30.2
 requests==2.31.0
 PyMySQL==1.1.1
 psycopg2-binary==2.9.9
+paramiko==3.5.1
+cryptography==42.0.8
+bcrypt==4.2.1
+PyNaCl==1.5.0
 rpds-py==0.9.2
 selenium==4.11.2
 playwright==1.48.0

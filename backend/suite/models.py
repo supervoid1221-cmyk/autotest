@@ -20,6 +20,7 @@ from project.models import Environment, Project, ProjectVariable
 from fullstack_framework.commons.ddt_util import ddt
 from suite.tasks import submit_run
 from suite.reporting import load_variable_resolution, recalculate_native_report, record_variable_resolution
+from Tesla.model_fields import EncryptedTextField, EncryptedURLField
 
 
 def generate_execution_no():
@@ -83,7 +84,7 @@ class Suite(models.Model):
     )
     schedule_config = models.JSONField("定时配置", default=dict, blank=True)
     schedule_timezone = models.CharField("定时时区", max_length=64, default="Asia/Shanghai")
-    hook_key = models.CharField("hook密钥", max_length=255, blank=True)
+    hook_key = EncryptedTextField("hook密钥", blank=True)
     execution_timeout = models.PositiveIntegerField("执行超时（秒）", default=1800)
     schedule = models.ForeignKey(
         Schedule, null=True, blank=True, on_delete=models.SET_NULL
@@ -253,6 +254,46 @@ class Suite(models.Model):
             + [{"type": SuiteExecutionItem.ItemType.PLAYWRIGHT_UI, "id": item_id} for item_id in current_playwright_ids]
         )
 
+    def _preflight_execution_environments(self, environment):
+        """在创建执行记录前确认全部执行内容都有同名环境。"""
+        execution_items = self.ordered_execution_items()
+        required_projects = {environment.project_id: environment.project.name}
+
+        for execution_item in execution_items:
+            if execution_item.item_type == SuiteExecutionItem.ItemType.API:
+                scenario = execution_item.scenario
+                for step in scenario.steps.select_related("endpoint__project"):
+                    if step.endpoint_id and step.endpoint.project_id:
+                        required_projects[step.endpoint.project_id] = step.endpoint.project.name
+                continue
+            if execution_item.item_type == SuiteExecutionItem.ItemType.PLAYWRIGHT_UI:
+                case = execution_item.playwright_case
+            else:
+                case = execution_item.ui_case
+            if case and case.project_id:
+                required_projects[case.project_id] = case.project.name
+
+        environments = {
+            item.project_id: item
+            for item in Environment.objects.filter(
+                project_id__in=required_projects,
+                name=str(environment.name),
+            ).select_related("project")
+        }
+        # 本次显式传入或套件选择的环境就是主项目的执行环境。
+        environments[environment.project_id] = environment
+
+        missing_projects = [
+            name for project_id, name in required_projects.items()
+            if project_id not in environments
+        ]
+        if missing_projects:
+            project_names = "、".join(sorted(missing_projects))
+            raise ValueError(
+                f"项目「{project_names}」未配置名为「{environment.name}」的执行环境。"
+            )
+        return execution_items, environments
+
     def run(self, initial_variables=None, environment=None, executor_name=None, reuse_result=None):
         """执行套件中用例。
 
@@ -261,8 +302,13 @@ class Suite(models.Model):
         executor_name: 本次执行人的显示名称；未传入时视为系统任务。
         """
         environment = environment or self.active_environment
+        # 环境校验必须先于执行记录创建。套件环境被删除或旧数据未配置环境时，
+        # 直接终止执行，避免执行结果列表产生无法运行的空记录。
+        if environment is None:
+            raise ValueError("套件未配置执行环境。")
         execution_environment_name = str(environment.name)
         execution_executor_name = str(executor_name or "系统").strip() or "系统"
+        execution_items, execution_environments = self._preflight_execution_environments(environment)
 
         # 1. 生成执行结果
         # 2. 生成 yaml 和 excel 测试用例
@@ -355,7 +401,7 @@ class Suite(models.Model):
         # 项目变量作为本次套件执行的基础变量。套件执行环境所属项目优先，
         # 跨项目场景的同名变量不会覆盖套件主项目变量。
         project_ids = []
-        for execution_item in self.ordered_execution_items():
+        for execution_item in execution_items:
             if execution_item.item_type == SuiteExecutionItem.ItemType.API:
                 scenario = execution_item.scenario
                 project_ids.extend([scenario.project_id, *scenario.projects.values_list("id", flat=True)])
@@ -371,19 +417,13 @@ class Suite(models.Model):
         try:
             planned_scenarios = []
             execution_plan = []
-            for execution_item in self.ordered_execution_items():
+            for execution_item in execution_items:
                 if execution_item.item_type == SuiteExecutionItem.ItemType.API:
                     scenario = execution_item.scenario
                     def serialize_step(step):
                         if not step or not step.endpoint_id:
                             raise ValueError(f"场景「{scenario.name}」存在未选择接口的步骤。")
-                        step_environment = Environment.objects.filter(
-                            project_id=step.endpoint.project_id, name=execution_environment_name
-                        ).first()
-                        if not step_environment:
-                            raise ValueError(
-                                f"项目「{step.endpoint.project.name}」未配置名为「{execution_environment_name}」的执行环境。"
-                            )
+                        step_environment = execution_environments[step.endpoint.project_id]
                         context = get_context(step_environment)
                         data = step.endpoint.to_yaml_data(
                             base_url=context["base_url"], auth_headers=context["headers"], override=step.request_override,
@@ -495,13 +535,7 @@ class Suite(models.Model):
                     playwright_case = execution_item.playwright_case
                     if not playwright_case.enabled:
                         raise ValueError(f"Playwright 用例「{playwright_case.name}」已停用。")
-                    pw_environment = Environment.objects.filter(
-                        project_id=playwright_case.project_id, name=execution_environment_name
-                    ).first()
-                    if not pw_environment:
-                        raise ValueError(
-                            f"Playwright 用例项目「{playwright_case.project.name}」未配置名为「{execution_environment_name}」的执行环境。"
-                        )
+                    pw_environment = execution_environments[playwright_case.project_id]
                     steps = list(playwright_case.steps.order_by("order", "id"))
                     if not steps:
                         raise ValueError(f"Playwright 用例「{playwright_case.name}」没有可执行步骤。")
@@ -564,13 +598,7 @@ class Suite(models.Model):
                 ui_case = execution_item.ui_case
                 if not ui_case.enabled:
                     raise ValueError(f"UI 用例「{ui_case.name}」已停用。")
-                ui_environment = Environment.objects.filter(
-                    project_id=ui_case.project_id, name=execution_environment_name
-                ).first()
-                if not ui_environment:
-                    raise ValueError(
-                        f"UI 用例项目「{ui_case.project.name}」未配置名为「{execution_environment_name}」的执行环境。"
-                    )
+                ui_environment = execution_environments[ui_case.project_id]
                 steps = list(ui_case.steps.select_related("element").order_by("order", "id"))
                 if not steps:
                     raise ValueError(f"UI 用例「{ui_case.name}」没有可执行步骤。")
@@ -809,7 +837,7 @@ class NotificationChannel(models.Model):
     projects = models.ManyToManyField(Project, related_name="notification_channels", verbose_name="关联项目")
     name = models.CharField("渠道名称", max_length=64)
     platform = models.CharField("平台", max_length=16, choices=Platform.choices)
-    webhook_url = models.URLField("Webhook 地址", max_length=1024)
+    webhook_url = EncryptedURLField("Webhook 地址", max_length=1024)
     enabled = models.BooleanField("启用", default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

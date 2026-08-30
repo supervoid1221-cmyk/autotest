@@ -195,6 +195,16 @@ class PlaywrightStepSerializer(serializers.ModelSerializer):
         }
         if fallback_type and fallback_type not in supported_fallback_types:
             raise serializers.ValidationError({"fallback_type": "不支持的手动兜底定位方式。"})
+        locator_mode = attrs.get("locator_mode", getattr(instance, "locator_mode", "auto"))
+        fallback_value = str(
+            attrs.get("fallback_value", getattr(instance, "fallback_value", "")) or ""
+        ).strip()
+        if locator_mode == "manual" and fallback_type == "xpath" and not fallback_value.startswith(
+            ("/", "./", "(", "id(", "ancestor::", "descendant::")
+        ):
+            raise serializers.ValidationError({
+                "fallback_value": "XPath 必须填写有效表达式，例如 //input[@name='email']。"
+            })
         options = attrs.get("options", getattr(instance, "options", {})) or {}
         if not isinstance(options, dict):
             raise serializers.ValidationError({"options": "扩展配置必须是对象。"})

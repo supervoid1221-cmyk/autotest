@@ -29,9 +29,9 @@ class Candidate:
 
 INPUT_ACTIONS = {"input", "clear", "save_text", "assert_value"}
 TEXT_ACTIONS = {"assert_visible", "assert_text"}
-CLICKABLE_SELECTOR = "button, a, input[type='button'], input[type='submit'], [role='button'], [role='link'], [role='tab'], [role='menuitem'], [onclick]"
+CLICKABLE_SELECTOR = "button, a, input[type='button'], input[type='submit'], [role='button'], [role='link'], [role='tab'], [role='menuitem'], [role='option'], [role='switch'], [role='checkbox'], [aria-checked], [onclick]"
 EDITABLE_SELECTOR = "input, textarea, select, [contenteditable='true'], [role='textbox'], [role='combobox']"
-FORM_CONTROL_SELECTOR = "input:not([type='hidden']), textarea, select, button, [contenteditable='true'], [role='textbox'], [role='combobox']"
+FORM_CONTROL_SELECTOR = "input:not([type='hidden']), textarea, select, button, [contenteditable='true'], [role='textbox'], [role='combobox'], [role='switch'], [role='checkbox'], [aria-checked]"
 FALLBACK_STRATEGIES = {
     "nearby_form_field", "form_label_following_control", "fuzzy_accessible_name",
     "semantic_input_type", "native_select", "role_combobox", "role_checkbox", "role_radio",
@@ -41,6 +41,11 @@ DIALOG_SCOPE_SELECTOR = (
     'dialog[open], [role="dialog"], [aria-modal="true"], '
     '.driver-popover, .ant-modal, .el-dialog, .v-dialog, '
     '[class*="modal" i], [class*="dialog" i], [class*="drawer" i]'
+)
+POPOVER_SCOPE_SELECTOR = (
+    '[role="listbox"], [role="menu"], .n-base-select-menu, '
+    '.ant-select-dropdown, .el-select-dropdown, .el-dropdown-menu, '
+    '[data-radix-select-content], [data-radix-menu-content]'
 )
 def _config(step):
     options = getattr(step, "options", None) or {}
@@ -66,6 +71,67 @@ def _config(step):
 
 def _add(candidates, locator, strategy, score, phrase, semantic=False):
     candidates.append(Candidate(locator, strategy, score, phrase, semantic))
+
+
+def _switch_near_text(page, phrase):
+    """将设置项标题关联到同一设置行中的自定义开关。
+
+    现代组件库通常把标题和开关渲染成两个兄弟节点，开关自身没有可见文字，
+    因此 ``get_by_label`` 无法命中。这里从精确标题向上寻找最近的、包含开关
+    控件的容器，再只取该容器内的第一个 switch/checkbox。
+    """
+    token = f"pw-switch-{uuid.uuid4().hex}"
+    labels = page.get_by_text(phrase, exact=True)
+    try:
+        total = min(labels.count(), 20)
+    except Exception:
+        total = 0
+    for index in range(total):
+        try:
+            labels.nth(index).evaluate("""(label, token) => {
+                const visible = element => {
+                    const style = getComputedStyle(element), box = element.getBoundingClientRect();
+                    return style.display !== 'none' && style.visibility !== 'hidden'
+                      && Number(style.opacity || 1) !== 0 && box.width > 0 && box.height > 0;
+                };
+                const selector = '[role="switch"], [role="checkbox"], [aria-checked], input[type="checkbox"], button';
+                const labelBox = label.getBoundingClientRect();
+                let container = label;
+                for (let depth = 0; container && depth < 5; depth += 1, container = container.parentElement) {
+                    const controls = [...container.querySelectorAll(selector)].filter(visible).filter(control => {
+                        const box = control.getBoundingClientRect();
+                        const role = control.getAttribute('role') || '';
+                        const type = String(control.getAttribute('type') || '').toLowerCase();
+                        const explicitSwitch = role === 'switch' || role === 'checkbox'
+                          || control.hasAttribute('aria-checked')
+                          || (control.tagName.toLowerCase() === 'input' && type === 'checkbox');
+                        const visualSwitch = control.tagName.toLowerCase() === 'button'
+                          && !(control.innerText || control.textContent || '').trim()
+                          && box.width >= 28 && box.width <= 72
+                          && box.height >= 16 && box.height <= 40
+                          && box.width >= box.height * 1.4
+                          && !!control.querySelector('span');
+                        if (!explicitSwitch && !visualSwitch) return false;
+                        const verticalOverlap = Math.min(labelBox.bottom, box.bottom)
+                          - Math.max(labelBox.top, box.top);
+                        const horizontalGap = Math.max(
+                            0, Math.max(labelBox.left, box.left) - Math.min(labelBox.right, box.right)
+                        );
+                        const below = box.top - labelBox.bottom;
+                        // 只接受同一设置行或紧邻标题下方的开关，禁止跨整个表单寻找。
+                        return (verticalOverlap >= -8 && horizontalGap <= 360)
+                          || (below >= -8 && below <= 72 && horizontalGap <= 96);
+                    });
+                    if (controls.length === 1) {
+                        controls[0].setAttribute('data-pw-smart-switch', token);
+                        return true;
+                    }
+                }
+                return false;
+            }""", token)
+        except Exception:
+            continue
+    return page.locator(f'[data-pw-smart-switch="{token}"]')
 
 
 def _nearby_field_candidates(page, phrase):
@@ -161,12 +227,20 @@ def _candidates(page, action, target, configuration):
                 "form_label_following_control", 68 + bonus, phrase, is_semantic,
             )
             candidates.extend(_nearby_field_candidates(page, phrase))
+            if action == "click":
+                _add(candidates, page.get_by_role("switch", name=phrase, exact=True),
+                     "role_switch", 98 + bonus, phrase, is_semantic)
+                _add(candidates, page.get_by_role("checkbox", name=phrase, exact=True),
+                     "role_checkbox", 97 + bonus, phrase, is_semantic)
+                _add(candidates, _switch_near_text(page, phrase),
+                     "switch_near_text", 96 + bonus, phrase, is_semantic)
             # 用户填写的是页面可见文字时，优先点击承载该文字的菜单/按钮；这比仅靠
             # aria-label 命中的图标按钮更符合意图（例如“公告”菜单与顶部通知铃铛）。
             _add(
                 candidates,
                 page.get_by_text(phrase, exact=True).locator(
-                    "xpath=ancestor-or-self::*[self::button or self::a or @role='button' or @role='link'][1]"
+                    "xpath=ancestor-or-self::*[self::button or self::a or @role='button' or @role='link' "
+                    "or @role='option' or @role='menuitem'][1]"
                 ),
                 "text_clickable_ancestor", 98 + bonus, phrase, is_semantic,
             )
@@ -189,6 +263,7 @@ def _candidates(page, action, target, configuration):
         _add(candidates, page.locator("select"), "native_select", 35, "select")
         _add(candidates, page.get_by_role("combobox"), "role_combobox", 40, "combobox")
     if action in {"check", "uncheck"}:
+        _add(candidates, page.get_by_role("switch"), "role_switch", 42, "switch")
         _add(candidates, page.get_by_role("checkbox"), "role_checkbox", 40, "checkbox")
         _add(candidates, page.get_by_role("radio"), "role_radio", 40, "radio")
     return candidates
@@ -204,12 +279,14 @@ def _element_info(locator):
             id: element.id || '', name: element.getAttribute('name') || '',
             testId: element.getAttribute('data-testid') || '',
             ariaLabel: element.getAttribute('aria-label') || '',
+            ariaChecked: element.getAttribute('aria-checked') || '',
             text: (element.innerText || '').trim().slice(0, 120),
             value: (element.getAttribute('value') || '').trim().slice(0, 120),
             placeholder: element.getAttribute('placeholder') || '',
             clickable: !!element.getAttribute('onclick') || element.tabIndex >= 0
                 || ['button', 'a'].includes(element.tagName.toLowerCase())
-                || ['button', 'link', 'tab', 'menuitem'].includes(element.getAttribute('role') || ''),
+                || ['button', 'link', 'tab', 'menuitem', 'option', 'switch', 'checkbox'].includes(element.getAttribute('role') || '')
+                || element.hasAttribute('aria-checked'),
             disabled: !!element.disabled,
             editable: !!element.isContentEditable,
             visible: style.display !== 'none' && style.visibility !== 'hidden'
@@ -230,10 +307,12 @@ def _compatible(action, info):
         # 部分 UI 组件库把下拉触发器渲染为普通 button，展开后再生成 option/listbox。
         return tag in {"select", "button"} or role == "combobox"
     if action in {"check", "uncheck"}:
-        return element_type in {"checkbox", "radio"} or role in {"checkbox", "radio"}
+        return (element_type in {"checkbox", "radio"} or role in {"checkbox", "radio", "switch"}
+                or info.get("ariaChecked") in {"true", "false", "mixed"})
     if action == "click":
         return (tag in {"button", "a", "input", "select", "textarea"}
-                or role in {"button", "link", "menuitem", "tab", "combobox", "textbox"}
+                or role in {"button", "link", "menuitem", "option", "tab", "combobox", "textbox", "switch", "checkbox"}
+                or info.get("ariaChecked") in {"true", "false", "mixed"}
                 or bool(info.get("clickable")))
     return True
 
@@ -301,7 +380,7 @@ def _fuzzy_candidates(page, action, target):
     return discovered
 
 
-def _active_scope(page):
+def _active_scope(page, include_popovers=False):
     """返回当前活动弹窗；没有可见弹窗时使用整个页面。
 
     多个弹窗同时存在时优先 z-index 更高的弹窗，层级相同则选择 DOM 中最后
@@ -341,7 +420,13 @@ def _active_scope(page):
             const active = ranked[ranked.length - 1].element;
             active.setAttribute('data-pw-smart-scope', token);
             return token;
-        }""", {"token": token, "selector": DIALOG_SCOPE_SELECTOR})
+        }""", {
+            "token": token,
+            "selector": (
+                f"{DIALOG_SCOPE_SELECTOR}, {POPOVER_SCOPE_SELECTOR}"
+                if include_popovers else DIALOG_SCOPE_SELECTOR
+            ),
+        })
     except Exception:
         selected = ""
     if selected:
@@ -349,15 +434,15 @@ def _active_scope(page):
     return page, ""
 
 
-def _wait_for_active_scope(page, timeout, context_tokens):
+def _wait_for_active_scope(page, timeout, context_tokens, include_popovers=False):
     """关闭类操作等待异步弹窗挂载，避免提前误点登录通知等页面元素。"""
-    scope, token = _active_scope(page)
+    scope, token = _active_scope(page, include_popovers=include_popovers)
     if token or not context_tokens:
         return scope, token
     deadline = time.monotonic() + min(max(timeout, 0) / 1000, 3)
     while time.monotonic() < deadline:
         page.wait_for_timeout(100)
-        scope, token = _active_scope(page)
+        scope, token = _active_scope(page, include_popovers=include_popovers)
         if token:
             return scope, token
     return page, ""
@@ -666,6 +751,13 @@ def _exact_candidates(page, action, target, configuration):
         _add(candidates, page.locator(f'[aria-label="{phrase}"]'), "aria_label", 90, phrase)
         _add(candidates, page.locator(f'[name="{phrase}"]'), "name", 82, phrase)
         _add(candidates, page.locator(f'[id="{phrase}"]'), "id", 82, phrase)
+        if action in {"check", "uncheck"}:
+            _add(candidates, page.get_by_role("switch", name=phrase, exact=True),
+                 "role_switch", 98, phrase)
+            _add(candidates, page.get_by_role("checkbox", name=phrase, exact=True),
+                 "role_checkbox", 97, phrase)
+            _add(candidates, _switch_near_text(page, phrase),
+                 "switch_near_text", 96, phrase)
         if action == "select":
             _add(candidates, page.get_by_role("button", name=phrase, exact=True), "role_button", 95, phrase)
             _add(candidates, page.get_by_role("combobox", name=phrase, exact=True), "role_combobox", 95, phrase)
@@ -688,10 +780,18 @@ def _exact_candidates(page, action, target, configuration):
                 f"xpath=//*[@onclick and normalize-space(string(.))={value_literal}]"
             ), "onclick_text", 96, phrase)
         _add(candidates, page.get_by_text(phrase, exact=True).locator(
-            "xpath=ancestor-or-self::*[self::button or self::a or @role='button' or @role='link'][1]"
+            "xpath=ancestor-or-self::*[self::button or self::a or @role='button' or @role='link' "
+            "or @role='option' or @role='menuitem'][1]"
         ), "text_clickable_ancestor", 98, phrase)
         _add(candidates, page.get_by_role("link", name=phrase, exact=True), "role_link", 94, phrase)
         _add(candidates, page.get_by_role("button", name=phrase, exact=True), "role_button", 92, phrase)
+        if action == "click":
+            _add(candidates, page.get_by_role("switch", name=phrase, exact=True),
+                 "role_switch", 98, phrase)
+            _add(candidates, page.get_by_role("checkbox", name=phrase, exact=True),
+                 "role_checkbox", 97, phrase)
+            _add(candidates, _switch_near_text(page, phrase),
+                 "switch_near_text", 96, phrase)
     if role:
         _add(candidates, page.get_by_role(role, name=phrase, exact=True), "configured_role", 96, phrase)
     return candidates
@@ -885,12 +985,14 @@ def _build_dom_index(page, action, scope_token=""):
             type:(element.getAttribute('type') || '').toLowerCase(), role:element.getAttribute('role') || '',
             id:element.id || '', name:element.getAttribute('name') || '',
             testId:element.getAttribute('data-testid') || '', ariaLabel:element.getAttribute('aria-label') || '',
+            ariaChecked:element.getAttribute('aria-checked') || '',
             text:(element.innerText || '').trim().slice(0,120),
             value:(element.getAttribute('value') || '').trim().slice(0,120),
             placeholder:element.getAttribute('placeholder') || '',
             clickable:!!element.getAttribute('onclick') || element.tabIndex >= 0
               || ['button', 'a'].includes(element.tagName.toLowerCase())
-              || ['button', 'link', 'tab', 'menuitem'].includes(element.getAttribute('role') || ''),
+              || ['button', 'link', 'tab', 'menuitem', 'option', 'switch', 'checkbox'].includes(element.getAttribute('role') || '')
+              || element.hasAttribute('aria-checked'),
             disabled:!!element.disabled, editable:!!element.isContentEditable,
             x:box.x, y:box.y,
             inDialog:!!element.closest('[role="dialog"], dialog, [aria-modal="true"]'),
@@ -924,6 +1026,9 @@ def _score_index(page, index, action, target, configuration, fingerprint, contex
             wanted = normalize(phrase)
             if not wanted:
                 continue
+            # 步骤名称是用户当前明确指定的意图；录制时附带的别名仅用于兜底。
+            # 尤其表单中的“密码”等邻近标签很容易被误写进别名，不能与主目标
+            # “用户名”在空间标签评分中平权竞争。
             semantic_penalty = 12 if wanted != exact_target else 0
             for strategy, value in values.items():
                 actual = normalize(value)
@@ -940,7 +1045,12 @@ def _score_index(page, index, action, target, configuration, fingerprint, contex
                     best_score, best_strategy, best_phrase = score, f"indexed_{strategy}", phrase
             # 空间标签只用于表单控件操作；点击和文本断言必须匹配元素自身，不能把
             # Toast 文本下方的大块 div 误判为“标签对应输入框”。
-            if action in INPUT_ACTIONS | {"select", "check", "uncheck"}:
+            is_switch_control = (
+                info.get("role") in {"switch", "checkbox"}
+                or info.get("type") == "checkbox"
+                or info.get("ariaChecked") in {"true", "false", "mixed"}
+            )
+            if action in INPUT_ACTIONS | {"select", "check", "uncheck"} or (action == "click" and is_switch_control):
                 nearby_labels = info.get("nearbyLabels") or []
                 for label_index, label in enumerate(nearby_labels):
                     if normalize(label.get("text")) == wanted:
@@ -949,15 +1059,16 @@ def _score_index(page, index, action, target, configuration, fingerprint, contex
                         horizontal_gap = float(label.get("horizontalGap") or 0)
                         # 最近标签且紧邻控件是明确的字段归属；更远的同名文字只能作为弱提示。
                         # 例如 textarea 上方能看到“标题”，但它最近的标签其实是“内容”。
+                        label_semantic_penalty = 28 if wanted != exact_target else 0
                         if (label_index == 0 and vertical is not None
                                 and 0 <= float(vertical) <= 32 and horizontal_gap <= 24):
-                            score = 105 - semantic_penalty
+                            score = 105 - label_semantic_penalty
                             strategy = "indexed_label_below"
                         elif label_index == 0 and distance <= 24:
-                            score = 90 - semantic_penalty
+                            score = 90 - label_semantic_penalty
                             strategy = "indexed_nearby_field"
                         else:
-                            score = max(45, round(55 - min(distance, 180) / 9)) - semantic_penalty
+                            score = max(45, round(55 - min(distance, 180) / 9)) - label_semantic_penalty
                             strategy = "indexed_nearby_field"
                         if score > best_score:
                             best_score, best_strategy, best_phrase = score, strategy, phrase
@@ -1031,7 +1142,13 @@ def resolve(page, step, timeout, fingerprint=None):
     target = str(getattr(step, "target", "") or "").strip()
     configuration = _config(step)
     context_tokens = semantic_context_tokens(target, configuration)
-    scope, scope_token = _wait_for_active_scope(page, timeout, context_tokens)
+    configured_role = str(configuration.get("role") or "").strip().lower()
+    scope, scope_token = _wait_for_active_scope(
+        page,
+        timeout,
+        context_tokens,
+        include_popovers=action == "click" and configured_role in {"option", "menuitem"},
+    )
     row_detail = None
     row_configuration = _row_configuration(configuration)
     if row_configuration:

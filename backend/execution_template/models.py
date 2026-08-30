@@ -1,5 +1,7 @@
 from django.db import models
 
+from Tesla.model_fields import EncryptedJSONField
+
 from project.models import Project
 from suite.models import Suite
 
@@ -17,7 +19,7 @@ class ExecutionTemplate(models.Model):
     )
     # 参数定义：[{"key","label","type","required","default_value","options"}]
     # type: text / number / boolean / select
-    parameters = models.JSONField("参数定义", default=list, blank=True)
+    parameters = EncryptedJSONField("参数定义", default=list, blank=True)
     # 输出字段：[{"key","label","source_step_id","json_path","display_type","sort"}]
     output_fields = models.JSONField("输出字段配置", default=list, blank=True)
     enabled = models.BooleanField("启用", default=True)

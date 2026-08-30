@@ -1,4 +1,5 @@
 """测试套件及其跨项目执行内容的权限工具。"""
+from django.db.models import Q
 from rest_framework.exceptions import PermissionDenied
 
 from project.access import accessible_projects, is_admin, require_project_access, require_projects_access
@@ -43,6 +44,30 @@ def filter_suite_access(queryset, user, prefix=""):
 
 def accessible_suites(user):
     return filter_suite_access(Suite.objects.all(), user)
+
+
+def filter_suite_project(queryset, project_id, prefix=""):
+    """按套件实际关联的任一项目过滤，并与列表中的“所属项目”口径保持一致。"""
+    try:
+        project_id = int(project_id)
+    except (TypeError, ValueError):
+        return queryset.none()
+    if project_id <= 0:
+        return queryset.none()
+
+    return queryset.filter(
+        Q(**{f"{prefix}environment__project_id": project_id})
+        | Q(**{f"{prefix}scenarios__project_id": project_id})
+        | Q(**{f"{prefix}scenarios__projects__id": project_id})
+        | Q(**{f"{prefix}scenarios__steps__endpoint__project_id": project_id})
+        | Q(**{f"{prefix}ui_cases__project_id": project_id})
+        | Q(**{f"{prefix}playwright_cases__project_id": project_id})
+        | Q(**{f"{prefix}execution_items__scenario__project_id": project_id})
+        | Q(**{f"{prefix}execution_items__scenario__projects__id": project_id})
+        | Q(**{f"{prefix}execution_items__scenario__steps__endpoint__project_id": project_id})
+        | Q(**{f"{prefix}execution_items__ui_case__project_id": project_id})
+        | Q(**{f"{prefix}execution_items__playwright_case__project_id": project_id})
+    ).distinct()
 
 
 def require_suite_access(user, suite):

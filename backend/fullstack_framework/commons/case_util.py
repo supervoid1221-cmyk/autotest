@@ -6,6 +6,7 @@
 """
 import logging
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -26,6 +27,41 @@ from suite.reporting import load_variable_resolution, recalculate_native_report,
 
 logger = logging.getLogger(__name__)
 NATIVE_RESPONSE_BODY_PREVIEW_BYTES = 100 * 1024
+DEFAULT_API_STEP_INTERVAL_SECONDS = 1.0
+_last_api_step_finished_at = None
+
+
+def _api_step_interval_seconds():
+    """返回套件内相邻接口的最小间隔。
+
+    默认为 1 秒，可通过 PLATFORM_API_STEP_INTERVAL_SECONDS 调整；
+    配置为 0 可关闭。非套件调试没有前置步骤，不会产生额外等待。
+    """
+    raw_value = os.environ.get(
+        "PLATFORM_API_STEP_INTERVAL_SECONDS", str(DEFAULT_API_STEP_INTERVAL_SECONDS)
+    )
+    try:
+        return max(0.0, float(raw_value))
+    except (TypeError, ValueError):
+        logger.warning(
+            "PLATFORM_API_STEP_INTERVAL_SECONDS=%r 无效，使用默认值 %.1f 秒。",
+            raw_value,
+            DEFAULT_API_STEP_INTERVAL_SECONDS,
+        )
+        return DEFAULT_API_STEP_INTERVAL_SECONDS
+
+
+def _wait_for_api_step_interval(case_name=""):
+    """在上一个接口结束后留出最小稳定时间。"""
+    if not os.environ.get("PLATFORM_RUN_RESULT_ID"):
+        return
+    interval = _api_step_interval_seconds()
+    if interval <= 0 or _last_api_step_finished_at is None:
+        return
+    remaining = interval - (time.monotonic() - _last_api_step_finished_at)
+    if remaining > 0:
+        logger.info("下一接口「%s」执行前等待 %.2f 秒。", case_name or "未命名", remaining)
+        time.sleep(remaining)
 
 def _run_dynamic_function(name, variables, arguments=""):
     """兼容旧调用入口，实际执行统一委托给共享步骤执行器。"""
@@ -253,6 +289,8 @@ def _mark_native_step_running(case_info, started_at):
 
 def _execute_case_info(case_info):
     """执行一条接口并写入原生报告，返回结果供条件分支复用。"""
+    global _last_api_step_finished_at
+    _wait_for_api_step_interval(case_info.test_name)
     started_at_display = datetime.now().astimezone().isoformat()
     _mark_native_step_running(case_info, started_at_display)
 
@@ -280,23 +318,27 @@ def _execute_case_info(case_info):
                 response = session.request(**request_payload)
         return response
 
-    execution = execute_api_step_with_failure_retry(
-        lambda: execute_api_step(
-            request_template=case_info.request, extract=case_info.extract, validate=case_info.validate,
-            polling=case_info.polling, post_sql=case_info.post_sql, variables=extrac_data,
-            project_id=case_info.project_id, environment_name=case_info.environment_name,
-            request_func=request_func,
-            on_success=lambda values: _persist_extracted(values, case_info),
-        ),
-        enabled=case_info.retry_on_failure,
-        retry_count=case_info.failure_retry_count,
-    )
-    _append_native_step(
-        case_info, execution.request, response=execution.response, errors=execution.errors,
-        assertions=execution.assertions, extracted=execution.extracted, attempts=len(execution.attempts),
-        duration=execution.duration_seconds, exception=execution.exception, started_at=started_at_display,
-    )
-    return execution
+    try:
+        execution = execute_api_step_with_failure_retry(
+            lambda: execute_api_step(
+                request_template=case_info.request, extract=case_info.extract, validate=case_info.validate,
+                polling=case_info.polling, post_sql=case_info.post_sql, variables=extrac_data,
+                project_id=case_info.project_id, environment_name=case_info.environment_name,
+                request_func=request_func,
+                on_success=lambda values: _persist_extracted(values, case_info),
+            ),
+            enabled=case_info.retry_on_failure,
+            retry_count=case_info.failure_retry_count,
+        )
+        _append_native_step(
+            case_info, execution.request, response=execution.response, errors=execution.errors,
+            assertions=execution.assertions, extracted=execution.extracted, attempts=len(execution.attempts),
+            duration=execution.duration_seconds, exception=execution.exception, started_at=started_at_display,
+        )
+        return execution
+    finally:
+        # 无论请求、断言还是报告写入是否异常，后续接口都从此时开始计算间隔。
+        _last_api_step_finished_at = time.monotonic()
 
 
 def _run_case(all_case_info):

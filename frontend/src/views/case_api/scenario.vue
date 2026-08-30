@@ -1,6 +1,6 @@
 <template>
   <n-card :bordered="true" class="proCard">
-    <BasicTable title="业务场景" :columns="columns" :request="load" :row-key="(row) => row.id">
+    <BasicTable ref="tableRef" title="业务场景" :columns="columns" :request="load" :row-key="(row) => row.id">
       <template #toolbar>
         <n-button type="primary" @click="router.push({ name: 'case_api_scenario_edit', params: { id: 0 } })">新建场景</n-button>
       </template>
@@ -9,7 +9,7 @@
 </template>
 
 <script lang="ts" setup>
-import { h } from 'vue';
+import { h, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { NButton, useDialog, useMessage } from 'naive-ui';
 import { BasicTable } from '@/components/Table';
@@ -19,6 +19,7 @@ const router = useRouter();
 const dialog = useDialog();
 const message = useMessage();
 const api = new ScenarioAPI();
+const tableRef = ref<any>();
 
 const columns = [
   {
@@ -74,7 +75,7 @@ function remove(row: any) {
     onPositiveClick: async () => {
       await api.DeleteDataByID(row.id);
       message.success('删除成功');
-      location.reload();
+      await tableRef.value?.removeRowByKey(row.id);
     },
   });
 }

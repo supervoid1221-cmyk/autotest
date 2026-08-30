@@ -1,6 +1,17 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><link rel="stylesheet" href="panel.css"><title>接口录制</title></head>
-<body><header><strong>接口录制</strong><span id="count">0 条</span><button id="start">开始录制</button><button id="stop" disabled>停止</button><button id="clear">清空</button></header>
-<main><section class="records"><table><thead><tr><th>保留</th><th>方法</th><th>请求</th><th>状态</th><th>耗时</th></tr></thead><tbody id="rows"><tr><td colspan="5" class="empty">点击“开始录制”后操作业务页面。</td></tr></tbody></table></section>
-<section class="actions"><button id="copy">复制 JSON</button><button id="download">下载 HAR</button></section>
-<details><summary>直接推送到平台（可选）</summary><div class="push-grid"><label>平台地址<input id="platform" placeholder="http://127.0.0.1:8001"></label><label>登录 Token<input id="token" type="password" placeholder="平台登录 Token"></label><label>项目 ID<input id="project" type="number"></label><label>模块 ID<input id="module" type="number"></label><label>重复处理<select id="conflict"><option value="skip">忽略已存在</option><option value="overwrite">覆盖</option><option value="copy">创建副本</option></select></label><button id="push">推送已选接口</button></div></details></main><script src="panel.js"></script></body></html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><link rel="stylesheet" href="panel.css"><title>自动化录制器</title></head>
+<body>
+<header><strong>自动化录制器</strong><select id="mode" aria-label="录制模式"><option value="ui">UI 操作录制</option><option value="api">接口录制</option></select><span id="count">0 条</span><button id="start" class="primary">开始录制</button><button id="pause" disabled>暂停</button><button id="stop" disabled>停止</button><button id="clear">清空</button></header>
+<main>
+  <div id="recording-tip" class="tip">UI 模式会记录当前 DevTools 所属页面的点击、输入、下拉和勾选操作。</div>
+  <section class="records"><table><thead id="table-head"></thead><tbody id="rows"></tbody></table></section>
+  <section class="actions"><button id="copy">复制 JSON</button><button id="download">下载录制文件</button></section>
+  <details open><summary>直接生成平台用例</summary><div class="push-grid">
+    <label>平台地址<input id="platform" placeholder="http://127.0.0.1:8001"></label><label>登录 Token（自动获取，手工兜底）<input id="token" type="password" placeholder="保持平台登录即可自动获取"></label><label>项目 ID<input id="project" type="number"></label>
+    <label id="case-name-field">智能用例名称<input id="caseName" value="录制的智能 UI 用例"></label><label id="environment-field">执行环境<input id="environment" placeholder="Dev"></label>
+    <label id="module-field" class="hidden">模块 ID<input id="module" type="number"></label><label id="conflict-field" class="hidden">重复处理<select id="conflict"><option value="skip">忽略已存在</option><option value="overwrite">覆盖</option><option value="copy">创建副本</option></select></label>
+    <button id="push" class="primary">生成智能 UI 用例</button>
+  </div></details>
+  <details id="code-section"><summary>Playwright Python 代码预览</summary><pre id="code-preview">停止录制后可生成代码预览。</pre></details>
+</main><script src="panel.js"></script></body></html>

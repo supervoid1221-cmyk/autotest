@@ -7,19 +7,22 @@
     >
       <template #header>
         <div class="step-header">
-          <span class="step-index">{{ index + 1 }}</span>
-          <span class="method" :style="methodStyle(step.method)">{{ step.method || 'API' }}</span>
-          <strong>{{ step.name }}</strong>
-          <span class="url">{{ step.url }}</span>
+          <span class="step-identity">
+            <span class="step-index">{{ index + 1 }}</span>
+            <span class="method" :style="methodStyle(step.method)">{{ step.method || 'API' }}</span>
+            <strong>{{ step.name }}</strong>
+            <span class="url">{{ step.url }}</span>
+          </span>
           <span class="step-status">
             <n-tag :type="stepStatus(step).type" size="small">{{ stepStatus(step).label }}</n-tag>
           </span>
+          <span class="step-column-value">{{ formatDuration(step.duration_ms, step) }}</span>
         </div>
       </template>
       <div class="step-meta">
         <span>执行时间：{{ formatTime(step.started_at) }}</span>
         <span>状态码：{{ step.status_code ?? '-' }}</span>
-        <span>耗时：{{ formatDuration(step.duration_ms) }}</span>
+        <span>耗时：{{ formatDuration(step.duration_ms, step) }}</span>
         <span>请求次数：{{ step.attempts || 1 }}</span>
       </div>
       <n-alert v-if="step.errors?.length" type="error" :show-icon="false" class="errors">
@@ -97,8 +100,13 @@
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
   };
-  const formatDuration = (value?: number) => {
-    const milliseconds = Number(value || 0);
+  const formatDuration = (value?: number, step?: any) => {
+    let milliseconds = Number(value);
+    if (!Number.isFinite(milliseconds) && step?.started_at && step?.finished_at) {
+      milliseconds = new Date(step.finished_at).getTime() - new Date(step.started_at).getTime();
+    }
+    if (!Number.isFinite(milliseconds)) return '-';
+    milliseconds = Math.max(0, milliseconds);
     return milliseconds >= 1000
       ? `${(milliseconds / 1000).toFixed(2)} 秒`
       : `${milliseconds.toFixed(0)} ms`;
@@ -126,10 +134,17 @@
     background: #fff;
   }
   .step-header {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 104px 108px;
     flex: 1;
     align-items: center;
     min-width: 0;
+    gap: 16px;
+  }
+  .step-identity {
+    display: flex;
+    min-width: 0;
+    align-items: center;
     gap: 9px;
   }
   .step-header strong {
@@ -167,7 +182,16 @@
   }
   .step-status {
     flex: none;
-    margin-left: auto;
+  }
+  .step-status,
+  .step-column-value {
+    transform: translateX(26px);
+  }
+  .step-column-value {
+    color: #69778c;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
   .step-meta {
     display: flex;
@@ -207,5 +231,14 @@
     gap: 7px;
     color: #58667b;
     font-size: 12px;
+  }
+  @media (max-width: 760px) {
+    .step-header {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+    }
+    .step-column-value {
+      display: none;
+    }
   }
 </style>

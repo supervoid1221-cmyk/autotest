@@ -1,6 +1,6 @@
 import { RouteRecordRaw } from 'vue-router';
 import { Layout } from '@/router/constant';
-import { HddOutlined } from '@vicons/antd';
+import { CheckSquareOutlined } from '@vicons/antd';
 import { renderIcon } from '@/utils/index';
 
 /**
@@ -21,8 +21,8 @@ const routes: Array<RouteRecordRaw> = [
     redirect: '/suite/403',
     component: Layout,
     meta: {
-      title: '测试套件',
-      icon: renderIcon(HddOutlined),
+      title: '测试计划',
+      icon: renderIcon(CheckSquareOutlined),
       sort: 19,
     },
     children: [

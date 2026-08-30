@@ -1391,8 +1391,11 @@
         localKey: `saved-${step.id}`,
         expanded: false,
         fallback_type: normalizeFallbackType(step.fallback_type),
-        manual_fallback: step.locator_mode === 'manual' || Boolean(step.fallback_value),
-        target: isPlaywright && step.fallback_value ? step.fallback_value : step.target,
+        manual_fallback: step.locator_mode === 'manual',
+        target:
+          isPlaywright && step.locator_mode === 'manual'
+            ? step.fallback_value || step.target
+            : step.target,
         options: {
           timeout: 10,
           clear_before_input: true,
@@ -1947,7 +1950,25 @@
     display: flex;
     flex-direction: column;
     gap: 9px;
+    max-height: 683px;
     padding: 14px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+  }
+  .playwright-step-list::-webkit-scrollbar {
+    width: 6px;
+  }
+  .playwright-step-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .playwright-step-list::-webkit-scrollbar-thumb {
+    border-radius: 6px;
+    background: #cbd5e1;
+  }
+  .playwright-step-list::-webkit-scrollbar-thumb:hover {
+    background: #aebaca;
   }
   .playwright-step-card {
     position: relative;

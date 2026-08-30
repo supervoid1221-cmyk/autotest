@@ -1,8 +1,6 @@
 <template>
   <n-card :bordered="false" class="proCard">
     <BasicTable
-      title="表格列表"
-      titleTooltip="这是一个提示"
       :columns="columns"
       :request="loadDataTable"
       :row-key="(row) => row.id"
@@ -11,6 +9,20 @@
       :scroll-x="1360"
       @update:checked-row-keys="onCheckedRow"
     >
+      <template #tableTitle>
+        <div class="project-filter-wrap">
+          <span>所属项目</span>
+          <n-select
+            v-model:value="selectedProject"
+            :options="projectOptions"
+            placeholder="全部项目"
+            clearable
+            filterable
+            class="project-filter"
+            @update:value="reloadTable"
+          />
+        </div>
+      </template>
       <template #toolbar>
         <n-button type="primary" @click="addData">添加数据</n-button>
       </template>
@@ -19,12 +31,13 @@
 </template>
 
 <script lang="ts" setup>
-  import { reactive, ref, h } from 'vue';
+  import { reactive, ref, h, onMounted } from 'vue';
   import { BasicTable } from '@/components/Table';
   import { columns } from './suiteColumns';
-  import { NButton, useDialog, useMessage } from 'naive-ui';
+  import { NButton, NSelect, useDialog, useMessage } from 'naive-ui';
   import { useRouter } from 'vue-router';
   import { SuiteAPI } from '@/api/suite/http';
+  import { ProjectAPI } from '@/api/project/http';
 
   const message = useMessage();
   const dialog = useDialog();
@@ -34,6 +47,14 @@
   const router = useRouter();
 
   const api = new SuiteAPI();
+  const projectApi = new ProjectAPI();
+  const selectedProject = ref<number | null>(null);
+  const projectOptions = ref<Array<{ label: string; value: number }>>([]);
+
+  const asList = (payload: any): any[] => {
+    if (Array.isArray(payload)) return payload;
+    return payload?.results || payload?.list || payload?.data || [];
+  };
 
   const params = reactive({
     pageSize: 5,
@@ -56,7 +77,11 @@
   });
 
   const loadDataTable = async (res) => {
-    return await api.getDataList({ ...params, ...res });
+    return await api.getDataList({
+      ...params,
+      ...res,
+      project: selectedProject.value || undefined,
+    });
   };
 
   function onCheckedRow(rowKeys) {
@@ -143,6 +168,11 @@
   function addData() {
     router.push({ name: 'suite_suite_edit', params: { id: 0 } });
   }
+
+  onMounted(async () => {
+    const projects = asList(await projectApi.getDataList({ pageSize: 1000 }));
+    projectOptions.value = projects.map((project: any) => ({ label: project.name, value: project.id }));
+  });
 </script>
 
 <style lang="less" scoped>
@@ -155,4 +185,7 @@
   .proCard :deep(.suite-action-buttons .n-button) {
     flex: none;
   }
+
+  .project-filter-wrap { display: flex; align-items: center; gap: 10px; color: #475569; font-size: 14px; font-weight: 600; }
+  .project-filter { width: 220px; font-weight: 400; }
 </style>

@@ -168,7 +168,7 @@
 
       const { getPaginationInfo, setPagination } = usePagination(getProps);
 
-      const { getDataSourceRef, getDataSource, getRowKey, reload } = useDataSource(
+      const { getDataSourceRef, getDataSource, getRowKey, reload, removeRowByKey } = useDataSource(
         getProps,
         {
           getPaginationInfo,
@@ -239,6 +239,7 @@
 
       const tableAction = {
         reload,
+        removeRowByKey,
         setColumns,
         setLoading,
         setProps,
@@ -297,6 +298,7 @@
         getDataSource,
         densityOptions,
         reload,
+        removeRowByKey,
         densitySelect,
         updatePage,
         updatePageSize,

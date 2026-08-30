@@ -1,6 +1,6 @@
 <template>
   <n-card :bordered="true" class="proCard">
-    <BasicTable title="UI 用例" :columns="columns" :request="load" :row-key="(row) => row.id">
+    <BasicTable ref="tableRef" title="UI 用例" :columns="columns" :request="load" :row-key="(row) => row.id">
       <template #toolbar>
         <n-button type="primary" @click="router.push({ name: 'case_ui_case_edit', params: { id: 0 } })">新建 UI 用例</n-button>
       </template>
@@ -9,7 +9,7 @@
 </template>
 
 <script lang="ts" setup>
-import { h } from 'vue';
+import { h, ref } from 'vue';
 import { NButton, NTag, useDialog, useMessage } from 'naive-ui';
 import { useRouter } from 'vue-router';
 import { BasicTable } from '@/components/Table';
@@ -19,6 +19,7 @@ const router = useRouter();
 const dialog = useDialog();
 const message = useMessage();
 const api = new UiCaseAPI();
+const tableRef = ref<any>();
 const columns = [
   { title: '用例名称', key: 'name', width: 220 },
   { title: '所属项目', key: 'project_name', width: 180 },
@@ -35,6 +36,6 @@ const columns = [
 ];
 const load = (params: any) => api.getDataList(params);
 function remove(row: any) {
-  dialog.warning({ title: '删除 UI 用例', content: `确认删除「${row.name}」及全部步骤吗？`, positiveText: '删除', negativeText: '取消', onPositiveClick: async () => { await api.DeleteDataByID(row.id); message.success('删除成功'); location.reload(); } });
+  dialog.warning({ title: '删除 UI 用例', content: `确认删除「${row.name}」及全部步骤吗？`, positiveText: '删除', negativeText: '取消', onPositiveClick: async () => { await api.DeleteDataByID(row.id); await tableRef.value?.removeRowByKey(row.id); message.success('删除成功'); } });
 }
 </script>

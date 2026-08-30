@@ -5,6 +5,7 @@ from django.conf import settings
 from django.db import models
 
 from project.models import Project
+from Tesla.model_fields import EncryptedJSONField
 
 
 # 录制/历史接口中可能携带旧账号的一次性认证信息。启用项目环境认证后，
@@ -57,19 +58,19 @@ class Endpoint(models.Model):
     method = models.CharField("请求方法", max_length=8)
     url = models.CharField("接口地址", max_length=255)
     # 参数
-    params = models.JSONField(
+    params = EncryptedJSONField(
         "查询字符串", max_length=10240, blank=True, null=True
     )  # 必须是json
-    data = models.JSONField("表单参数", max_length=10240, blank=True, null=True)  # 必须是json
-    json = models.JSONField(
+    data = EncryptedJSONField("表单参数", max_length=10240, blank=True, null=True)  # 必须是json
+    json = EncryptedJSONField(
         "JSON参数", max_length=10240, blank=True, null=True
     )  # 必须是json
     # [["字段1", "字段2"], ["值1", "值2"], ...]；执行器按每一行展开独立请求。
-    parametrize = models.JSONField("数据驱动参数", default=list, blank=True)
-    cookies = models.JSONField(
+    parametrize = EncryptedJSONField("数据驱动参数", default=list, blank=True)
+    cookies = EncryptedJSONField(
         "Cookies", max_length=10240, blank=True, null=True
     )  # 必须是json
-    headers = models.JSONField(
+    headers = EncryptedJSONField(
         "请求头", max_length=10240, blank=True, null=True
     )  # 必须是json
     # {"file": [{"name": "demo.xlsx", "path": "uploaded_api_files/uuid.xlsx", "size": 1024}]}
@@ -153,11 +154,11 @@ class ScenarioStep(models.Model):
     order = models.PositiveIntegerField("执行顺序", default=1)
     request_method = models.CharField("请求方式覆盖", max_length=8, blank=True)
     request_url = models.CharField("请求地址覆盖", max_length=255, blank=True)
-    request_override = models.JSONField("参数覆盖", default=dict, blank=True)
+    request_override = EncryptedJSONField("参数覆盖", default=dict, blank=True)
     extract = models.JSONField("数据提取", default=dict, blank=True)
     validate = models.JSONField("断言", default=dict, blank=True)
     # 在接口响应、断言、数据提取均成功后依次执行；每项使用 ${execute_sql_xxx("SQL")} 语法。
-    post_sql = models.JSONField("后置数据库操作", default=list, blank=True)
+    post_sql = EncryptedJSONField("后置数据库操作", default=list, blank=True)
     # {enabled, timeout, interval, initial_delay, retry_http_error, retry_assertion}
     polling = models.JSONField("轮询等待", default=dict, blank=True)
     continue_on_failure = models.BooleanField("失败后继续", default=True)

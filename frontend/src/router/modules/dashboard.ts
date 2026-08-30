@@ -1,6 +1,6 @@
 import { RouteRecordRaw } from 'vue-router';
 import { Layout } from '@/router/constant';
-import { PhGauge } from '@phosphor-icons/vue';
+import { PhChartLineUp } from '@phosphor-icons/vue';
 import { renderIcon } from '@/utils/index';
 
 const routes: Array<RouteRecordRaw> = [
@@ -10,9 +10,10 @@ const routes: Array<RouteRecordRaw> = [
     component: Layout,
     redirect: '/dashboard/console',
     meta: {
-      title: '仪表盘',
-      icon: renderIcon(PhGauge),
+      title: '监控中心',
+      icon: renderIcon(PhChartLineUp),
       sort: 0,
+      alwaysShow: true,
     },
     children: [
       {
@@ -25,7 +26,7 @@ const routes: Array<RouteRecordRaw> = [
         path: 'monitor',
         name: 'dashboard_monitor',
         meta: { title: '监控台' },
-        component: () => import('@/views/dashboard/monitor/monitor.vue'),
+        component: () => import('@/views/monitor/overview.vue'),
       },
     ],
   },

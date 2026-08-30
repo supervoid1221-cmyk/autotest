@@ -8,7 +8,9 @@ services:
     env_file:
       - ./backend.env
     volumes:
-      - /var/run/mysqld:/var/run/mysqld:ro
+      # 挂载稳定的 /run 父目录。MySQL 单独重启会重建 mysqld 子目录，
+      # 若直接挂载子目录，存量容器会继续指向旧 inode 并丢失新 Socket。
+      - /run:/host/run:ro
       - ./data/logs:/app/logs
       - ./data/screenshots:/app/screenshots
       - ./data/temps:/app/temps
@@ -35,7 +37,7 @@ services:
       backend:
         condition: service_healthy
     volumes:
-      - /var/run/mysqld:/var/run/mysqld:ro
+      - /run:/host/run:ro
       - ./data/logs:/app/logs
       - ./data/screenshots:/app/screenshots
       - ./data/temps:/app/temps
