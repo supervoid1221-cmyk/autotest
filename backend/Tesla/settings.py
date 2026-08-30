@@ -231,7 +231,6 @@ MEDIA_URL = "api/"  # 显示文件资源的前缀
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-NNNNNNNN = "BeiFan"
 
 REST_FRAMEWORK = {  # DRF的设置  让DRF 使用drf_spectacular生成OPENAPI
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
