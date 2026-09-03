@@ -36,8 +36,8 @@
         :inverted="inverted"
         class="layout-sider"
       >
-        <Logo :collapsed="collapsed" />
-        <AsideMenu v-model:location="getMenuLocation" />
+        <Logo :collapsed="false" />
+        <AsideMenu v-model:location="getMenuLocation" @click-menu-item="showSideDrawer = false" />
         <SidebarAccount :collapsed="false" />
       </n-layout-sider>
     </n-drawer>
@@ -55,6 +55,16 @@
             'fluid-header': fixedHeader === 'static',
           }"
         >
+          <n-button
+            v-if="isMobile"
+            text
+            class="mobile-menu-trigger"
+            aria-label="打开目录"
+            @click="showSideDrawer = true"
+          >
+            <span class="mobile-menu-trigger-icon">☰</span>
+            <span>目录</span>
+          </n-button>
           <TabsView v-if="isMultiTabs" v-model:collapsed="collapsed" />
           <div
             class="main-view"
@@ -260,6 +270,35 @@
 
   .layout-content-main-fix {
     padding-top: 0;
+  }
+
+  .mobile-menu-trigger {
+    position: fixed;
+    z-index: 10;
+    top: 6px;
+    left: 8px;
+    display: inline-flex;
+    align-items: center;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    color: #334155;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+  }
+
+  .mobile-menu-trigger-icon {
+    margin-right: 6px;
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  @media (max-width: 950px) {
+    .mobile-menu-trigger + :deep(.tabs-view) {
+      box-sizing: border-box;
+      padding-left: 88px;
+    }
   }
 
   .main-view-fix {

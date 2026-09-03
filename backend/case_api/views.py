@@ -1,6 +1,7 @@
 import shutil
 import tempfile
 import uuid
+from copy import deepcopy
 from pathlib import Path
 
 import yaml
@@ -15,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework import status, viewsets
 
 from project.models import Environment, Project, ProjectVariable, response_indicates_expired_token
+from project.runtime_token import RuntimeTokenState
 from fullstack_framework.commons.ddt_util import ddt
 from fullstack_framework.commons.api_executor import (
     execute_api_step,
@@ -46,13 +48,20 @@ def _environment_headers(environment, variables):
     return headers
 
 
-def _run_step(step, selected_environment, variables, case_data_override=None, http_session=None):
+def _run_step(
+    step, selected_environment, variables, case_data_override=None, http_session=None,
+    runtime_token_state=None,
+):
     if not step.endpoint:
         return {"step_id": step.id, "passed": False, "errors": ["未选择接口"], "response_body": ""}
     environment = Environment.objects.filter(project_id=step.endpoint.project_id, name=selected_environment.name).first()
     if not environment:
         return {"step_id": step.id, "passed": False, "errors": [f"项目「{step.endpoint.project.name}」未配置环境「{selected_environment.name}」"], "response_body": ""}
     http_session = http_session or BeifanSession()
+    runtime_token_state = runtime_token_state or RuntimeTokenState(
+        variables,
+        ProjectVariable.values_by_project([step.endpoint.project_id]),
+    )
     try:
         if case_data_override is None:
             headers = _environment_headers(environment, variables)
@@ -61,6 +70,8 @@ def _run_step(step, selected_environment, variables, case_data_override=None, ht
             # 场景调试与套件执行保持相同的数据结构：先把步骤配置合并到
             # 接口用例，再统一展开 DDT。这样请求参数、数据提取、断言期望值
             # 和轮询配置中的 $ddt{字段名} 都会使用当前数据行的值。
+            # 场景添加接口时已快照接口规则；此后始终使用场景步骤的
+            # 独立配置。空对象表示场景明确删除全部规则，不再回退接口配置。
             case_data["extract"] = step.extract or {}
             case_data["post_sql"] = step.post_sql or []
             case_data["validate"] = step.validate or {}
@@ -71,7 +82,8 @@ def _run_step(step, selected_environment, variables, case_data_override=None, ht
                 data_results = []
                 for expanded_case in ddt(case_data):
                     item_result = _run_step(
-                        step, selected_environment, variables, expanded_case, http_session
+                        step, selected_environment, variables, expanded_case, http_session,
+                        runtime_token_state,
                     )
                     data_results.append({"name": expanded_case["test_name"], **item_result})
                 last_result = data_results[-1]
@@ -91,7 +103,13 @@ def _run_step(step, selected_environment, variables, case_data_override=None, ht
             request_payload = dict(request_data)
             request_payload.setdefault("timeout", timeout)
             request_payload["interface_name"] = case_data.get("test_name") or step.endpoint.name
+            runtime_token_state.apply(environment, request_payload)
             response = http_session.request(**request_payload)
+            # 登录接口提取的 Token 失效后，先回退到运行开始时的
+            # 项目 Token 并重试当前请求。不需要用例手工编写 ${token}。
+            if response_indicates_expired_token(response) and runtime_token_state.discard_runtime_token(environment):
+                runtime_token_state.apply(environment, request_payload)
+                response = http_session.request(**request_payload)
             # 部分网关会用 HTTP 200 返回业务码 1023；此时缓存时间可能仍未到期，
             # 需要强制刷新认证并立即重试一次当前请求。
             if not auth_refreshed and response_indicates_expired_token(response):
@@ -116,6 +134,7 @@ def _run_step(step, selected_environment, variables, case_data_override=None, ht
                 project_id=step.endpoint.project_id,
                 environment_name=environment.name,
                 request_func=request_func,
+                on_success=lambda values: runtime_token_state.observe_extracted(environment, values),
             ),
             enabled=step.retry_on_failure,
             retry_count=step.failure_retry_count,
@@ -205,8 +224,8 @@ class EndpointViewSet(viewsets.ModelViewSet):
         step = ScenarioStep(
             endpoint=endpoint,
             request_override={},
-            extract={},
-            validate={},
+            extract=endpoint.extract or {},
+            validate=endpoint.validate or {},
             post_sql=[],
             polling={},
         )
@@ -361,13 +380,30 @@ class ScenarioViewSet(viewsets.ModelViewSet):
     serializer_class = ScenarioSerializer
 
     def get_queryset(self):
-        return filter_all_project_access(
+        queryset = filter_all_project_access(
             self.queryset,
             self.request.user,
             "project",
             "projects",
             ("steps__endpoint__project",),
-        ).order_by("-created_at", "-id")
+        )
+        name = str(self.request.query_params.get("name") or "").strip()
+        if name:
+            queryset = queryset.filter(name__icontains=name)
+        project_id = self.request.query_params.get("project")
+        if project_id:
+            try:
+                project_id = int(project_id)
+            except (TypeError, ValueError):
+                return queryset.none()
+            if project_id <= 0:
+                return queryset.none()
+            queryset = queryset.filter(
+                Q(project_id=project_id)
+                | Q(projects__id=project_id)
+                | Q(steps__endpoint__project_id=project_id)
+            ).distinct()
+        return queryset.order_by("-created_at", "-id")
 
     def perform_create(self, serializer):
         require_projects_access(self.request.user, serializer.validated_data.get("projects", []))
@@ -394,13 +430,20 @@ class ScenarioViewSet(viewsets.ModelViewSet):
         if not environment:
             return Response({"detail": "所选环境不存在或不属于场景关联项目。"}, status=400)
         variables = ProjectVariable.values_for_projects(project_ids)
+        runtime_token_state = RuntimeTokenState(
+            variables,
+            ProjectVariable.values_by_project(project_ids),
+        )
         http_session = BeifanSession()
         from .flow import execute_scenario_flow
 
         payload = execute_scenario_flow(
             scenario,
             variables,
-            lambda step: _run_step(step, environment, variables, http_session=http_session),
+            lambda step: _run_step(
+                step, environment, variables, http_session=http_session,
+                runtime_token_state=runtime_token_state,
+            ),
         )
         return Response(payload)
 
@@ -431,7 +474,12 @@ class ScenarioStepViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import ValidationError
             raise ValidationError({"endpoint": "接口所属项目未关联到该场景。"})
         require_project_access(self.request.user, endpoint.project)
-        serializer.save()
+        # 首次添加时复制接口详情的规则，形成场景独立快照。
+        # 后续接口详情变更不会影响已生成场景。
+        serializer.save(
+            extract=deepcopy(endpoint.extract or {}),
+            validate=deepcopy(endpoint.validate or {}),
+        )
 
     def perform_update(self, serializer):
         step = self.get_object()

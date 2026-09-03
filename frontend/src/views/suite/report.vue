@@ -369,13 +369,29 @@
                 ><small class="log-connection"
                   ><i></i>{{ active ? '日志流已连接' : '执行日志已归档' }}</small
                 ></div
-              ><n-input
-                v-model:value="logSearch"
-                clearable
-                size="small"
-                placeholder="搜索日志，回车定位下一个"
-                @keydown.enter.prevent="locateNextLogMatch"
-            /></div>
+              ><div class="live-log-tools"
+                ><n-input
+                  v-model:value="logSearch"
+                  clearable
+                  size="small"
+                  placeholder="搜索日志，回车定位下一个"
+                  @keydown.enter.prevent="locateNextLogMatch"
+                /><n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-button
+                      size="small"
+                      secondary
+                      circle
+                      aria-label="放大全屏"
+                      @click="logFullscreen = true"
+                    >
+                      <template #icon><n-icon><FullscreenOutlined /></n-icon></template>
+                    </n-button>
+                  </template>
+                  放大全屏
+                </n-tooltip></div
+              ></div
+            >
             <pre
               ref="logContentRef"
               class="log-content"
@@ -400,6 +416,51 @@
           >
         </aside>
       </div>
+      <n-modal
+        v-model:show="logFullscreen"
+        :z-index="10000"
+        :mask-closable="false"
+        :auto-focus="false"
+      >
+        <section class="live-log fullscreen-log-panel">
+          <div class="live-log-title">
+            <div>
+              <h3>实时执行日志</h3>
+              <small class="log-connection"
+                ><i></i>{{ active ? '日志流已连接' : '执行日志已归档' }}</small
+              >
+            </div>
+            <div class="live-log-tools">
+              <n-input
+                v-model:value="logSearch"
+                clearable
+                size="small"
+                placeholder="搜索日志，回车定位下一个"
+                @keydown.enter.prevent="locateNextLogMatch"
+              />
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-button
+                    size="small"
+                    secondary
+                    circle
+                    aria-label="退出全屏"
+                    @click="logFullscreen = false"
+                  >
+                    <template #icon><n-icon><FullscreenExitOutlined /></n-icon></template>
+                  </n-button>
+                </template>
+                退出全屏
+              </n-tooltip>
+            </div>
+          </div>
+          <pre
+            ref="fullscreenLogContentRef"
+            class="log-content"
+            v-html="highlightedProgressLog || '等待执行器输出日志…'"
+          ></pre>
+        </section>
+      </n-modal>
       <n-modal
         v-model:show="variableResolutionVisible"
         preset="card"
@@ -452,6 +513,7 @@
   import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import { useMessage } from 'naive-ui';
+  import { FullscreenExitOutlined, FullscreenOutlined } from '@vicons/antd';
   import { RunResultAPI } from '@/api/suite/http';
   import { AiInsight } from '@/components/Ai';
   import ReportApiStepList from './components/ReportApiStepList.vue';
@@ -467,6 +529,8 @@
   const logSearch = ref('');
   const logMatchIndex = ref(-1);
   const logContentRef = ref<HTMLElement | null>(null);
+  const fullscreenLogContentRef = ref<HTMLElement | null>(null);
+  const logFullscreen = ref(false);
   const active = ref(false);
   const canceling = ref(false);
   const pausing = ref(false);
@@ -580,7 +644,10 @@
   const locateNextLogMatch = async () => {
     if (!logSearch.value.trim() || !logMatchCount.value) return;
     await nextTick();
-    const matches = Array.from(logContentRef.value?.querySelectorAll('mark') || []);
+    const contentElement = logFullscreen.value
+      ? fullscreenLogContentRef.value
+      : logContentRef.value;
+    const matches = Array.from(contentElement?.querySelectorAll('mark') || []);
     if (!matches.length) return;
     logMatchIndex.value = (logMatchIndex.value + 1) % matches.length;
     matches.forEach((match, index) =>
@@ -1170,7 +1237,11 @@
   function backToResults() {
     router.push({ name: 'suite_run_result' });
   }
+  function handleLogFullscreenKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape' && logFullscreen.value) logFullscreen.value = false;
+  }
   onMounted(init);
+  onMounted(() => window.addEventListener('keydown', handleLogFullscreenKeydown));
   onActivated(() => {
     refreshProgress()
       .then(() => startProgressPolling())
@@ -1180,6 +1251,7 @@
   onUnmounted(() => {
     stopProgressPolling();
     clearScreenshotCache();
+    window.removeEventListener('keydown', handleLogFullscreenKeydown);
   });
 </script>
 
@@ -2143,6 +2215,37 @@
   .live-log-title :deep(.n-input) {
     width: 190px;
   }
+  .live-log-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .fullscreen-log-panel {
+    position: fixed;
+    z-index: 10001;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    margin: 0;
+    padding: 20px;
+    overflow: hidden;
+    border-radius: 0;
+    background: #fff;
+  }
+  .fullscreen-log-panel .live-log-title {
+    flex: 0 0 auto;
+  }
+  .fullscreen-log-panel .live-log-tools :deep(.n-input) {
+    width: min(420px, 50vw);
+  }
+  .fullscreen-log-panel .log-content {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+  }
   .log-content {
     width: 100%;
     height: clamp(500px, calc(100vh - 290px), 760px);
@@ -2224,6 +2327,14 @@
     }
     .live-log-title :deep(.n-input) {
       width: 100%;
+    }
+    .live-log-tools {
+      width: 100%;
+    }
+    .live-log-tools :deep(.n-input),
+    .fullscreen-log-panel .live-log-tools :deep(.n-input) {
+      width: auto;
+      flex: 1;
     }
     .log-content {
       height: clamp(360px, calc(100vh - 380px), 560px);

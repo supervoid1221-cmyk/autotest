@@ -20,7 +20,7 @@
     <n-card class="record-list-card" :bordered="false">
       <template #header><span class="card-title">录制请求</span><span class="record-count">已解析 {{ records.length }} 条，已选择 {{ selectedCount }} 条</span></template>
       <template #header-extra><div class="table-actions"><n-input v-model:value="keyword" size="small" clearable placeholder="搜索名称或路径" /><n-select v-model:value="methodFilter" size="small" :options="methodOptions" class="method-filter" /><n-button size="small" @click="toggleVisible(true)">全选</n-button><n-button size="small" @click="toggleVisible(false)">清空选择</n-button></div></template>
-      <n-data-table :columns="columns" :data="filteredRecords" :row-key="(row: RecordedRequest) => row.record_id" :checked-row-keys="selectedKeys" :pagination="false" @update:checked-row-keys="updateSelection" />
+      <n-data-table striped :columns="columns" :data="filteredRecords" :row-key="(row: RecordedRequest) => row.record_id" :checked-row-keys="selectedKeys" :pagination="false" @update:checked-row-keys="updateSelection" />
       <n-empty v-if="!records.length" description="暂无录制数据。请粘贴插件导出的数据或导入 HAR 文件。" class="record-empty" />
     </n-card>
 

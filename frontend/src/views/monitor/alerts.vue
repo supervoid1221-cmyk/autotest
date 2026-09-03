@@ -4,7 +4,7 @@
       <div><h2>告警事件</h2><p>统一展示主机指标与 HTTP、TCP、Docker 服务的异常和恢复记录。</p></div>
       <n-button :loading="loading" @click="load">刷新</n-button>
     </header>
-    <n-data-table :columns="columns" :data="records" :loading="loading" :pagination="{ pageSize: 15 }" />
+    <n-data-table striped :columns="columns" :data="records" :loading="loading" :pagination="{ pageSize: 15 }" />
   </section>
 </template>
 

@@ -5,11 +5,11 @@
     <n-tabs type="line">
       <n-tab-pane name="rules" tab="通知规则">
         <div class="toolbar"><n-button type="primary" @click="openRule()">新增通知规则</n-button></div>
-        <n-data-table :columns="ruleColumns" :data="rules" :loading="loading" />
+        <n-data-table striped :columns="ruleColumns" :data="rules" :loading="loading" />
       </n-tab-pane>
       <n-tab-pane name="deliveries" tab="投递记录">
         <div class="toolbar"><n-button @click="load">刷新</n-button></div>
-        <n-data-table :columns="deliveryColumns" :data="deliveries" :loading="loading" :pagination="{ pageSize: 10 }" />
+        <n-data-table striped :columns="deliveryColumns" :data="deliveries" :loading="loading" :pagination="{ pageSize: 10 }" />
       </n-tab-pane>
     </n-tabs>
 

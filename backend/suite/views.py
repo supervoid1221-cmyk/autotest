@@ -147,7 +147,18 @@ class SuiteViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = filter_suite_access(self.queryset, self.request.user)
         project_id = self.request.query_params.get("project")
-        return filter_suite_project(queryset, project_id) if project_id else queryset
+        if project_id:
+            queryset = filter_suite_project(queryset, project_id)
+        environment_id = self.request.query_params.get("environment")
+        if environment_id:
+            try:
+                environment_id = int(environment_id)
+            except (TypeError, ValueError):
+                return queryset.none()
+            if environment_id <= 0:
+                return queryset.none()
+            queryset = queryset.filter(environment_id=environment_id)
+        return queryset
 
     def perform_create(self, serializer):
         require_project_access(self.request.user, serializer.validated_data["environment"].project)
@@ -377,7 +388,15 @@ class RunResultViewSet(
         queryset = self.queryset.filter(project_access_q(self.request.user, "project__"))
         queryset = filter_suite_access(queryset, self.request.user, "suite__")
         project_id = self.request.query_params.get("project")
-        return filter_suite_project(queryset, project_id, "suite__") if project_id else queryset
+        if project_id:
+            queryset = filter_suite_project(queryset, project_id, "suite__")
+        environment_name = str(self.request.query_params.get("environment") or "").strip()
+        if environment_name:
+            queryset = queryset.filter(
+                Q(environment_name=environment_name)
+                | Q(environment_name="", suite__environment__name=environment_name)
+            )
+        return queryset
 
     @action(methods=["POST"], detail=True)
     def retry(self, request, pk=None):

@@ -3,12 +3,14 @@ import type { BasicColumn, BasicTableProps } from '../types/table';
 import { isEqual, cloneDeep } from 'lodash-es';
 import { isArray, isString, isBoolean, isFunction } from '@/utils/is';
 import { usePermission } from '@/hooks/web/usePermission';
+import { useProjectSettingStore } from '@/store/modules/projectSetting';
 import { ActionItem } from '@/components/Table';
 import { renderEditCell } from '../components/editable';
 import { NTooltip, NIcon } from 'naive-ui';
 import { FormOutlined } from '@vicons/antd';
 
 export function useColumns(propsRef: ComputedRef<BasicTableProps>) {
+  const settingStore = useProjectSettingStore();
   const columnsRef = ref(unref(propsRef).columns) as unknown as Ref<BasicColumn[]>;
   let cacheColumns = unref(propsRef).columns;
 
@@ -51,8 +53,27 @@ export function useColumns(propsRef: ComputedRef<BasicTableProps>) {
         return hasPermission(column.auth as string[]) && isIfShow(column);
       })
       .map((column) => {
+        const isActionColumn = column.key === 'action' || column.key === 'actions';
+        if (settingStore.getIsMobile && isActionColumn) {
+          const actionRender = column.render;
+          column.width = 132;
+          column.minWidth = 132;
+          column.maxWidth = 132;
+          column.fixed = undefined;
+          column.ellipsis = false;
+          column.className = 'h5-action-column';
+          if (isFunction(actionRender)) {
+            column.render = (...args: any[]) => h(
+              'div',
+              { class: 'h5-action-cell' },
+              [actionRender(...args)]
+            );
+          }
+        }
         //默认 ellipsis 为true
-        column.ellipsis = typeof column.ellipsis === 'undefined' ? { tooltip: true } : false;
+        if (!isActionColumn || !settingStore.getIsMobile) {
+          column.ellipsis = typeof column.ellipsis === 'undefined' ? { tooltip: true } : false;
+        }
         const { edit } = column;
         if (edit) {
           column.render = renderEditCell(column);

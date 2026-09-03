@@ -112,3 +112,59 @@
   &-delete { background: #FFF1F2; color: #9F1239; }
   &-patch  { background: #F3F4FF; color: #4338CA; }
 }
+
+// H5 表格统一适配：操作列不再固定占据大半屏幕，按钮允许紧凑换行。
+@media (max-width: 950px) {
+  .h5-action-column {
+    width: 132px !important;
+    min-width: 132px !important;
+    max-width: 132px !important;
+    padding-right: 8px !important;
+    padding-left: 8px !important;
+    white-space: normal !important;
+  }
+
+  .h5-action-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .h5-action-cell > * {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    gap: 4px 8px !important;
+    min-width: 0;
+    white-space: normal !important;
+  }
+
+  .h5-action-cell .n-button {
+    height: 26px;
+    margin: 0 !important;
+    padding: 0 2px !important;
+    font-size: 13px;
+  }
+
+  // 直接使用 n-data-table 的页面同样取消右侧冻结，避免操作列覆盖主体字段。
+  .n-data-table-th--fixed-right,
+  .n-data-table-td--fixed-right {
+    position: static !important;
+    right: auto !important;
+    box-shadow: none !important;
+  }
+
+  .n-data-table__pagination {
+    box-sizing: border-box;
+    justify-content: flex-start !important;
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .n-data-table__pagination .n-pagination {
+    flex: 0 0 auto;
+  }
+}

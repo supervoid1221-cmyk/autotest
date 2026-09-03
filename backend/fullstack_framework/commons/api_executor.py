@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 import logging
+import base64
+import json
 import re
 import time
+from datetime import datetime
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
+from urllib.parse import quote, unquote
+from zoneinfo import ZoneInfo
 
 import jsonpath
 import yaml
@@ -158,11 +163,200 @@ def extract_with_regex(source, expression, group_index):
         raise ValueError(f"正则表达式或捕获组无效：{exc}") from exc
 
 
+def _is_empty_extracted_value(value):
+    return value is None or value == "" or value == "no data" or value == [] or value == {}
+
+
+def _processor_number(value):
+    if isinstance(value, bool):
+        return int(value)
+    number = Decimal(str(value).strip())
+    return int(number) if number == number.to_integral_value() else float(number)
+
+
+def _processor_boolean(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float, Decimal)):
+        return value != 0
+    normalized = str(value).strip().lower()
+    if normalized in {"true", "1", "yes", "y", "on", "是", "真"}:
+        return True
+    if normalized in {"false", "0", "no", "n", "off", "", "否", "假"}:
+        return False
+    raise ValueError(f"无法将「{value}」转换为布尔值")
+
+
+def _processor_timezone(config):
+    name = str(config.get("timezone") or "Asia/Shanghai")
+    try:
+        return ZoneInfo(name)
+    except Exception as exc:
+        raise ValueError(f"无效时区「{name}」") from exc
+
+
+def _datetime_to_timestamp(value, config):
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        value_format = str(config.get("format") or "").strip()
+        try:
+            parsed = datetime.strptime(text, value_format) if value_format else datetime.fromisoformat(text)
+        except ValueError as exc:
+            raise ValueError("日期时间格式不匹配，请配置正确的格式") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_processor_timezone(config))
+    timestamp = parsed.timestamp()
+    return int(timestamp * 1000) if config.get("unit") == "milliseconds" else int(timestamp)
+
+
+def _timestamp_to_datetime(value, config):
+    try:
+        timestamp = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("时间戳必须为数字") from exc
+    unit = str(config.get("unit") or "auto")
+    if unit == "milliseconds" or (unit == "auto" and abs(timestamp) >= 100_000_000_000):
+        timestamp /= 1000
+    value_format = str(config.get("format") or "%Y-%m-%d %H:%M:%S")
+    return datetime.fromtimestamp(timestamp, _processor_timezone(config)).strftime(value_format)
+
+
+def apply_extract_processor(value, processor):
+    """执行单个白名单处理器；不执行任意表达式或 eval。"""
+    if not isinstance(processor, dict):
+        raise ValueError("处理器配置必须为对象")
+    processor_type = str(processor.get("type") or "").strip()
+    if processor_type == "default":
+        return processor.get("value") if _is_empty_extracted_value(value) else value
+    if processor_type == "trim":
+        return str(value).strip()
+    if processor_type == "prefix":
+        return f"{processor.get('value', '')}{value}"
+    if processor_type == "suffix":
+        return f"{value}{processor.get('value', '')}"
+    if processor_type == "replace":
+        search = str(processor.get("search") or "")
+        if not search:
+            raise ValueError("字符串替换的查找内容不能为空")
+        raw_count = processor.get("count", -1)
+        count = -1 if raw_count in (None, "") else int(raw_count)
+        return str(value).replace(search, str(processor.get("replacement") or ""), count)
+    if processor_type == "regex":
+        pattern = str(processor.get("pattern") or "")
+        if not pattern:
+            raise ValueError("正则表达式不能为空")
+        return extract_with_regex(value, pattern, int(processor.get("group", 0) or 0))
+    if processor_type == "split":
+        separator = processor.get("separator")
+        parts = str(value).split(str(separator)) if separator not in (None, "") else str(value).split()
+        index = int(processor.get("index", 0) or 0)
+        try:
+            return parts[index]
+        except IndexError as exc:
+            raise ValueError(f"分割结果不存在索引 {index}") from exc
+    if processor_type == "json_parse":
+        if isinstance(value, (dict, list)):
+            return value
+        try:
+            return json.loads(str(value))
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"JSON 字符串解析失败：{exc}") from exc
+    if processor_type == "cast":
+        target = str(processor.get("target") or "string")
+        if target == "string":
+            if isinstance(value, (dict, list)):
+                return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+            return str(value)
+        if target == "number":
+            try:
+                return _processor_number(value)
+            except (InvalidOperation, ValueError) as exc:
+                raise ValueError(f"无法将「{value}」转换为数字") from exc
+        if target == "boolean":
+            return _processor_boolean(value)
+        raise ValueError(f"不支持的目标类型「{target}」")
+    if processor_type == "base64_encode":
+        return base64.b64encode(str(value).encode("utf-8")).decode("ascii")
+    if processor_type == "base64_decode":
+        try:
+            return base64.b64decode(str(value), validate=True).decode("utf-8")
+        except Exception as exc:
+            raise ValueError("Base64 解码失败") from exc
+    if processor_type == "url_encode":
+        return quote(str(value), safe=str(processor.get("safe") or ""))
+    if processor_type == "url_decode":
+        return unquote(str(value))
+    if processor_type == "datetime_to_timestamp":
+        return _datetime_to_timestamp(value, processor)
+    if processor_type == "timestamp_to_datetime":
+        return _timestamp_to_datetime(value, processor)
+    if processor_type == "array_item":
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("当前值不是数组")
+        position = str(processor.get("position") or "first")
+        index = 0 if position == "first" else -1 if position == "last" else int(processor.get("index", 0) or 0)
+        try:
+            return value[index]
+        except IndexError as exc:
+            raise ValueError(f"数组不存在索引 {index}") from exc
+    if processor_type == "object_pick":
+        if not isinstance(value, dict):
+            raise ValueError("当前值不是对象")
+        keys = processor.get("keys") or []
+        if isinstance(keys, str):
+            keys = [item.strip() for item in keys.split(",") if item.strip()]
+        return {str(key): value[str(key)] for key in keys if str(key) in value}
+    if processor_type == "object_rename":
+        if not isinstance(value, dict):
+            raise ValueError("当前值不是对象")
+        mapping = processor.get("mapping") or {}
+        if isinstance(mapping, str):
+            mapping = {
+                old.strip(): new.strip()
+                for item in (part.strip() for part in mapping.split(","))
+                if item and ":" in item
+                for old, new in [item.split(":", 1)]
+                if old.strip()
+            }
+        if not isinstance(mapping, dict):
+            raise ValueError("字段重命名映射必须为对象")
+        return {str(mapping.get(str(key), key)): item for key, item in value.items()}
+    raise ValueError(f"不支持的数据处理器「{processor_type}」")
+
+
+def apply_extract_processors(variable_name, value, processors):
+    for index, processor in enumerate(processors or [], start=1):
+        try:
+            value = apply_extract_processor(value, processor)
+        except Exception as exc:
+            processor_type = processor.get("type", "") if isinstance(processor, dict) else ""
+            raise ValueError(
+                f"变量「{variable_name}」的第 {index} 个处理步骤「{processor_type}」失败：{exc}"
+            ) from exc
+    return value
+
+
 def extract_values(response, response_json, extract):
     values = {}
-    for variable_name, expression in (extract or {}).items():
+    for variable_name, raw_config in (extract or {}).items():
+        processors = []
+        if isinstance(raw_config, dict):
+            mode = str(raw_config.get("mode") or "jsonpath")
+            source_name = str(raw_config.get("source") or ("text" if mode == "re" else "json"))
+            expression_text = str(raw_config.get("expression") or "")
+            result_index = int(raw_config.get("index", 0) or 0)
+            expression = (
+                ["re", source_name, expression_text, result_index]
+                if mode == "re"
+                else [source_name, expression_text, result_index]
+            )
+            processors = raw_config.get("processors") or []
+        else:
+            expression = raw_config
         if not isinstance(expression, list):
-            raise ValueError(f"变量「{variable_name}」的数据提取配置必须为数组。")
+            raise ValueError(f"变量「{variable_name}」的数据提取配置必须为数组或对象。")
         if expression and expression[0] == "re":
             if len(expression) != 4:
                 raise ValueError(
@@ -183,7 +377,7 @@ def extract_values(response, response_json, extract):
                 value = matches[int(expression[2])] if matches else "no data"
             except (IndexError, TypeError, ValueError) as exc:
                 raise ValueError(f"变量「{variable_name}」的结果序号无效。") from exc
-        values[variable_name] = value
+        values[variable_name] = apply_extract_processors(variable_name, value, processors)
     return values
 
 

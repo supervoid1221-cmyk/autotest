@@ -17,6 +17,7 @@ from pathlib import Path
 import yaml
 
 from project.models import Environment
+from case_ui.browser_token import playwright_cookie, storage_init_script
 from case_ui.models import playwright_step_display_name
 from case_ui.smart_locator import SmartLocatorError, resolve as resolve_smart
 from case_ui.smart_locator.engine import start_ui_transition_watch, wait_for_dialog_state, wait_for_ui_transition
@@ -772,6 +773,8 @@ def execute_playwright_case(case, tab_key=None):
         default_timeout = int(data.get("default_timeout", 10000))
         base_url = str(data.get("base_url") or "")
         viewport = data.get("viewport") or {"width": 1440, "height": 900}
+        environment_name = str(data.get("environment_name") or "")
+        environment = Environment.objects.filter(project_id=project_id, name=environment_name).first()
     else:
         case_id = case.id
         project_id = case.project_id
@@ -785,6 +788,9 @@ def execute_playwright_case(case, tab_key=None):
         if case.environment_name:
             environment = Environment.objects.filter(project=case.project, name=case.environment_name).first()
         base_url = environment.base_url if environment else ""
+        environment_name = str(case.environment_name or "")
+    token_variables = variables if os.environ.get("PLATFORM_RUN_RESULT_ID") else {}
+    browser_token = environment.browser_token_payload(token_variables, Path.cwd()) if environment else {}
     steps, selected_tab_key = _steps_for_tab(steps, tab_key)
     for step in steps:
         # 套件执行环境优先于用例默认环境，用于选择环境级定位覆盖和历史指纹。
@@ -826,7 +832,14 @@ def execute_playwright_case(case, tab_key=None):
             _persist_native_result(report)
             raise RuntimeError(error) from exc
         try:
-            page = browser.new_page(viewport=viewport)
+            context = browser.new_context(viewport=viewport)
+            init_script = storage_init_script(browser_token)
+            if init_script:
+                context.add_init_script(script=init_script)
+            cookie = playwright_cookie(browser_token, base_url)
+            if cookie:
+                context.add_cookies([cookie])
+            page = context.new_page()
             for step in steps:
                 started = time.perf_counter()
                 started_at = datetime.now().astimezone().isoformat()

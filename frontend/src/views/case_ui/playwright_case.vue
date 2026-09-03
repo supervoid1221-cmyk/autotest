@@ -1,7 +1,17 @@
 <template>
   <n-card class="proCard" title="Playwright 智能 UI 用例">
     <template #header-extra><n-space><n-button @click="recordingVisible = true">录制用例</n-button><n-button type="primary" @click="router.push({ name: 'case_ui_playwright_case_edit', params: { id: 0 } })">新建智能用例</n-button></n-space></template>
-    <BasicTable ref="tableRef" :columns="columns" :request="load" :row-key="(row) => row.id" />
+    <BasicTable ref="tableRef" :columns="columns" :request="load" :row-key="(row) => row.id">
+      <template #tableTitle>
+        <div class="list-filter-bar">
+          <span>名称</span>
+          <n-input v-model:value="searchName" clearable placeholder="请输入用例名称" class="name-filter" @keyup.enter="reloadTable" @clear="reloadTable" />
+          <span>所属项目</span>
+          <n-select v-model:value="selectedProject" :options="projectOptions" clearable filterable placeholder="全部项目" class="project-filter" @update:value="reloadTable" />
+          <n-button type="primary" secondary @click="reloadTable">查询</n-button>
+        </div>
+      </template>
+    </BasicTable>
     <n-modal
       v-model:show="recordingVisible"
       preset="card"
@@ -32,6 +42,8 @@ import { EnvironmentAPI, ProjectAPI } from '@/api/project/http';
 const router = useRouter(); const message = useMessage(); const dialog = useDialog(); const api = new PlaywrightCaseAPI();
 const projectApi = new ProjectAPI(); const environmentApi = new EnvironmentAPI(); const recordingVisible = ref(false); const recordingText = ref(''); const codePreview = ref(''); const importing = ref(false); const projectOptions = ref<any[]>([]); const environmentOptions = ref<any[]>([]); const projectLoading = ref(false); const environmentLoading = ref(false);
 const tableRef = ref<any>();
+const searchName = ref('');
+const selectedProject = ref<number | null>(null);
 const recordingForm = reactive<{ project: number | null; name: string; environment_name: string | null }>({ project: null, name: '录制的智能 UI 用例', environment_name: null });
 const listOf = (value: any): any[] => { if (Array.isArray(value)) return value; for (const key of ['list', 'items', 'results', 'data', 'result']) { const nested = value?.[key]; if (nested !== undefined && nested !== value) { const list = listOf(nested); if (list.length) return list; } } return []; };
 function recordingEvents() { const value = JSON.parse(recordingText.value || '{}'); if (!Array.isArray(value.events)) throw new Error('录制 JSON 中缺少 events 数组'); return value.events; }
@@ -52,8 +64,9 @@ const columns = [
     h(NButton, { text: true, type: 'error', onClick: () => dialog.warning({ title: '删除智能用例', content: `确认删除「${r.name}」？`, positiveText: '删除', negativeText: '取消', onPositiveClick: async () => { await api.DeleteDataByID(r.id); await tableRef.value?.removeRowByKey(r.id); message.success('删除成功'); } }) }, { default: () => '删除' }),
   ]) },
 ];
-const load = (params: any) => api.getDataList(params);
+const load = (params: any) => api.getDataList({ ...params, name: searchName.value.trim() || undefined, project: selectedProject.value || undefined });
+function reloadTable() { tableRef.value?.reload?.(); }
 </script>
 <style scoped>
-:global(.recording-modal.n-card){max-height:calc(100vh - 48px);overflow:auto}.recording-modal-body{min-height:460px}.recording-form{margin-top:16px}.recording-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.recording-grid :deep(.n-form-item){margin:0}.code-preview{width:100%;max-height:220px;overflow:auto;margin:0;padding:14px;border-radius:8px;color:#dbe7ff;background:#1f2937;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}@media(max-width:760px){.recording-modal-body{min-height:0}.recording-grid{grid-template-columns:1fr}}
+:global(.recording-modal.n-card){max-height:calc(100vh - 48px);overflow:auto}.recording-modal-body{min-height:460px}.recording-form{margin-top:16px}.recording-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.recording-grid :deep(.n-form-item){margin:0}.code-preview{width:100%;max-height:220px;overflow:auto;margin:0;padding:14px;border-radius:8px;color:#dbe7ff;background:#1f2937;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}.proCard :deep(.table-toolbar-left){min-width:0;flex:0 1 auto}.proCard :deep(.table-toolbar-right){flex:none;margin-left:auto}.list-filter-bar{display:flex;flex-wrap:nowrap;align-items:center;gap:10px;color:#475569;font-size:14px;font-weight:600;white-space:nowrap}.name-filter,.project-filter{width:220px;font-weight:400}@media(max-width:1100px){.proCard :deep(.table-toolbar){align-items:flex-start;flex-direction:column;gap:12px}.proCard :deep(.table-toolbar-right){width:100%;margin-left:0}.list-filter-bar{flex-wrap:wrap}}@media(max-width:760px){.recording-modal-body{min-height:0}.recording-grid{grid-template-columns:1fr}}
 </style>

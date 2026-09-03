@@ -4,6 +4,7 @@ from django.utils import timezone
 from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import jsonpath
 import requests
 import yaml
@@ -97,6 +98,15 @@ class ProjectVariable(models.Model):
                 values[variable.name] = variable.value
         return values
 
+    @classmethod
+    def values_by_project(cls, project_ids):
+        """保留项目维度的运行变量，供跨项目场景精确回退 Token。"""
+        ordered_ids = list(dict.fromkeys(int(project_id) for project_id in (project_ids or []) if project_id))
+        values = {project_id: {} for project_id in ordered_ids}
+        for variable in cls.objects.filter(project_id__in=ordered_ids).order_by("project_id", "id"):
+            values.setdefault(variable.project_id, {})[variable.name] = variable.value
+        return values
+
 
 class Environment(models.Model):
     """项目的一个可执行环境，以及该环境的登录认证规则。"""
@@ -108,6 +118,11 @@ class Environment(models.Model):
         TEST = "Test", "Test"
         PRE = "Pre", "Pre"
         PROD = "Prod", "Prod"
+
+    class BrowserTokenStorage(models.TextChoices):
+        LOCAL_STORAGE = "local_storage", "localStorage"
+        SESSION_STORAGE = "session_storage", "sessionStorage"
+        COOKIE = "cookie", "Cookie"
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="environments")
     name = models.CharField("环境名称", max_length=64, choices=Name.choices, default=Name.TEST)
@@ -126,6 +141,15 @@ class Environment(models.Model):
     token_header = models.CharField("Token 请求头", max_length=64, default="Authorization")
     token_prefix = models.CharField("Token 前缀", max_length=64, default="Bearer ", blank=True)
     token_ttl = models.PositiveIntegerField("Token 默认有效期（秒）", default=1800)
+    browser_token_enabled = models.BooleanField("注入浏览器 Token", default=True)
+    browser_token_storage = models.CharField(
+        "浏览器 Token 存储位置", max_length=24,
+        choices=BrowserTokenStorage.choices, default=BrowserTokenStorage.LOCAL_STORAGE,
+    )
+    browser_token_key = models.CharField("浏览器 Token 存储键", max_length=128, blank=True, default="")
+    browser_token_include_prefix = models.BooleanField("浏览器 Token 包含请求头前缀", default=False)
+    browser_cookie_domain = models.CharField("Cookie 域", max_length=255, blank=True, default="")
+    browser_cookie_path = models.CharField("Cookie 路径", max_length=255, blank=True, default="/")
     # 认证缓存仅供服务端执行器使用，序列化器不会返回这三个字段。
     cached_token = EncryptedTextField("共享 Token 缓存", blank=True, default="")
     token_expires_at = models.DateTimeField("Token 过期时间", null=True, blank=True)
@@ -212,6 +236,7 @@ class Environment(models.Model):
         # 同时提供点号和下划线两种变量名；例如 ${front_api.token}、${front_api_token}。
         existing[f"{alias}.{self.token_name}"] = token
         existing[f"{alias}_{self.token_name}"] = token
+        existing[f"project_{self.project_id}.{self.token_name}"] = token
         if alias == "default":
             existing[self.token_name] = token
         with open(extract_path, "w", encoding="utf-8") as file:
@@ -245,6 +270,41 @@ class Environment(models.Model):
                 environment.token_expires_at = expires_at
                 environment.token_refreshed_at = refreshed_at
             return environment._write_token_to_run(run_path, alias, token)
+
+    def browser_token_payload(self, variables=None, run_path=None):
+        """返回 UI 执行器的浏览器 Token 注入配置，不对外序列化 Token 值。"""
+        if not self.browser_token_enabled:
+            return {}
+        variables = variables or {}
+        token_name = str(self.token_name or "token")
+        token = variables.get(f"project_{self.project_id}.{token_name}")
+        if token in (None, ""):
+            token = variables.get(token_name)
+        if token in (None, ""):
+            token = ProjectVariable.objects.filter(
+                project_id=self.project_id, name=token_name,
+            ).values_list("value", flat=True).first()
+        if token in (None, "") and self.auth_enabled:
+            if run_path is not None:
+                self.prepare_auth(Path(run_path), str(self.name))
+            else:
+                with TemporaryDirectory(prefix="ui_browser_auth_") as directory:
+                    self.prepare_auth(Path(directory), str(self.name))
+            self.refresh_from_db(fields=["cached_token"])
+            token = self.cached_token
+        if token in (None, ""):
+            return {}
+        token = str(token)
+        prefix = str(self.token_prefix or "")
+        if self.browser_token_include_prefix and prefix and not token.startswith(prefix):
+            token = f"{prefix}{token}"
+        return {
+            "storage": self.browser_token_storage,
+            "key": str(self.browser_token_key or token_name),
+            "value": token,
+            "cookie_domain": str(self.browser_cookie_domain or ""),
+            "cookie_path": str(self.browser_cookie_path or "/"),
+        }
 
 
 class DatabaseConnection(models.Model):

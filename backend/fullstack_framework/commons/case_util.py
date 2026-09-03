@@ -23,6 +23,7 @@ from fullstack_framework.commons.api_executor import (
     substitute_text,
 )
 from project.models import Environment, response_indicates_expired_token
+from project.runtime_token import RuntimeTokenState
 from suite.reporting import load_variable_resolution, recalculate_native_report, record_variable_resolution
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,13 @@ session = BeifanSession()
 yaml_file = YamlUtil(settings.extract_path)
 
 extrac_data = yaml_file.read() or {}
+project_fallback_path = Path.cwd() / "project_variable_fallbacks.yaml"
+if project_fallback_path.exists():
+    with project_fallback_path.open(encoding="utf-8") as project_fallback_file:
+        project_token_fallbacks = yaml.safe_load(project_fallback_file) or {}
+else:
+    project_token_fallbacks = {}
+runtime_token_state = RuntimeTokenState(extrac_data, project_token_fallbacks)
 
 logger.info(f"{extrac_data=}")
 
@@ -148,6 +156,8 @@ def run_case(all_case_info):
 def _persist_extracted(values, case_info=None):
     for name, value in values.items():
         extrac_data[name] = value
+        if case_info and getattr(case_info, "project_id", None):
+            extrac_data[f"project_{case_info.project_id}.{name}"] = value
         logger.info(f"提取到变量 {name} = {value}")
         if name.startswith("session_"):
             params = session.params or {}
@@ -158,7 +168,10 @@ def _persist_extracted(values, case_info=None):
         extract_rules = getattr(case_info, "extract", None) or {}
         for name, value in values.items():
             rule = extract_rules.get(name)
-            expression = rule[1] if isinstance(rule, (list, tuple)) and len(rule) > 1 else rule
+            if isinstance(rule, dict):
+                expression = rule.get("expression")
+            else:
+                expression = rule[1] if isinstance(rule, (list, tuple)) and len(rule) > 1 else rule
             record_variable_resolution(
                 Path.cwd(), "api_extract", {name: value},
                 step_id=getattr(case_info, "source_step_id", None),
@@ -301,13 +314,22 @@ def _execute_case_info(case_info):
         request_payload = dict(request_data)
         request_payload.setdefault("timeout", timeout)
         request_payload["interface_name"] = case_info.test_name
+        environment = Environment.objects.filter(
+            project_id=case_info.project_id, name=case_info.environment_name
+        ).first()
+        if environment:
+            runtime_token_state.apply(environment, request_payload)
         response = session.request(**request_payload)
+        if (
+            environment
+            and response_indicates_expired_token(response)
+            and runtime_token_state.discard_runtime_token(environment)
+        ):
+            runtime_token_state.apply(environment, request_payload)
+            response = session.request(**request_payload)
         # 网关可能用 HTTP 200 返回 code=1023/jwt expired，不能只依赖
         # token_expires_at 的预判；强制刷新后重试本次请求一次。
         if not auth_refreshed and response_indicates_expired_token(response):
-            environment = Environment.objects.filter(
-                project_id=case_info.project_id, name=case_info.environment_name
-            ).first()
             if environment:
                 refreshed_headers = environment.prepare_auth(
                     Path.cwd(), str(environment.name), force_refresh=True
@@ -325,7 +347,10 @@ def _execute_case_info(case_info):
                 polling=case_info.polling, post_sql=case_info.post_sql, variables=extrac_data,
                 project_id=case_info.project_id, environment_name=case_info.environment_name,
                 request_func=request_func,
-                on_success=lambda values: _persist_extracted(values, case_info),
+                on_success=lambda values: (
+                    _persist_extracted(values, case_info),
+                    runtime_token_state.observe_extracted(environment, values) if environment else None,
+                ),
             ),
             enabled=case_info.retry_on_failure,
             retry_count=case_info.failure_retry_count,

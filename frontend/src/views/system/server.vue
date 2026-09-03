@@ -12,7 +12,7 @@
       <div class="server-page__actions"><n-select v-model:value="selectedProject" clearable class="project-filter" :options="projectOptions" placeholder="全部项目" @update:value="load" /><n-button type="primary" @click="openEditor()">新增服务器</n-button></div>
     </header>
     <n-card :bordered="false" class="server-card">
-      <n-data-table :columns="columns" :data="records" :loading="loading" :row-key="row => row.id" />
+      <n-data-table striped :columns="columns" :data="records" :loading="loading" :row-key="row => row.id" />
     </n-card>
 
     <n-modal v-model:show="editorVisible" preset="card" :title="editing?.id ? '编辑服务器连接' : '新增服务器连接'" class="platform-form-modal server-editor" :mask-closable="false">

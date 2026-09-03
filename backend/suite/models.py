@@ -412,6 +412,15 @@ class Suite(models.Model):
         project_ids = [project_id for project_id in project_ids if project_id and project_id != environment.project_id]
         project_ids.append(environment.project_id)
         project_variables = ProjectVariable.values_for_projects(project_ids)
+        # 单独保留各项目的初始变量：接口提取 Token 失效时，
+        # 必须回退到该接口所属项目的 Token，不能被同名环境 Token 混淆。
+        with (path / "project_variable_fallbacks.yaml").open("w", encoding="utf-8") as file:
+            yaml.safe_dump(
+                ProjectVariable.values_by_project(project_ids),
+                file,
+                allow_unicode=True,
+                sort_keys=False,
+            )
 
         # 3. 生成 yaml 和 excel 测试用例
         try:
@@ -435,6 +444,7 @@ class Suite(models.Model):
                             "project_id": step.endpoint.project_id, "environment_name": execution_environment_name,
                             "epic": self.name, "feature": scenario.name,
                         })
+                        # 场景步骤保存添加接口时的规则快照，包括明确删除后的空规则。
                         data["extract"] = step.extract or {}
                         data["post_sql"] = step.post_sql or []
                         data["validate"] = step.validate or {}

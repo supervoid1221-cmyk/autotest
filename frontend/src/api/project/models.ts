@@ -29,6 +29,12 @@ export interface Environment {
   token_header: string;
   token_prefix: string;
   token_ttl: number;
+  browser_token_enabled: boolean;
+  browser_token_storage: 'local_storage' | 'session_storage' | 'cookie';
+  browser_token_key: string;
+  browser_token_include_prefix: boolean;
+  browser_cookie_domain: string;
+  browser_cookie_path: string;
 }
 
 export interface EnvironmentAuthStatus {

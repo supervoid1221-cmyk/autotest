@@ -7,6 +7,8 @@ export type Endpoint = components['schemas']['Endpoint'] & {
   parametrize?: Array<Array<string | number | boolean | null>>;
   module?: number | null;
   module_name?: string | null;
+  extract?: Record<string, unknown>;
+  validate?: Record<string, unknown>;
 };
 
 export interface EndpointRunResult {

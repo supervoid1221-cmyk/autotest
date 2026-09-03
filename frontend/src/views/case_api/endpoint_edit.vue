@@ -133,6 +133,9 @@
                     :autosize="{ minRows: 7, maxRows: 14 }"
                     :placeholder="activeEditorPlaceholder"
                     @update:value="updateActiveEditor"
+                    @click="rememberActiveEditorCursor"
+                    @keyup="rememberActiveEditorCursor"
+                    @select="rememberActiveEditorCursor"
                   />
                 </div>
                 <div class="editor-note"
@@ -172,6 +175,62 @@
                   >
                 </div>
               </section>
+            </section>
+
+            <section class="response-rules-card">
+              <n-tabs v-model:value="responseRuleTab" type="line" animated class="response-rule-tabs">
+                <n-tab-pane name="extract" :tab="`数据提取 ${extractRules.length}`">
+                  <div class="rule-actions">
+                    <span>执行成功后提取响应数据，供请求参数或断言引用。</span>
+                    <n-button type="primary" secondary size="small" @click="addExtractRule">＋ 添加提取规则</n-button>
+                  </div>
+                  <div class="extract-rule-table">
+                    <div class="extract-rule-row extract-rule-header">
+                      <span>变量名</span><span>提取方式</span><span>响应来源</span><span>表达式</span><span>索引 / 捕获组</span><span></span>
+                    </div>
+                    <div v-for="(rule, index) in extractRules" :key="index" class="extract-rule-row">
+                      <n-input v-model:value="rule.name" size="small" placeholder="变量名" @update:value="handleExtractNameInput(rule, $event)" />
+                      <n-select v-model:value="rule.mode" size="small" :options="extractModeOptions" @update:value="handleExtractModeChange(rule)" />
+                      <n-select v-model:value="rule.source" size="small" :options="rule.mode === 'jsonpath' ? jsonPathSourceOptions : extractSourceOptions" />
+                      <n-auto-complete
+                        v-if="rule.mode === 'jsonpath'"
+                        v-model:value="rule.expression"
+                        :options="responseExpressionOptions(rule)"
+                        :render-label="renderResponsePathLabel"
+                        :get-show="() => true"
+                        blur-after-select
+                        clearable
+                        size="small"
+                        placeholder="调试接口后可选择响应路径"
+                        @select="handleResponsePathSelect(rule, $event)"
+                      />
+                      <n-input v-else v-model:value="rule.expression" size="small" placeholder="如 token=(.*?)&" />
+                      <n-input-number v-model:value="rule.index" :min="0" :show-button="false" size="small" />
+                      <n-button text type="error" size="small" @click="extractRules.splice(index, 1)">删除</n-button>
+                      <ExtractProcessorEditor v-model="rule.processors" />
+                    </div>
+                    <n-empty v-if="!extractRules.length" size="small" description="暂无提取规则" class="rule-empty" />
+                  </div>
+                  <div class="rule-tip">JSONPath 示例：<code>$.data.token</code>；正则的捕获组填写 <code>1</code> 可获取括号内容，<code>0</code> 表示完整匹配。</div>
+                </n-tab-pane>
+
+                <n-tab-pane name="validate" :tab="`断言 ${validateRules.length}`">
+                  <div class="rule-actions">
+                    <span>实际值使用 JSONPath；期望值支持引用项目参数、动态函数及当前接口提取变量。</span>
+                    <n-button type="primary" secondary size="small" @click="addValidateRule">＋ 添加断言</n-button>
+                  </div>
+                  <div class="validate-rule-table">
+                    <div class="validate-rule-row validate-rule-header"><span>实际值</span><span>断言方式</span><span>期望值</span><span></span></div>
+                    <div v-for="(rule, index) in validateRules" :key="index" class="validate-rule-row">
+                      <n-auto-complete v-model:value="rule.actual" :options="assertionExpressionOptions" :render-label="renderResponsePathLabel" :get-show="() => true" blur-after-select clearable size="small" placeholder="$.data.code" />
+                      <n-select v-model:value="rule.type" :options="validateTypeOptions" size="small" />
+                      <n-input v-model:value="rule.expected" size="small" placeholder="期望值或 ${变量名}" />
+                      <n-button text type="error" size="small" @click="validateRules.splice(index, 1)">删除</n-button>
+                    </div>
+                    <n-empty v-if="!validateRules.length" size="small" description="暂无断言规则" class="rule-empty" />
+                  </div>
+                </n-tab-pane>
+              </n-tabs>
             </section>
 
             <section class="data-drive-card">
@@ -250,16 +309,42 @@
                 ></div
               ></section
             >
-            <section class="side-card variables-card"
-              ><h2>可用变量</h2
-              ><div class="variable-list"
-                ><div><code>${token}</code><span>环境 Token</span></div
-                ><div v-for="variable in projectVariables" :key="variable.id || variable.name"
-                  ><code>{{ variableReference(variable.name) }}</code
-                  ><span>项目参数</span></div
-                ></div
-              ><p>在请求中使用 <code>${变量名}</code> 引用变量值，运行时自动替换。</p></section
-            >
+            <section class="side-card variables-card">
+              <header class="variable-card-header">
+                <h2>可用变量</h2>
+                <button type="button" class="variable-collapse-button" :aria-label="variablesCollapsed ? '展开可用变量' : '收起可用变量'" @click="variablesCollapsed = !variablesCollapsed">
+                  <PhCaretUp :class="{ collapsed: variablesCollapsed }" />
+                </button>
+              </header>
+              <div v-show="!variablesCollapsed" class="variable-card-content">
+                <n-input v-model:value="variableSearch" clearable class="variable-search" placeholder="搜索变量名或来源">
+                  <template #prefix><PhMagnifyingGlass /></template>
+                </n-input>
+                <div class="variable-tabs" role="tablist" aria-label="变量分类">
+                  <button v-for="tab in variableTabs" :key="tab.key" type="button" role="tab" :aria-selected="variableCategory === tab.key" :class="{ active: variableCategory === tab.key }" @click="variableCategory = tab.key">
+                    <span>{{ tab.label }}</span><b>{{ tab.count }}</b>
+                  </button>
+                </div>
+                <div v-if="filteredVariableGroups.length" class="variable-groups">
+                  <section v-for="group in filteredVariableGroups" :key="group.key" class="variable-group" :class="`is-${group.key}`">
+                    <header><div><PhCircle weight="fill" /><strong>{{ group.label }}</strong><PhCircle weight="fill" /><span>{{ group.detail }}</span></div><b>{{ group.items.length }}</b></header>
+                    <div class="variable-rows">
+                      <div v-for="variable in group.items" :key="variable.key" class="variable-row">
+                        <code>{{ variable.reference }}</code>
+                        <span v-if="variable.category === 'project'" class="variable-value" :title="variableDisplayValue(variable)">
+                          {{ variableDisplayValue(variable) }}
+                          <button v-if="variable.sensitive" type="button" class="variable-eye-button" @click="toggleVariableVisibility(variable.key)">
+                            <PhEyeSlash v-if="revealedVariableKeys.has(variable.key)" /><PhEye v-else />
+                          </button>
+                        </span>
+                        <span class="variable-actions"><button type="button" @click="copyVariable(variable)">复制</button><button type="button" @click="referenceVariable(variable)">引用</button></span>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+                <div v-else class="variable-empty"><PhPackage /><span>{{ variableSearch ? '没有匹配的可用变量' : '暂无项目参数或动态函数' }}</span></div>
+              </div>
+            </section>
           </aside>
         </div>
       </n-form>
@@ -323,15 +408,17 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, ref, reactive, onMounted } from 'vue';
+  import { computed, h, ref, reactive, onMounted } from 'vue';
   import { FormRules, useMessage } from 'naive-ui';
   import { useRoute, useRouter } from 'vue-router';
-  import { PhBracketsCurly, PhPaperclip, PhPlay, PhQuestion, PhStack } from '@phosphor-icons/vue';
+  import { PhBracketsCurly, PhCaretUp, PhCircle, PhEye, PhEyeSlash, PhMagnifyingGlass, PhPackage, PhPaperclip, PhPlay, PhQuestion, PhStack } from '@phosphor-icons/vue';
   import { useSubmitRedirect } from '@/hooks/web/useSubmitRedirect';
-  import { EnvironmentAPI, ProjectAPI, ProjectVariableAPI } from '@/api/project/http';
+  import { DynamicFunctionAPI, EnvironmentAPI, ProjectAPI, ProjectVariableAPI } from '@/api/project/http';
   import { Environment, ProjectVariable } from '@/api/project/models';
   import { EndpointAPI, EndpointModuleAPI } from '@/api/case_api/http';
   import { Endpoint, EndpointRunResult, UploadedEndpointFile } from '@/api/case_api/models';
+  import ExtractProcessorEditor from './components/ExtractProcessorEditor.vue';
+  import { defaultExtractRule, extractRuleFromConfig, extractRuleToConfig, type ExtractRule } from './extract-processors';
 
   const route = useRoute();
   const router = useRouter();
@@ -346,6 +433,7 @@
   const moduleApi = new EndpointModuleAPI();
   const project_api = new ProjectAPI();
   const projectVariableApi = new ProjectVariableAPI();
+  const dynamicFunctionApi = new DynamicFunctionAPI();
   const environmentApi = new EnvironmentAPI();
 
   const formRef: any = ref(null);
@@ -361,6 +449,18 @@
   const debugEnvironmentOptions = ref<Array<{ label: string; value: number }>>([]);
   const debugEnvironments = ref<Environment[]>([]);
   const debugResult = ref<EndpointRunResult | null>(null);
+  type ValidateRule = { type: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'contains'; actual: string; expected: string };
+  type VariableCategory = 'project' | 'function';
+  type VariableItem = { key: string; name: string; reference: string; category: VariableCategory; value: string; source: string; sensitive?: boolean };
+  const responseRuleTab = ref<'extract' | 'validate'>('extract');
+  const extractRules = ref<ExtractRule[]>([]);
+  const validateRules = ref<ValidateRule[]>([]);
+  const dynamicFunctions = ref<any[]>([]);
+  const variableSearch = ref('');
+  const variableCategory = ref<'all' | VariableCategory>('all');
+  const variablesCollapsed = ref(false);
+  const revealedVariableKeys = ref(new Set<string>());
+  const activeEditorCursor = ref<{ field: JsonField; start: number; end: number } | null>(null);
   const debugEnvironmentName = computed(
     () => debugEnvironments.value.find((item) => item.id === debugEnvironmentId.value)?.name || '—'
   );
@@ -420,6 +520,8 @@
       json: {},
       files: {},
       parametrize: [],
+      extract: {},
+      validate: {},
     };
   }
 
@@ -444,6 +546,14 @@
     data: '{}',
     json: '{}',
   });
+  const extractModeOptions = [{ label: 'JSONPath', value: 'jsonpath' }, { label: '正则（re）', value: 're' }];
+  const extractSourceOptions = [{ label: 'JSON', value: 'json' }, { label: '响应文本', value: 'text' }, { label: '响应头', value: 'headers' }];
+  const jsonPathSourceOptions = [{ label: 'JSON', value: 'json' }, { label: '响应头', value: 'headers' }];
+  const validateTypeOptions = [
+    { label: '相等', value: 'equals' }, { label: '不等于', value: 'not_equals' },
+    { label: '大于', value: 'greater_than' }, { label: '小于', value: 'less_than' },
+    { label: '包含', value: 'contains' },
+  ];
   const requestCount = (field: JsonField) => Object.keys(formValue[field] || {}).length;
   const requestTabs = computed(() => [
     { value: 'headers' as const, label: 'Headers', icon: PhStack, count: requestCount('headers') },
@@ -476,6 +586,104 @@
       ? '{\n  "name": "demo"\n}'
       : '{\n  "email": "admin@example.com"\n}'
   );
+
+  const asList = (data: any) => Array.isArray(data) ? data : data?.list || data?.results || [];
+  const defaultValidateRule = (): ValidateRule => ({ type: 'equals', actual: '$.', expected: '' });
+  const normalizeJsonPathExpression = (value: unknown) => String(value || '').replace(/\s+·\s+.*$/, '').trim();
+  const variableNameFromJsonPath = (path: unknown) => {
+    const expression = normalizeJsonPathExpression(path);
+    const bracketKey = expression.match(/\[['"]([^'"]+)['"]\]$/)?.[1];
+    const dotKey = expression.match(/\.([A-Za-z_$][\w$]*)$/)?.[1];
+    const indexedKey = expression.match(/\.([A-Za-z_$][\w$]*)\[(\d+)\]$/);
+    const rawName = bracketKey || dotKey || (indexedKey ? `${indexedKey[1]}_${indexedKey[2]}` : '');
+    const normalized = rawName.replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+|_+$/g, '');
+    if (!normalized) return '';
+    return /^\d/.test(normalized) ? `value_${normalized}` : normalized;
+  };
+  const toExtractRules = (extract: Record<string, unknown> = {}) => Object.entries(extract || {}).flatMap(([name, value]) => {
+    const rule = extractRuleFromConfig(name, value, normalizeJsonPathExpression, variableNameFromJsonPath);
+    return rule ? [rule] : [];
+  });
+  const toExtractConfig = (rules: ExtractRule[] = []) => rules.reduce((result: Record<string, unknown>, rule) => {
+    if (!rule.name.trim() || !rule.expression.trim()) return result;
+    result[rule.name.trim()] = extractRuleToConfig(rule, normalizeJsonPathExpression);
+    return result;
+  }, {});
+  const normalizeAssertReference = (value: unknown) => {
+    const reference = String(value ?? '');
+    if (reference.startsWith('$')) return reference;
+    if (['status_code', 'text', 'json', 'headers'].includes(reference)) return `$.${reference}`;
+    return reference ? `$.variables.${reference}` : '';
+  };
+  const toValidateRules = (validate: Record<string, unknown> = {}) => (['equals', 'not_equals', 'greater_than', 'less_than', 'contains'] as const).flatMap((type) => {
+    const expressions = validate[type];
+    if (!expressions || typeof expressions !== 'object' || Array.isArray(expressions)) return [];
+    return Object.entries(expressions as Record<string, unknown>).flatMap(([, value]) => Array.isArray(value) && value.length >= 2
+      ? [{ type, actual: normalizeAssertReference(value[0]), expected: String(value[1] ?? '') }]
+      : []);
+  });
+  const toValidateConfig = (rules: ValidateRule[] = []) => {
+    const result: Record<ValidateRule['type'], Record<string, [string, string]>> = { equals: {}, not_equals: {}, greater_than: {}, less_than: {}, contains: {} };
+    const labels = { equals: '相等', not_equals: '不等于', greater_than: '大于', less_than: '小于', contains: '包含' } as const;
+    rules.forEach((rule) => {
+      if (rule.actual.trim()) result[rule.type][`${rule.actual.trim()} ${labels[rule.type]} ${rule.expected}`] = [rule.actual.trim(), rule.expected];
+    });
+    return Object.fromEntries(Object.entries(result).filter(([, expressions]) => Object.keys(expressions).length));
+  };
+  function syncResponseRules() {
+    extractRules.value = toExtractRules(formValue.extract as Record<string, unknown>);
+    validateRules.value = toValidateRules(formValue.validate as Record<string, unknown>);
+  }
+  function addExtractRule() { extractRules.value.push(defaultExtractRule()); }
+  function addValidateRule() { validateRules.value.push(defaultValidateRule()); }
+  function handleExtractModeChange(rule: ExtractRule) { if (rule.mode === 'jsonpath' && rule.source === 'text') rule.source = 'json'; }
+  function handleExtractNameInput(rule: ExtractRule, value: string) { rule.name = value; if (value.trim() !== rule.autoVariableName) rule.autoVariableName = undefined; }
+
+  const appendJsonPath = (prefix: string, key: string) => /^[A-Za-z_$][\w$]*$/.test(key) ? `${prefix}.${key}` : `${prefix}[${JSON.stringify(key)}]`;
+  const selectableResponsePaths = (value: any) => {
+    const result: Array<{ path: string; value: unknown }> = [];
+    const seen = new Set<string>();
+    const visit = (item: any, prefix: string, depth: number, includeCurrent: boolean) => {
+      if (result.length >= 240 || depth > 6) return;
+      if (includeCurrent && !seen.has(prefix)) { seen.add(prefix); result.push({ path: prefix, value: item }); }
+      if (Array.isArray(item)) item.slice(0, 10).forEach((child, index) => visit(child, `${prefix}[${index}]`, depth + 1, true));
+      else if (item && typeof item === 'object') Object.entries(item).slice(0, 80).forEach(([key, child]) => visit(child, appendJsonPath(prefix, key), depth + 1, true));
+    };
+    visit(value, '$', 0, value === null || typeof value !== 'object');
+    return result;
+  };
+  const responseValuePreview = (value: unknown) => {
+    if (Array.isArray(value)) return '数组';
+    if (value && typeof value === 'object') return '对象';
+    const text = String(value ?? 'null').replace(/\s+/g, ' ');
+    return text.length > 48 ? `${text.slice(0, 48)}…` : text;
+  };
+  function responseValueFor(source: ExtractRule['source']) {
+    if (!debugResult.value) return undefined;
+    if (source === 'headers') return debugResult.value.response_headers;
+    if (source === 'json') {
+      if (debugResult.value.response_json !== undefined && debugResult.value.response_json !== null) return debugResult.value.response_json;
+      try { return JSON.parse(debugResult.value.response_body || ''); } catch { return undefined; }
+    }
+    return debugResult.value.response_body;
+  }
+  const pathOptions = (source: ExtractRule['source'], keyword = '') => {
+    const responseValue = responseValueFor(source);
+    if (responseValue === undefined || responseValue === null) return [];
+    return selectableResponsePaths(responseValue)
+      .map((item) => ({ label: item.path, value: item.path, preview: responseValuePreview(item.value) }))
+      .filter((item) => !keyword || item.value.toLowerCase().includes(keyword) || item.preview.toLowerCase().includes(keyword));
+  };
+  const responseExpressionOptions = (rule: ExtractRule) => rule.mode === 'jsonpath' ? pathOptions(rule.source, rule.expression.trim().toLowerCase()) : [];
+  const assertionExpressionOptions = computed(() => [
+    { label: '$.status_code', value: '$.status_code', preview: String(debugResult.value?.status_code ?? '状态码') },
+    ...pathOptions('json'),
+  ]);
+  const renderResponsePathLabel = (option: any) => h('span', { class: 'response-path-option' }, [h('code', option.value), h('span', `· ${option.preview || ''}`)]);
+  function handleResponsePathSelect(rule: ExtractRule, selectedPath: string) {
+    const nextAutoName = variableNameFromJsonPath(selectedPath);
+    if (nextAutoName && (!rule.name.trim() || rule.name.trim() === rule.autoVariableName)) { rule.name = nextAutoName; rule.autoVariableName = nextAutoName; }
+  }
 
   function normalizeEndpoint(data?: Partial<Endpoint>) {
     const defaults = createDefaultValue();
@@ -511,6 +719,8 @@
           cookies: {},
           files: serializeFiles(),
           parametrize: serializeDataDrive(),
+          extract: toExtractConfig(extractRules.value),
+          validate: toValidateConfig(validateRules.value),
         } as Endpoint;
       } catch (error: any) {
         message.error(error.message);
@@ -616,7 +826,11 @@
       if (formValue.project) await loadModuleOptions(formValue.project);
     }
     syncJsonText();
-    if (formValue.project) await loadProjectVariables(Number(formValue.project));
+    syncResponseRules();
+    if (formValue.project) await Promise.all([
+      loadProjectVariables(Number(formValue.project)),
+      loadDynamicFunctions(Number(formValue.project)),
+    ]);
   }
 
   async function loadModuleOptions(projectId: number) {
@@ -629,13 +843,19 @@
     formValue.module = null;
     module_list.value = [];
     projectVariables.value = [];
+    dynamicFunctions.value = [];
     if (projectId)
-      await Promise.all([loadModuleOptions(projectId), loadProjectVariables(projectId)]);
+      await Promise.all([loadModuleOptions(projectId), loadProjectVariables(projectId), loadDynamicFunctions(projectId)]);
   }
 
   async function loadProjectVariables(projectId: number) {
     const data: any = await projectVariableApi.getDataList({ project: projectId, pageSize: 999 });
     projectVariables.value = Array.isArray(data) ? data : data?.list || data?.results || [];
+  }
+
+  async function loadDynamicFunctions(projectId: number) {
+    const data: any = await dynamicFunctionApi.getDataList({ projects: String(projectId), page: 1, pageSize: 999 });
+    dynamicFunctions.value = asList(data).filter((item: any) => item.enabled !== false);
   }
 
   function formatJson(value: unknown) {
@@ -704,6 +924,79 @@
 
   function variableReference(name: string) {
     return `\${${name}}`;
+  }
+
+  const variableItems = computed<VariableItem[]>(() => {
+    const projectItems = projectVariables.value.filter((variable) => String(variable.name || '').trim()).map((variable) => {
+      const name = String(variable.name).trim();
+      return {
+        key: `project-${variable.id || name}`, name, reference: variableReference(name), category: 'project' as const,
+        value: String(variable.value ?? ''), source: `项目参数${(variable as any).project_name ? ` · ${(variable as any).project_name}` : ''}${(variable as any).description ? ` · ${(variable as any).description}` : ''}`,
+        sensitive: /(?:secret|password|passwd|token|credential|private[_-]?key|api[_-]?key)/i.test(name),
+      };
+    });
+    const names = new Set<string>();
+    const functionItems = dynamicFunctions.value.flatMap((item: any) => asList(item.function_names).flatMap((rawName: any) => {
+      const name = String(rawName || '').trim();
+      if (!name || names.has(name)) return [];
+      names.add(name);
+      return [{ key: `function-${item.id || 'custom'}-${name}`, name, reference: `\${${name}()}`, category: 'function' as const, value: '', source: '动态函数' }];
+    }));
+    return [...projectItems, ...functionItems];
+  });
+  const variableTabs = computed(() => {
+    const count = (category?: VariableCategory) => category ? variableItems.value.filter((item) => item.category === category).length : variableItems.value.length;
+    return [{ key: 'all' as const, label: '全部', count: count() }, { key: 'project' as const, label: '项目参数', count: count('project') }, { key: 'function' as const, label: '动态函数', count: count('function') }];
+  });
+  const filteredVariableGroups = computed(() => {
+    const keyword = variableSearch.value.trim().toLowerCase();
+    const items = variableItems.value.filter((item) => {
+      if (variableCategory.value !== 'all' && item.category !== variableCategory.value) return false;
+      return !keyword || [item.name, item.reference, item.value, item.source].some((value) => String(value).toLowerCase().includes(keyword));
+    });
+    const projectName = project_list.value.find((item) => item.value === formValue.project)?.label || '当前项目';
+    return [
+      { key: 'project' as const, label: '项目参数', detail: `项目：${projectName}`, items: items.filter((item) => item.category === 'project') },
+      { key: 'function' as const, label: '动态函数', detail: '函数', items: items.filter((item) => item.category === 'function') },
+    ].filter((group) => group.items.length);
+  });
+  function variableDisplayValue(variable: VariableItem) {
+    if (variable.sensitive && !revealedVariableKeys.value.has(variable.key)) return '******';
+    return variable.value || '-';
+  }
+  function toggleVariableVisibility(key: string) {
+    const next = new Set(revealedVariableKeys.value);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    revealedVariableKeys.value = next;
+  }
+  async function copyVariable(variable: VariableItem, notify = true) {
+    try {
+      await navigator.clipboard.writeText(variable.reference);
+      if (notify) message.success(`已复制 ${variable.reference}`);
+      return true;
+    } catch {
+      message.error('复制失败，请手动选择变量表达式');
+      return false;
+    }
+  }
+  function rememberActiveEditorCursor(event: Event) {
+    const target = event.target as HTMLTextAreaElement | null;
+    if (!target || typeof target.selectionStart !== 'number') return;
+    activeEditorCursor.value = { field: activeEditorField.value, start: target.selectionStart, end: target.selectionEnd };
+  }
+  async function referenceVariable(variable: VariableItem) {
+    const cursor = activeEditorCursor.value;
+    if (!cursor) {
+      if (await copyVariable(variable, false)) message.info('已复制变量，请在请求参数中粘贴');
+      return;
+    }
+    const current = jsonText[cursor.field] || '';
+    const start = Math.min(cursor.start, current.length);
+    const end = Math.min(cursor.end, current.length);
+    jsonText[cursor.field] = `${current.slice(0, start)}${variable.reference}${current.slice(end)}`;
+    activeEditorCursor.value = { field: cursor.field, start: start + variable.reference.length, end: start + variable.reference.length };
+    updateJsonField(cursor.field, jsonText[cursor.field]);
+    message.success(`已引用 ${variable.reference}`);
   }
 
   function updateJsonField(field: 'headers' | 'params' | 'data' | 'json', value: string) {
@@ -860,6 +1153,7 @@
   }
   .basic-card,
   .request-card,
+  .response-rules-card,
   .data-drive-card,
   .side-card {
     border: 1px solid #dce3ee;
@@ -1303,6 +1597,55 @@
     font-size: 12px;
     line-height: 1.7;
   }
+  .response-rules-card { overflow: hidden; border: 1px solid #dce3ee; border-radius: 10px; background: #fff; }
+  .response-rule-tabs :deep(.n-tabs-nav) { padding: 0 18px; border-bottom: 1px solid #e8edf4; }
+  .response-rule-tabs :deep(.n-tabs-tab) { min-height: 50px; font-weight: 600; }
+  .response-rule-tabs :deep(.n-tabs-pane-wrapper) { padding: 14px 18px 18px; }
+  .rule-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: #7d8795; font-size: 12px; }
+  .extract-rule-table, .validate-rule-table { overflow: hidden; border: 1px solid #e4e9f1; border-radius: 8px; }
+  .extract-rule-row { display: grid; grid-template-columns: minmax(110px, 1.1fr) 120px 120px minmax(160px, 1.8fr) 96px 44px; gap: 10px; align-items: center; padding: 10px 14px; border-top: 1px solid #edf0f5; }
+  .validate-rule-row { display: grid; grid-template-columns: minmax(170px, 1.4fr) 136px minmax(150px, 1fr) 44px; gap: 10px; align-items: center; padding: 10px 14px; border-top: 1px solid #edf0f5; }
+  .extract-rule-row:first-child, .validate-rule-row:first-child { border-top: 0; }
+  .extract-rule-header, .validate-rule-header { color: #687386; background: #f8fafc; font-size: 12px; font-weight: 600; }
+  .rule-empty { padding: 22px 0; }
+  .rule-tip { margin-top: 10px; color: #7d8795; font-size: 12px; line-height: 1.75; }
+  .rule-tip code { padding: 1px 4px; border-radius: 3px; color: #536174; background: #f3f5f8; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  :global(.response-path-option) { display: flex; min-width: 0; align-items: center; gap: 7px; }
+  :global(.response-path-option code) { overflow: hidden; color: #315fc9; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+  :global(.response-path-option span) { overflow: hidden; color: #8a96a8; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .variable-card-header { display: flex; min-height: 46px; padding: 0 12px; align-items: center; justify-content: space-between; }
+  .variable-card-header h2 { padding: 0; border: 0; font-size: 14px; }
+  .variable-collapse-button { display: inline-grid; width: 28px; height: 28px; padding: 0; border: 0; place-items: center; color: #617086; background: transparent; cursor: pointer; }
+  .variable-collapse-button :deep(svg) { font-size: 16px; transition: transform .18s ease; }
+  .variable-collapse-button :deep(svg.collapsed) { transform: rotate(180deg); }
+  .variable-card-content { min-width: 0; padding: 0 0 12px; overflow: hidden; }
+  .variable-search { width: auto; min-width: 0; max-width: calc(100% - 24px); margin: 0 12px 10px; box-sizing: border-box; }
+  .variable-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 42px; padding: 0 9px; border-bottom: 1px solid #e6eaf0; }
+  .variable-tabs button { position: relative; display: inline-flex; min-width: 0; height: 42px; padding: 0 3px; border: 0; align-items: center; justify-content: center; gap: 4px; color: #66758b; background: transparent; font-size: 11px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+  .variable-tabs button::after { position: absolute; right: 4px; bottom: -1px; left: 4px; height: 2px; border-radius: 2px 2px 0 0; background: transparent; content: ''; }
+  .variable-tabs button b { display: inline-grid; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px; place-items: center; color: #7e8ca1; background: #f1f3f7; font-size: 10px; }
+  .variable-tabs button.active { color: #2468f2; }
+  .variable-tabs button.active::after { background: #2468f2; }
+  .variable-tabs button.active b { color: #2468f2; background: #edf3ff; }
+  .variable-groups { max-height: min(600px, calc(100vh - 170px)); padding-top: 4px; overflow: auto; }
+  .variable-group { margin: 0 10px 10px; overflow: hidden; border: 1px solid #dfe5ed; border-radius: 5px; background: #fff; }
+  .variable-group > header { display: flex; min-height: 38px; padding: 0 10px; border-bottom: 1px solid #e8ecf2; align-items: center; justify-content: space-between; background: #fbfcfe; }
+  .variable-group > header > div { display: flex; min-width: 0; align-items: center; gap: 6px; }
+  .variable-group > header :deep(svg) { width: 8px; height: 8px; flex: none; color: #18a058; }
+  .variable-group > header strong { color: #18a058; font-size: 12px; }
+  .variable-group > header span { overflow: hidden; color: #8a96a8; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .variable-group > header > b { color: #6d7b90; font-size: 11px; }
+  .variable-group.is-function > header :deep(svg), .variable-group.is-function > header strong { color: #7c4ce0; }
+  .variable-row { display: grid; min-height: 40px; padding: 0 9px; grid-template-columns: minmax(82px, .8fr) minmax(0, 1.35fr) auto; align-items: center; gap: 7px; border-bottom: 1px solid #edf0f5; }
+  .variable-row:last-child { border-bottom: 0; }
+  .variable-row code { min-width: 0; overflow: hidden; color: #34445a; font: 11px/24px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+  .variable-group.is-function .variable-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .variable-value { display: inline-flex; min-width: 0; overflow: hidden; align-items: center; gap: 4px; color: #7f8da2; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .variable-eye-button { display: inline-grid; width: 20px; height: 20px; padding: 0; border: 0; flex: none; place-items: center; color: #8794a7; background: transparent; cursor: pointer; }
+  .variable-actions { display: inline-flex; align-items: center; gap: 6px; }
+  .variable-actions button { padding: 2px 0; border: 0; color: #2468f2; background: transparent; font-size: 10px; font-weight: 600; cursor: pointer; }
+  .variable-empty { display: grid; min-height: 148px; place-items: center; align-content: center; gap: 9px; color: #8a96a8; font-size: 12px; }
+  .variable-empty :deep(svg) { font-size: 28px; }
   .data-drive-card {
     overflow: hidden;
   }
@@ -1544,5 +1887,9 @@
     .debug-toolbar > div {
       grid-template-columns: 1fr;
     }
+    .rule-actions { align-items: flex-start; flex-direction: column; }
+    .extract-rule-row, .validate-rule-row { grid-template-columns: 1fr; }
+    .extract-rule-header, .validate-rule-header { display: none; }
+    .extract-rule-row, .validate-rule-row { padding: 12px; }
   }
 </style>

@@ -19,6 +19,16 @@
             clearable
             filterable
             class="project-filter"
+            @update:value="handleProjectChange"
+          />
+          <span>执行环境</span>
+          <n-select
+            v-model:value="selectedEnvironment"
+            :options="environmentOptions"
+            placeholder="全部环境"
+            clearable
+            filterable
+            class="environment-filter"
             @update:value="reloadTable"
           />
         </div>
@@ -28,12 +38,12 @@
 </template>
 
 <script lang="ts" setup>
-  import { reactive, ref, h, onActivated, onMounted, nextTick } from 'vue';
+  import { computed, reactive, ref, h, onActivated, onMounted, nextTick } from 'vue';
   import { BasicTable } from '@/components/Table';
   import { NButton, NSelect, useDialog, useMessage } from 'naive-ui';
   import { useRouter } from 'vue-router';
   import { RunResultAPI } from '@/api/suite/http';
-  import { ProjectAPI } from '@/api/project/http';
+  import { EnvironmentAPI, ProjectAPI } from '@/api/project/http';
   import { columns } from './resultColumns';
 
   const message = useMessage();
@@ -43,8 +53,18 @@
 
   const api = new RunResultAPI();
   const projectApi = new ProjectAPI();
+  const environmentApi = new EnvironmentAPI();
   const selectedProject = ref<number | null>(null);
+  const selectedEnvironment = ref<string | null>(null);
   const projectOptions = ref<Array<{ label: string; value: number }>>([]);
+  const environments = ref<any[]>([]);
+  const environmentOptions = computed(() => {
+    const names = environments.value
+      .filter((environment) => !selectedProject.value || Number(environment.project) === selectedProject.value)
+      .map((environment) => String(environment.name || '').trim())
+      .filter(Boolean);
+    return Array.from(new Set(names)).map((name) => ({ label: name, value: name }));
+  });
 
   const asList = (payload: any): any[] => {
     if (Array.isArray(payload)) return payload;
@@ -109,6 +129,7 @@
     return await api.getDataList({
       ...res,
       project: selectedProject.value || undefined,
+      environment: selectedEnvironment.value || undefined,
       _t: Date.now(),
     });
   };
@@ -121,8 +142,13 @@
   // 本页面由多标签/keep-alive 缓存。每次重新进入执行报告时主动请求第一页，
   // 否则 BasicTable 会继续展示上次离开页面时缓存的列表数据。
   onMounted(async () => {
-    const projects = asList(await projectApi.getDataList({ pageSize: 1000 }));
+    const [projectPayload, environmentPayload] = await Promise.all([
+      projectApi.getDataList({ pageSize: 1000 }),
+      environmentApi.getDataList({ pageSize: 1000 }),
+    ]);
+    const projects = asList(projectPayload);
     projectOptions.value = projects.map((project: any) => ({ label: project.name, value: project.id }));
+    environments.value = asList(environmentPayload);
     await refreshWhenVisible();
   });
   onActivated(refreshWhenVisible);
@@ -133,6 +159,13 @@
 
   function reloadTable() {
     actionRef.value.reload();
+  }
+
+  function handleProjectChange() {
+    if (selectedEnvironment.value && !environmentOptions.value.some((item) => item.value === selectedEnvironment.value)) {
+      selectedEnvironment.value = null;
+    }
+    reloadTable();
   }
 
   function handleDelete(record) {
@@ -156,6 +189,7 @@
 </script>
 
 <style lang="less" scoped>
-  .project-filter-wrap { display: flex; align-items: center; gap: 10px; color: #475569; font-size: 14px; font-weight: 600; }
+  .project-filter-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: #475569; font-size: 14px; font-weight: 600; }
   .project-filter { width: 220px; font-weight: 400; }
+  .environment-filter { width: 220px; font-weight: 400; }
 </style>

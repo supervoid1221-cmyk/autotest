@@ -144,8 +144,16 @@ class SuiteSerializer(serializers.ModelSerializer):
         return "/".join(names) if names else "-"
 
     def get_next_run(self, obj: Suite):
-        """仅 Cron 套件具有下一次计划执行时间。"""
-        return obj.schedule.next_run if obj.schedule_id else None
+        """返回真实的下一次执行时间，避免停用调度器时展示过期时间。"""
+        if not obj.enabled or obj.run_type != Suite.RunType.CRON or not obj.schedule_id:
+            return None
+        next_run = obj.schedule.next_run
+        now = timezone.now()
+        if next_run and next_run > now:
+            return next_run
+        if obj.schedule_kind == Suite.ScheduleKind.ONCE or not obj.cron:
+            return None
+        return croniter(obj.cron, now).get_next(datetime)
 
     class Meta:
         model = Suite

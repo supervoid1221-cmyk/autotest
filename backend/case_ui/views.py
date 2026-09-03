@@ -102,8 +102,11 @@ class UiCaseViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = self.queryset.filter(project_access_q(self.request.user, "project__")).distinct()
+        name = str(self.request.query_params.get("name") or "").strip()
         project_id = self.request.query_params.get("project")
         enabled = self.request.query_params.get("enabled")
+        if name:
+            queryset = queryset.filter(name__icontains=name)
         if project_id:
             queryset = queryset.filter(project_id=project_id)
         if enabled is not None:
@@ -234,8 +237,11 @@ class PlaywrightCaseViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = self.queryset.filter(project_access_q(self.request.user, "project__")).distinct()
+        name = str(self.request.query_params.get("name") or "").strip()
         project_id = self.request.query_params.get("project")
         enabled = self.request.query_params.get("enabled")
+        if name:
+            queryset = queryset.filter(name__icontains=name)
         if project_id:
             queryset = queryset.filter(project_id=project_id)
         if enabled is not None:

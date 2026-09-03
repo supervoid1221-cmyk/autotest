@@ -1,6 +1,15 @@
 <template>
   <n-card :bordered="true" class="proCard">
-    <BasicTable ref="tableRef" title="业务场景" :columns="columns" :request="load" :row-key="(row) => row.id">
+    <BasicTable ref="tableRef" :columns="columns" :request="load" :row-key="(row) => row.id">
+      <template #tableTitle>
+        <div class="list-filter-bar">
+          <span>场景名称</span>
+          <n-input v-model:value="searchName" clearable placeholder="请输入场景名称" class="name-filter" @keyup.enter="reloadTable" @clear="reloadTable" />
+          <span>所属项目</span>
+          <n-select v-model:value="selectedProject" :options="projectOptions" clearable filterable placeholder="全部项目" class="project-filter" @update:value="reloadTable" />
+          <n-button type="primary" secondary @click="reloadTable">查询</n-button>
+        </div>
+      </template>
       <template #toolbar>
         <n-button type="primary" @click="router.push({ name: 'case_api_scenario_edit', params: { id: 0 } })">新建场景</n-button>
       </template>
@@ -9,17 +18,24 @@
 </template>
 
 <script lang="ts" setup>
-import { h, ref } from 'vue';
+import { h, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { NButton, useDialog, useMessage } from 'naive-ui';
+import { NButton, NInput, NSelect, useDialog, useMessage } from 'naive-ui';
 import { BasicTable } from '@/components/Table';
 import { ScenarioAPI } from '@/api/case_api/http';
+import { ProjectAPI } from '@/api/project/http';
 
 const router = useRouter();
 const dialog = useDialog();
 const message = useMessage();
 const api = new ScenarioAPI();
+const projectApi = new ProjectAPI();
 const tableRef = ref<any>();
+const searchName = ref('');
+const selectedProject = ref<number | null>(null);
+const projectOptions = ref<Array<{ label: string; value: number }>>([]);
+
+const asList = (payload: any): any[] => Array.isArray(payload) ? payload : payload?.results || payload?.list || payload?.data || [];
 
 const columns = [
   {
@@ -64,7 +80,15 @@ const columns = [
   },
 ];
 
-const load = (params: any) => api.getDataList(params);
+const load = (params: any) => api.getDataList({
+  ...params,
+  name: searchName.value.trim() || undefined,
+  project: selectedProject.value || undefined,
+});
+
+function reloadTable() {
+  tableRef.value?.reload?.();
+}
 
 function remove(row: any) {
   dialog.warning({
@@ -79,4 +103,21 @@ function remove(row: any) {
     },
   });
 }
+
+onMounted(async () => {
+  projectOptions.value = asList(await projectApi.getDataList({ pageSize: 1000 }))
+    .map((project: any) => ({ label: project.name, value: Number(project.id) }));
+});
 </script>
+
+<style scoped>
+.proCard :deep(.table-toolbar-left) { min-width: 0; flex: 0 1 auto; }
+.proCard :deep(.table-toolbar-right) { flex: none; margin-left: auto; }
+.list-filter-bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; color: #475569; font-size: 14px; font-weight: 600; white-space: nowrap; }
+.name-filter, .project-filter { width: 220px; font-weight: 400; }
+@media (max-width: 1100px) {
+  .proCard :deep(.table-toolbar) { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .proCard :deep(.table-toolbar-right) { width: 100%; margin-left: 0; }
+  .list-filter-bar { flex-wrap: wrap; }
+}
+</style>

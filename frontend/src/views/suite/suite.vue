@@ -19,6 +19,16 @@
             clearable
             filterable
             class="project-filter"
+            @update:value="handleProjectChange"
+          />
+          <span>执行环境</span>
+          <n-select
+            v-model:value="selectedEnvironment"
+            :options="environmentOptions"
+            placeholder="全部环境"
+            clearable
+            filterable
+            class="environment-filter"
             @update:value="reloadTable"
           />
         </div>
@@ -31,13 +41,13 @@
 </template>
 
 <script lang="ts" setup>
-  import { reactive, ref, h, onMounted } from 'vue';
+  import { computed, reactive, ref, h, onMounted } from 'vue';
   import { BasicTable } from '@/components/Table';
   import { columns } from './suiteColumns';
   import { NButton, NSelect, useDialog, useMessage } from 'naive-ui';
   import { useRouter } from 'vue-router';
   import { SuiteAPI } from '@/api/suite/http';
-  import { ProjectAPI } from '@/api/project/http';
+  import { EnvironmentAPI, ProjectAPI } from '@/api/project/http';
 
   const message = useMessage();
   const dialog = useDialog();
@@ -48,8 +58,17 @@
 
   const api = new SuiteAPI();
   const projectApi = new ProjectAPI();
+  const environmentApi = new EnvironmentAPI();
   const selectedProject = ref<number | null>(null);
+  const selectedEnvironment = ref<number | null>(null);
   const projectOptions = ref<Array<{ label: string; value: number }>>([]);
+  const environments = ref<any[]>([]);
+  const environmentOptions = computed(() => environments.value
+    .filter((environment) => !selectedProject.value || Number(environment.project) === selectedProject.value)
+    .map((environment) => ({
+      label: selectedProject.value ? environment.name : `${environment.project_name || '未归属项目'} / ${environment.name}`,
+      value: Number(environment.id),
+    })));
 
   const asList = (payload: any): any[] => {
     if (Array.isArray(payload)) return payload;
@@ -81,6 +100,7 @@
       ...params,
       ...res,
       project: selectedProject.value || undefined,
+      environment: selectedEnvironment.value || undefined,
     });
   };
 
@@ -90,6 +110,13 @@
 
   function reloadTable() {
     actionRef.value.reload();
+  }
+
+  function handleProjectChange() {
+    if (selectedEnvironment.value && !environmentOptions.value.some((item) => item.value === selectedEnvironment.value)) {
+      selectedEnvironment.value = null;
+    }
+    reloadTable();
   }
 
   function handleDelete(record) {
@@ -170,8 +197,13 @@
   }
 
   onMounted(async () => {
-    const projects = asList(await projectApi.getDataList({ pageSize: 1000 }));
+    const [projectPayload, environmentPayload] = await Promise.all([
+      projectApi.getDataList({ pageSize: 1000 }),
+      environmentApi.getDataList({ pageSize: 1000 }),
+    ]);
+    const projects = asList(projectPayload);
     projectOptions.value = projects.map((project: any) => ({ label: project.name, value: project.id }));
+    environments.value = asList(environmentPayload);
   });
 </script>
 
@@ -186,6 +218,7 @@
     flex: none;
   }
 
-  .project-filter-wrap { display: flex; align-items: center; gap: 10px; color: #475569; font-size: 14px; font-weight: 600; }
+  .project-filter-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: #475569; font-size: 14px; font-weight: 600; }
   .project-filter { width: 220px; font-weight: 400; }
+  .environment-filter { width: 220px; font-weight: 400; }
 </style>

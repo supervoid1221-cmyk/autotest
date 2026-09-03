@@ -1,31 +1,11 @@
-**Comparison target**
+# 可用变量面板 Design QA
 
-- Source visual truth: `/Users/a1/.codex/generated_images/019fd4e9-8cdf-7f43-8002-f1e55055c439/exec-eefb93d3-a5c4-4980-8c6f-bafac995226b.png`
-- Intended implementation: `/Users/a1/Desktop/zl/测试平台前端/src/views/suite/report.vue`
-- Intended route: `http://localhost:8001/suite/report/:id`
-- Source pixels: 1487 × 1058. Intended desktop comparison viewport: 1487 × 1058, device scale factor 1.
-- State: completed execution report with summary, scenario rows and archived execution logs.
-
-**Findings**
-
-- [P1] Browser-rendered comparison is unavailable.
-  Location: local execution-report route.
-  Evidence: the available in-app browser session redirects to the platform login page; the supplied local credentials are rejected. Therefore no authenticated report page screenshot was captured, and a side-by-side visual comparison with the source is not possible.
-  Impact: the implemented layout cannot truthfully be handed off as visually verified.
-  Fix: open an authenticated session with a report record, capture the route at the target viewport, combine it with the source visual in one comparison input, then resolve any P1/P2 differences.
-
-**Open Questions**
-
-- Which authenticated account/session should be used for final visual QA?
-
-**Implementation Checklist**
-
-1. Open an authenticated execution-report route containing summary, scenarios and logs.
-2. Capture desktop and mobile render states, and check browser console errors.
-3. Compare the source image and implementation capture side by side, then record the final result.
-
-**Follow-up Polish**
-
-- Verify long scenario names and long log lines at the desktop breakpoint.
+- 参考图：`/var/folders/_3/mcz_yycd2tj02gddjzd82h6r0000gn/T/codex-clipboard-611c96df-1355-47b8-b97d-2bb19fd90d29.png`
+- 实现文件：`src/views/case_api/scenario_edit.vue`
+- 构建检查：通过（`pnpm build`）
+- 结构检查：通过。包含折叠标题、搜索、四分类标签、三类变量分组、数量、脱敏值、复制与引用操作。
+- 数据检查：通过。项目参数、启用的动态函数及接口提取规则均进入统一变量模型；数字 `0` 不再被误判为空值。
+- 交互静态检查：通过。搜索与分类由计算属性过滤，折叠、敏感值显隐、复制和编辑器光标引用均已绑定。
+- 实际页面视觉检查：受阻。本地页面要求登录，项目 README 中的默认测试账号无法进入当前本地数据库；已登录的 Chrome 标签连接超时，因此本轮无法取得实现截图与参考图做同屏像素比较。
 
 final result: blocked

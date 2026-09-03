@@ -22,6 +22,8 @@ from selenium.webdriver.support.ui import Select, WebDriverWait
 from fullstack_framework.commons.api_executor import substitute_data
 from suite.reporting import load_variable_resolution, recalculate_native_report, record_variable_resolution
 from case_ui.models import ui_step_display_name
+from case_ui.browser_token import inject_selenium_token
+from project.models import Environment
 
 logger = logging.getLogger(__name__)
 SENSITIVE_HINTS = ("password", "passwd", "pwd", "secret", "token", "authorization", "密码", "密钥")
@@ -421,6 +423,15 @@ def execute_ui_case(case):
                 case.get("browser", "chrome"),
                 case.get("run_mode", "headless"),
             )
+            environment = Environment.objects.filter(
+                project_id=case.get("project_id"), name=case.get("environment_name"),
+            ).first()
+            if environment:
+                inject_selenium_token(
+                    driver,
+                    environment.browser_token_payload(variables, Path.cwd()),
+                    case.get("base_url"),
+                )
         except Exception as exc:
             if steps:
                 now = datetime.now().astimezone().isoformat()

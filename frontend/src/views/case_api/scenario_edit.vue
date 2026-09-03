@@ -165,7 +165,7 @@
                           <n-tabs v-model:value="activeConfigTabs[child.step_info.id]" type="line" class="step-config-tabs">
                             <n-tab-pane name="request_override" :tab="tabTitle(PhSlidersHorizontal, '参数覆盖', jsonItemCount(editText[child.step_info.id]?.request_override))">
                               <div class="step-workspace">
-                                <section class="editor-panel"><header class="workspace-panel-head"><div><strong>参数覆盖</strong><span>覆盖本步骤请求的入参值，支持静态值、变量和函数。</span></div><n-space size="small"><n-button size="small" class="editor-tool-button" @click.stop="formatOverride(child.step_info)"><template #icon><PhSparkle /></template>格式化</n-button><n-button size="small" class="editor-tool-button" @click.stop="restoreOverride(child.step_info)"><template #icon><PhArrowClockwise /></template>从接口默认值恢复</n-button></n-space></header><div class="json-editor"><pre class="editor-gutter">{{ lineNumbers(editText[child.step_info.id]?.request_override) }}</pre><n-input v-model:value="editText[child.step_info.id].request_override" type="textarea" :autosize="{ minRows: 14, maxRows: 22 }" placeholder="{}" @blur="saveStep(child.step_info)" /></div><div class="override-tip"><PhInfo /> 支持直接填写参数对象；关联 Headers、Params、Data 或 JSON 时将自动应用到对应请求区域。</div></section>
+                                <section class="editor-panel"><header class="workspace-panel-head"><div><strong>参数覆盖</strong><span>覆盖本步骤请求的入参值，支持静态值、变量和函数。</span></div><n-space size="small"><n-button size="small" class="editor-tool-button" @click.stop="formatOverride(child.step_info)"><template #icon><PhSparkle /></template>格式化</n-button><n-button size="small" class="editor-tool-button" @click.stop="restoreOverride(child.step_info)"><template #icon><PhArrowClockwise /></template>从接口默认值恢复</n-button></n-space></header><div class="json-editor"><pre class="editor-gutter">{{ lineNumbers(editText[child.step_info.id]?.request_override) }}</pre><n-input v-model:value="editText[child.step_info.id].request_override" type="textarea" :autosize="{ minRows: 14, maxRows: 22 }" placeholder="{}" @focus="rememberRequestEditorCursor(child.step_info, $event)" @click="rememberRequestEditorCursor(child.step_info, $event)" @keyup="rememberRequestEditorCursor(child.step_info, $event)" @blur="saveStep(child.step_info)" /></div><div class="override-tip"><PhInfo /> 支持直接填写参数对象；关联 Headers、Params、Data 或 JSON 时将自动应用到对应请求区域。</div></section>
                                 <aside class="workspace-sidebar"><section class="side-panel variable-panel"><header><strong>变量关联</strong><PhInfo /></header><template v-if="availableVariables(child.step_info).length"><p>项目参数和上游接口已提取的变量都可引用到当前请求。</p><div class="available-variables"><span v-for="variable in availableVariables(child.step_info)" :key="`${variable.scope || 'step'}-${variable.stepId}-${variable.name}`" class="variable-chip" :title="variable.scope === 'project' ? `项目参数${variable.projectName ? ` · ${variable.projectName}` : ''}` : `来自第 ${variable.stepOrder} 步 ${variable.stepName}：${variable.expression}`"><code>{{ variableReference(variable.name) }}</code><em>{{ variable.scope === 'project' ? '项目参数' : `第 ${variable.stepOrder} 步` }}</em></span></div><div v-if="variableSuggestions(child.step_info).length" class="variable-suggestion-list"><div v-for="suggestion in variableSuggestions(child.step_info)" :key="suggestion.key" class="variable-suggestion-item"><code>{{ variableReference(suggestion.variableName) }}</code><n-button text size="small" type="primary" @click.stop="applySuggestion(child.step_info, suggestion)">引用</n-button></div></div><n-button block type="primary" secondary :disabled="!variableSuggestions(child.step_info).length" @click.stop="applyAllSuggestions(child.step_info)">智能关联{{ variableSuggestions(child.step_info).length ? `（${variableSuggestions(child.step_info).length}）` : '' }}</n-button></template><template v-else><div class="variable-empty-icon"><PhPackage /></div><h4>暂未发现可用的上游变量</h4><p>运行上游接口或先配置数据提取后，可在这里关联变量。</p><n-button block type="primary" secondary @click.stop="activeConfigTabs[child.step_info.id] = 'extract'">查看数据提取</n-button></template></section><section class="side-panel request-overview"><header><strong>请求概览</strong></header><div><span><PhSlidersHorizontal /> Params</span><b>{{ requestFieldCount(child.step_info, 'params') }}</b></div><div><span><PhFileText /> Data</span><b>{{ requestFieldCount(child.step_info, 'data') }}</b></div><div><span><PhBracketsCurly /> JSON</span><b>{{ requestFieldCount(child.step_info, 'json') }}</b></div></section></aside>
                               </div>
                             </n-tab-pane>
@@ -184,6 +184,7 @@
                                   <n-input v-else v-model:value="rule.expression" placeholder="如：token=(.*?)& 或 code=(.+?)$" size="small" @blur="saveStep(child.step_info)" />
                                   <n-input-number v-model:value="rule.index" :min="0" :show-button="false" size="small" @update:value="saveStep(child.step_info)" />
                                   <n-button text type="error" class="delete-button" size="small" @click.stop="removeExtractRule(child.step_info, ruleIndex)">删除</n-button>
+                                  <ExtractProcessorEditor v-model="rule.processors" @change="saveStep(child.step_info)" />
                                 </div>
                                 <n-empty v-if="!(extractRules[child.step_info.id] || []).length" size="small" description="暂无提取规则" class="extract-empty" />
                               </div>
@@ -307,7 +308,7 @@
                       </header>
                       <div class="json-editor">
                         <pre class="editor-gutter">{{ lineNumbers(editText[element.id]?.request_override) }}</pre>
-                        <n-input v-model:value="editText[element.id].request_override" type="textarea" :autosize="{ minRows: 14, maxRows: 22 }" placeholder="{}" @blur="saveStep(element)" />
+                        <n-input v-model:value="editText[element.id].request_override" type="textarea" :autosize="{ minRows: 14, maxRows: 22 }" placeholder="{}" @focus="rememberRequestEditorCursor(element, $event)" @click="rememberRequestEditorCursor(element, $event)" @keyup="rememberRequestEditorCursor(element, $event)" @blur="saveStep(element)" />
                       </div>
                       <div class="override-tip"><PhInfo /> 支持直接填写参数对象；关联 Headers、Params、Data 或 JSON 时将自动应用到对应请求区域。</div>
                     </section>
@@ -355,6 +356,7 @@
                       <n-input v-else v-model:value="rule.expression" placeholder="如：token=(.*?)& 或 code=(.+?)$" size="small" @blur="saveStep(element)" />
                       <n-input-number v-model:value="rule.index" :min="0" :show-button="false" size="small" @update:value="saveStep(element)" />
                       <n-button text type="error" class="delete-button" size="small" @click.stop="removeExtractRule(element, ruleIndex)">删除</n-button>
+                      <ExtractProcessorEditor v-model="rule.processors" @change="saveStep(element)" />
                     </div>
                     <n-empty v-if="!(extractRules[element.id] || []).length" size="small" description="暂无提取规则" class="extract-empty" />
                   </div>
@@ -471,16 +473,53 @@
         </section>
 
         <section class="context-panel scene-variable-panel">
-          <header><strong>可用变量</strong></header>
-          <div v-if="sceneVariableOverview.length" class="scene-variable-list">
-            <div v-for="variable in sceneVariableOverview" :key="variable.key">
-              <code>{{ variableReference(variable.name) }}</code>
-              <span>{{ variable.source }}</span>
+          <header>
+            <strong>可用变量</strong>
+            <button type="button" class="variable-collapse-button" :aria-label="sceneVariablesCollapsed ? '展开可用变量' : '收起可用变量'" @click="sceneVariablesCollapsed = !sceneVariablesCollapsed">
+              <PhCaretUp :class="{ collapsed: sceneVariablesCollapsed }" />
+            </button>
+          </header>
+          <div v-show="!sceneVariablesCollapsed" class="scene-variable-content">
+            <n-input v-model:value="sceneVariableSearch" clearable class="scene-variable-search" placeholder="搜索变量名或来源">
+              <template #prefix><PhMagnifyingGlass /></template>
+            </n-input>
+            <div class="scene-variable-tabs" role="tablist" aria-label="变量分类">
+              <button
+                v-for="tab in sceneVariableTabs"
+                :key="tab.key"
+                type="button"
+                role="tab"
+                :aria-selected="sceneVariableCategory === tab.key"
+                :class="{ active: sceneVariableCategory === tab.key }"
+                @click="sceneVariableCategory = tab.key"
+              >
+                <span>{{ tab.label }}</span><b>{{ tab.count }}</b>
+              </button>
             </div>
-          </div>
-          <div v-else class="context-empty">
-            <PhPackage />
-            <span>暂无项目参数或接口提取变量</span>
+            <div v-if="filteredSceneVariableGroups.length" class="scene-variable-groups">
+              <section v-for="group in filteredSceneVariableGroups" :key="group.key" class="scene-variable-group" :class="`is-${group.key}`">
+                <header>
+                  <div><PhCircle weight="fill" /><strong>{{ group.label }}</strong><PhCircle weight="fill" /><span>{{ group.detail }}</span></div>
+                  <b>{{ group.items.length }}</b>
+                </header>
+                <div class="scene-variable-rows">
+                  <div v-for="variable in group.items" :key="variable.key" class="scene-variable-row">
+                    <code :class="{ selected: variable.name === 'login_token' }">{{ variable.reference }}</code>
+                    <span class="scene-variable-value" :title="sceneVariableDisplayValue(variable)">
+                      {{ sceneVariableDisplayValue(variable) }}
+                      <button v-if="variable.sensitive" type="button" class="variable-eye-button" :aria-label="revealedVariableKeys.has(variable.key) ? '隐藏变量值' : '显示变量值'" @click="toggleVariableVisibility(variable.key)">
+                        <PhEyeSlash v-if="revealedVariableKeys.has(variable.key)" /><PhEye v-else />
+                      </button>
+                    </span>
+                    <span class="scene-variable-actions"><button type="button" @click="copySceneVariable(variable)">复制</button><button type="button" @click="referenceSceneVariable(variable)">引用</button></span>
+                  </div>
+                </div>
+              </section>
+            </div>
+            <div v-else class="context-empty scene-variable-empty">
+              <PhPackage />
+              <span>{{ sceneVariableSearch ? '没有匹配的可用变量' : '暂无项目参数、动态函数或接口提取变量' }}</span>
+            </div>
           </div>
         </section>
 
@@ -519,8 +558,8 @@
 
     <n-modal v-model:show="branchStepEditorVisible" preset="card" :title="`编辑分支接口 · ${branchEditingStep?.endpoint_name || ''}`" :style="{ width: 'min(920px, calc(100vw - 32px))' }">
       <template v-if="branchEditingStep"><div class="branch-step-editor-info"><span class="method-pill" :style="methodStyle(branchEditingStep.endpoint_info?.method)">{{ formatMethod(branchEditingStep.endpoint_info?.method) }}</span><strong>{{ branchEditingStep.endpoint_name }}</strong><code>{{ branchEditingStep.endpoint_info?.url }}</code></div><n-tabs v-model:value="activeConfigTabs[branchEditingStep.id]" type="line">
-        <n-tab-pane name="request_override" tab="参数覆盖"><div class="editor-modal-actions"><span>支持静态值、变量和函数。</span><n-space><n-button size="small" @click="formatOverride(branchEditingStep)">格式化</n-button><n-button size="small" @click="restoreOverride(branchEditingStep)">从接口默认值恢复</n-button></n-space></div><div class="json-editor compact-editor"><pre class="editor-gutter">{{ lineNumbers(editText[branchEditingStep.id]?.request_override) }}</pre><n-input v-model:value="editText[branchEditingStep.id].request_override" type="textarea" :autosize="{ minRows: 12, maxRows: 20 }" @blur="saveStep(branchEditingStep)" /></div></n-tab-pane>
-        <n-tab-pane name="extract" tab="数据提取"><div class="extract-actions"><span>执行后保存变量，供之后接口引用。</span><n-button size="small" @click="addExtractRule(branchEditingStep)">＋ 添加提取规则</n-button></div><div class="extract-rule-table"><div v-for="(rule, ruleIndex) in extractRules[branchEditingStep.id] || []" :key="ruleIndex" class="extract-rule-row"><n-input v-model:value="rule.name" placeholder="变量名" size="small" @update:value="handleExtractNameInput(rule, $event)" @blur="saveStep(branchEditingStep)" /><n-select v-model:value="rule.mode" :options="extractModeOptions" size="small" @update:value="handleExtractModeChange(branchEditingStep, rule)" /><n-select v-model:value="rule.source" :options="rule.mode === 'jsonpath' ? jsonPathSourceOptions : extractSourceOptions" size="small" @update:value="saveStep(branchEditingStep)" /><n-auto-complete v-if="rule.mode === 'jsonpath'" v-model:value="rule.expression" :options="responseExpressionOptions(branchEditingStep, rule)" :render-label="renderResponsePathLabel" :get-show="() => true" blur-after-select clearable size="small" placeholder="运行接口后可选择响应路径" @select="handleResponsePathSelect(rule, $event)" @blur="saveStep(branchEditingStep)" /><n-input v-else v-model:value="rule.expression" placeholder="如：token=(.*?)& 或 code=(.+?)$" size="small" @blur="saveStep(branchEditingStep)" /><n-input-number v-model:value="rule.index" :min="0" :show-button="false" size="small" @update:value="saveStep(branchEditingStep)" /><n-button text type="error" @click="removeExtractRule(branchEditingStep, ruleIndex)">删除</n-button></div></div></n-tab-pane>
+        <n-tab-pane name="request_override" tab="参数覆盖"><div class="editor-modal-actions"><span>支持静态值、变量和函数。</span><n-space><n-button size="small" @click="formatOverride(branchEditingStep)">格式化</n-button><n-button size="small" @click="restoreOverride(branchEditingStep)">从接口默认值恢复</n-button></n-space></div><div class="json-editor compact-editor"><pre class="editor-gutter">{{ lineNumbers(editText[branchEditingStep.id]?.request_override) }}</pre><n-input v-model:value="editText[branchEditingStep.id].request_override" type="textarea" :autosize="{ minRows: 12, maxRows: 20 }" @focus="rememberRequestEditorCursor(branchEditingStep, $event)" @click="rememberRequestEditorCursor(branchEditingStep, $event)" @keyup="rememberRequestEditorCursor(branchEditingStep, $event)" @blur="saveStep(branchEditingStep)" /></div></n-tab-pane>
+        <n-tab-pane name="extract" tab="数据提取"><div class="extract-actions"><span>执行后保存变量，供之后接口引用。</span><n-button size="small" @click="addExtractRule(branchEditingStep)">＋ 添加提取规则</n-button></div><div class="extract-rule-table"><div v-for="(rule, ruleIndex) in extractRules[branchEditingStep.id] || []" :key="ruleIndex" class="extract-rule-row"><n-input v-model:value="rule.name" placeholder="变量名" size="small" @update:value="handleExtractNameInput(rule, $event)" @blur="saveStep(branchEditingStep)" /><n-select v-model:value="rule.mode" :options="extractModeOptions" size="small" @update:value="handleExtractModeChange(branchEditingStep, rule)" /><n-select v-model:value="rule.source" :options="rule.mode === 'jsonpath' ? jsonPathSourceOptions : extractSourceOptions" size="small" @update:value="saveStep(branchEditingStep)" /><n-auto-complete v-if="rule.mode === 'jsonpath'" v-model:value="rule.expression" :options="responseExpressionOptions(branchEditingStep, rule)" :render-label="renderResponsePathLabel" :get-show="() => true" blur-after-select clearable size="small" placeholder="运行接口后可选择响应路径" @select="handleResponsePathSelect(rule, $event)" @blur="saveStep(branchEditingStep)" /><n-input v-else v-model:value="rule.expression" placeholder="如：token=(.*?)& 或 code=(.+?)$" size="small" @blur="saveStep(branchEditingStep)" /><n-input-number v-model:value="rule.index" :min="0" :show-button="false" size="small" @update:value="saveStep(branchEditingStep)" /><n-button text type="error" @click="removeExtractRule(branchEditingStep, ruleIndex)">删除</n-button><ExtractProcessorEditor v-model="rule.processors" @change="saveStep(branchEditingStep)" /></div></div></n-tab-pane>
         <n-tab-pane name="validate" tab="断言"><div class="extract-actions"><span>使用 JSONPath 或变量进行断言。</span><n-button size="small" @click="addValidateRule(branchEditingStep)">＋ 添加断言</n-button></div><div class="validate-rule-table"><div v-for="(rule, ruleIndex) in validateRules[branchEditingStep.id] || []" :key="ruleIndex" class="validate-rule-row"><n-input v-model:value="rule.actual" placeholder="$.data.code" size="small" @blur="saveStep(branchEditingStep)" /><n-select v-model:value="rule.type" :options="validateTypeOptions" size="small" @update:value="saveStep(branchEditingStep)" /><n-input v-model:value="rule.expected" placeholder="期望值" size="small" @blur="saveStep(branchEditingStep)" /><n-button text type="error" @click="removeValidateRule(branchEditingStep, ruleIndex)">删除</n-button></div></div></n-tab-pane>
         <n-tab-pane name="post_sql" tab="后置数据库"><div class="extract-actions"><span>接口成功后执行数据库操作。</span><n-button size="small" @click="addPostSql(branchEditingStep)">＋ 添加数据库操作</n-button></div><div class="post-sql-list"><div v-for="(_sql, sqlIndex) in postSqlRules[branchEditingStep.id] || []" :key="sqlIndex" class="post-sql-row"><n-input v-model:value="postSqlRules[branchEditingStep.id][sqlIndex]" type="textarea" placeholder="${execute_sql_mysql(...)}" @blur="saveStep(branchEditingStep)" /><n-button text type="error" @click="removePostSql(branchEditingStep, sqlIndex)">删除</n-button></div></div></n-tab-pane>
         <n-tab-pane name="polling" tab="轮询"><n-form label-placement="left" label-width="120"><n-form-item label="开启轮询"><n-switch v-model:value="pollingConfigs[branchEditingStep.id].enabled" @update:value="saveStep(branchEditingStep)" /></n-form-item><template v-if="pollingConfigs[branchEditingStep.id].enabled"><n-form-item label="超时时间（秒）"><n-input-number v-model:value="pollingConfigs[branchEditingStep.id].timeout" :min="1" @update:value="saveStep(branchEditingStep)" /></n-form-item><n-form-item label="轮询间隔（秒）"><n-input-number v-model:value="pollingConfigs[branchEditingStep.id].interval" :min="1" @update:value="saveStep(branchEditingStep)" /></n-form-item><n-form-item label="首次等待（秒）"><n-input-number v-model:value="pollingConfigs[branchEditingStep.id].initial_delay" :min="0" @update:value="saveStep(branchEditingStep)" /></n-form-item><n-checkbox v-model:checked="pollingConfigs[branchEditingStep.id].retry_http_error" @update:checked="saveStep(branchEditingStep)">HTTP 4xx/5xx 时继续重试</n-checkbox><n-checkbox v-model:checked="pollingConfigs[branchEditingStep.id].retry_assertion" @update:checked="saveStep(branchEditingStep)">断言不满足时继续重试</n-checkbox></template></n-form></n-tab-pane>
@@ -541,11 +580,13 @@
   import draggable from 'vuedraggable';
   import { useMessage } from 'naive-ui';
   import { useRoute, useRouter } from 'vue-router';
-  import { PhArrowClockwise, PhBracketsCurly, PhClock, PhDatabase, PhFileText, PhInfo, PhPackage, PhPlay, PhShieldCheck, PhSlidersHorizontal, PhSparkle } from '@phosphor-icons/vue';
+  import { PhArrowClockwise, PhBracketsCurly, PhCaretUp, PhCircle, PhClock, PhDatabase, PhEye, PhEyeSlash, PhFileText, PhInfo, PhMagnifyingGlass, PhPackage, PhPlay, PhShieldCheck, PhSlidersHorizontal, PhSparkle } from '@phosphor-icons/vue';
   import { EndpointAPI, EndpointModuleAPI, ScenarioAPI, ScenarioBranchAPI, ScenarioFlowNodeAPI, ScenarioStepAPI } from '@/api/case_api/http';
   import type { ScenarioBranch, ScenarioBranchCondition } from '@/api/case_api/models';
-  import { EnvironmentAPI, ProjectAPI, ProjectVariableAPI } from '@/api/project/http';
+  import { DynamicFunctionAPI, EnvironmentAPI, ProjectAPI, ProjectVariableAPI } from '@/api/project/http';
   import { useSubmitRedirect } from '@/hooks/web/useSubmitRedirect';
+  import ExtractProcessorEditor from './components/ExtractProcessorEditor.vue';
+  import { defaultExtractRule, extractRuleFromConfig, extractRuleToConfig, type ExtractRule } from './extract-processors';
 
   const route = useRoute();
   const router = useRouter();
@@ -561,9 +602,16 @@
   const endpointModuleApi = new EndpointModuleAPI();
   const projectApi = new ProjectAPI();
   const projectVariableApi = new ProjectVariableAPI();
+  const dynamicFunctionApi = new DynamicFunctionAPI();
   const environmentApi = new EnvironmentAPI();
   const projectOptions = ref<any[]>([]);
-  const projectVariables = ref<Array<{ id?: number; name: string; value: string; project_name?: string }>>([]);
+  const projectVariables = ref<Array<{ id?: number; name: string; value: string; description?: string; project_name?: string }>>([]);
+  const dynamicFunctions = ref<any[]>([]);
+  const sceneVariableSearch = ref('');
+  const sceneVariableCategory = ref<'all' | 'project' | 'function' | 'extract'>('all');
+  const sceneVariablesCollapsed = ref(false);
+  const revealedVariableKeys = ref(new Set<string>());
+  const requestEditorCursor = ref<{ stepId: number; start: number; end: number } | null>(null);
   const availableEndpoints = ref<any[]>([]);
   const endpointModules = ref<any[]>([]);
   const steps = ref<any[]>([]);
@@ -643,10 +691,25 @@
     runEnvironment.value = null;
     if (notifyWhenCleared) message.warning('当前执行环境不属于所选项目，请重新选择');
   };
-  type ExtractRule = { name: string; mode: 'jsonpath' | 're'; source: 'json' | 'text' | 'headers'; expression: string; index: number; autoVariableName?: string };
   type ValidateRule = { type: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'contains'; actual: string; expected: string };
   type PollingConfig = { enabled: boolean; timeout: number; interval: number; initial_delay: number; retry_http_error: boolean; retry_assertion: boolean };
   type AvailableVariable = { name: string; stepId: number; stepOrder: number; stepName: string; expression: string; scope?: 'project' | 'step'; projectName?: string };
+  type SceneVariableCategory = 'project' | 'function' | 'extract';
+  type SceneVariableItem = {
+    key: string;
+    name: string;
+    reference: string;
+    category: SceneVariableCategory;
+    value: string;
+    source: string;
+    sensitive?: boolean;
+  };
+  type SceneVariableGroup = {
+    key: SceneVariableCategory;
+    label: string;
+    detail: string;
+    items: SceneVariableItem[];
+  };
   type VariableSuggestion = {
     key: string; sourceLabel: string; field: 'headers' | 'params' | 'data' | 'json'; fieldLabel: string;
     parameter: string; variableName: string; reference: string; extract?: ExtractRule; extractStepId?: number; extractLabel?: string;
@@ -721,19 +784,82 @@
     extracts: allEndpointSteps.value.reduce((total: number, step: any) => total + (extractRules[step.id]?.filter((rule) => rule.name.trim()).length || Object.keys(step.extract || {}).length), 0),
     assertions: allEndpointSteps.value.reduce((total: number, step: any) => total + (validateRules[step.id]?.length || Object.keys(step.validate || {}).length), 0),
   }));
-  const sceneVariableOverview = computed(() => {
-    const variables: Array<{ key: string; name: string; source: string }> = projectVariables.value
-      .filter((variable) => variable.name)
-      .map((variable) => ({ key: `project-${variable.id || variable.name}`, name: variable.name, source: '项目参数' }));
-    allEndpointSteps.value.forEach((step: any, index: number) => {
-      (extractRules[step.id] || []).filter((rule) => rule.name.trim()).forEach((rule) => variables.push({
-        key: `step-${step.id}-${rule.name}`,
-        name: rule.name,
-        source: `步骤 ${index + 1}`,
+  const sceneVariableItems = computed<SceneVariableItem[]>(() => {
+    const projectItems = projectVariables.value
+      .filter((variable) => variable.name.trim())
+      .map((variable) => ({
+        key: `project-${variable.id || variable.name}`,
+        name: variable.name.trim(),
+        reference: variableReference(variable.name.trim()),
+        category: 'project' as const,
+        value: String(variable.value ?? ''),
+        source: `项目参数${variable.project_name ? ` · ${variable.project_name}` : ''}${variable.description ? ` · ${variable.description}` : ''}`,
+        sensitive: /(?:secret|password|passwd|token|credential|private[_-]?key|api[_-]?key)/i.test(variable.name),
       }));
+
+    const functionNames = new Set<string>();
+    const functionItems = dynamicFunctions.value.flatMap((item: any) => asList(item.function_names).flatMap((rawName: any) => {
+      const name = String(rawName || '').trim();
+      if (!name || functionNames.has(name)) return [];
+      functionNames.add(name);
+      return [{
+        key: `function-${item.id || 'custom'}-${name}`,
+        name,
+        reference: `\${${name}()}`,
+        category: 'function' as const,
+        value: '',
+        source: `动态函数${asList(item.project_names).length ? ` · ${asList(item.project_names).join('、')}` : ''}`,
+      }];
+    }));
+
+    const extractNames = new Set<string>();
+    const extractItems: SceneVariableItem[] = [];
+    allEndpointSteps.value.forEach((step: any, index: number) => {
+      (extractRules[step.id] || []).filter((rule) => rule.name.trim() && rule.expression.trim()).forEach((rule) => {
+        const name = rule.name.trim();
+        if (extractNames.has(name)) return;
+        extractNames.add(name);
+        const stepName = step.endpoint_name || '未命名接口';
+        const source = `步骤 ${index + 1} · ${stepName} · ${rule.expression}`;
+        extractItems.push({
+          key: `extract-${step.id}-${name}`,
+          name,
+          reference: variableReference(name),
+          category: 'extract',
+          value: source,
+          source,
+        });
+      });
     });
-    const names = new Set<string>();
-    return variables.filter((variable) => !names.has(variable.name) && Boolean(names.add(variable.name))).slice(0, 10);
+    return [...projectItems, ...functionItems, ...extractItems];
+  });
+  const sceneVariableTabs = computed(() => {
+    const count = (category?: SceneVariableCategory) => category
+      ? sceneVariableItems.value.filter((item) => item.category === category).length
+      : sceneVariableItems.value.length;
+    return [
+      { key: 'all' as const, label: '全部', count: count() },
+      { key: 'project' as const, label: '项目参数', count: count('project') },
+      { key: 'function' as const, label: '动态函数', count: count('function') },
+      { key: 'extract' as const, label: '接口提取', count: count('extract') },
+    ];
+  });
+  const filteredSceneVariableGroups = computed<SceneVariableGroup[]>(() => {
+    const keyword = sceneVariableSearch.value.trim().toLowerCase();
+    const filtered = sceneVariableItems.value.filter((item) => {
+      if (sceneVariableCategory.value !== 'all' && item.category !== sceneVariableCategory.value) return false;
+      if (!keyword) return true;
+      return [item.name, item.reference, item.value, item.source].some((value) => String(value).toLowerCase().includes(keyword));
+    });
+    const projectName = selectedProjectLabels.value || '当前项目';
+    const groups: Array<Omit<SceneVariableGroup, 'items'>> = [
+      { key: 'project', label: '项目参数', detail: `项目：${projectName}` },
+      { key: 'function', label: '动态函数', detail: '函数' },
+      { key: 'extract', label: '上游接口提取', detail: '来自步骤' },
+    ];
+    return groups
+      .map((group) => ({ ...group, items: filtered.filter((item) => item.category === group.key) }))
+      .filter((group) => group.items.length);
   });
   const sceneRunState = computed(() => {
     const results = Object.values(runResults);
@@ -841,7 +967,6 @@
   const parse = (value: string) => {
     try { return JSON.parse(normalizeBareVariables(value || '{}')); } catch { throw Error('请填写合法 JSON'); }
   };
-  const defaultExtractRule = (): ExtractRule => ({ name: '', mode: 'jsonpath', source: 'json', expression: '', index: 0 });
   const normalizeJsonPathExpression = (value: unknown) => String(value || '').replace(/\s+·\s+.*$/, '').trim();
   const variableNameFromJsonPath = (path: unknown) => {
     const expression = normalizeJsonPathExpression(path);
@@ -857,17 +982,12 @@
   const defaultPollingConfig = (): PollingConfig => ({ enabled: false, timeout: 60, interval: 3, initial_delay: 0, retry_http_error: true, retry_assertion: true });
   const normalizePollingConfig = (value?: Record<string, any>): PollingConfig => ({ ...defaultPollingConfig(), ...(value || {}) });
   const toExtractRules = (extract: Record<string, unknown> = {}) => Object.entries(extract || {}).flatMap(([name, value]) => {
-    if (!Array.isArray(value)) return [];
-    if (value[0] === 're') return [{ name, mode: 're' as const, source: (value[1] || 'text') as ExtractRule['source'], expression: String(value[2] || ''), index: Number(value[3] ?? 0) }];
-    const expression = normalizeJsonPathExpression(value[1]);
-    const inferredName = variableNameFromJsonPath(expression);
-    return [{ name, mode: 'jsonpath' as const, source: (value[0] || 'json') as ExtractRule['source'], expression, index: Number(value[2] ?? 0), autoVariableName: name === inferredName ? inferredName : undefined }];
+    const rule = extractRuleFromConfig(name, value, normalizeJsonPathExpression, variableNameFromJsonPath);
+    return rule ? [rule] : [];
   });
   const toExtractConfig = (rules: ExtractRule[] = []) => rules.reduce((result: Record<string, unknown>, rule) => {
     if (!rule.name.trim() || !rule.expression.trim()) return result;
-    result[rule.name.trim()] = rule.mode === 're'
-      ? ['re', rule.source, rule.expression, Number(rule.index || 0)]
-      : [rule.source, normalizeJsonPathExpression(rule.expression), Number(rule.index || 0)];
+    result[rule.name.trim()] = extractRuleToConfig(rule, normalizeJsonPathExpression);
     return result;
   }, {});
   const normalizeAssertReference = (value: unknown) => {
@@ -1019,6 +1139,53 @@
   };
   const fieldDisplayName: Record<VariableSuggestion['field'], string> = { headers: '请求头', params: 'Params', data: 'Data', json: 'JSON' };
   const variableReference = (name: string) => `\${${name}}`;
+  const sceneVariableDisplayValue = (variable: SceneVariableItem) => {
+    if (variable.sensitive && !revealedVariableKeys.value.has(variable.key)) return '******';
+    if (variable.category === 'function' && !variable.value) return '';
+    return variable.value || '-';
+  };
+  const toggleVariableVisibility = (key: string) => {
+    const next = new Set(revealedVariableKeys.value);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    revealedVariableKeys.value = next;
+  };
+  const copySceneVariable = async (variable: SceneVariableItem, notify = true) => {
+    try {
+      await navigator.clipboard.writeText(variable.reference);
+      if (notify) message.success(`已复制 ${variable.reference}`);
+      return true;
+    } catch {
+      message.error('复制失败，请手动选择变量表达式');
+      return false;
+    }
+  };
+  const rememberRequestEditorCursor = (step: any, event: Event) => {
+    const target = event.target as HTMLTextAreaElement | null;
+    if (!target || typeof target.selectionStart !== 'number') return;
+    requestEditorCursor.value = {
+      stepId: Number(step?.id),
+      start: target.selectionStart,
+      end: target.selectionEnd,
+    };
+  };
+  const referenceSceneVariable = async (variable: SceneVariableItem) => {
+    const cursor = requestEditorCursor.value;
+    const fallbackStepId = Number(expandedId.value || branchEditingStep.value?.id || 0);
+    const stepId = Number(cursor?.stepId || fallbackStepId);
+    const editor = editText[stepId];
+    if (!stepId || !editor) {
+      const copied = await copySceneVariable(variable, false);
+      if (copied) message.info('请在步骤参数中粘贴变量表达式');
+      return;
+    }
+    const current = editor.request_override || '';
+    const start = cursor?.stepId === stepId ? Math.min(cursor.start, current.length) : current.length;
+    const end = cursor?.stepId === stepId ? Math.min(cursor.end, current.length) : current.length;
+    editor.request_override = `${current.slice(0, start)}${variable.reference}${current.slice(end)}`;
+    requestEditorCursor.value = { stepId, start: start + variable.reference.length, end: start + variable.reference.length };
+    await nextTick();
+    message.success(`已引用 ${variable.reference}`);
+  };
   const precedingSteps = (targetStep: any) => {
     const mainIndex = steps.value.findIndex((step: any) => step.id === targetStep.id);
     if (mainIndex >= 0) return steps.value.slice(0, mainIndex).filter((step: any) => step.node_type === 'endpoint');
@@ -1177,7 +1344,7 @@
         if (!matched) return;
         const variableName = variableNameFor(matched.key, sourceStep, usedNames);
         usedNames.add(variableName); usedTargets.add(targetKey);
-        const extract: ExtractRule = { name: variableName, mode: 'jsonpath', source: 'json', expression: matched.path, index: 0 };
+        const extract: ExtractRule = { name: variableName, mode: 'jsonpath', source: 'json', expression: matched.path, index: 0, processors: [] };
         suggestions.push({
           key: `response-${targetKey}-${sourceStep.id}-${matched.path}`, sourceLabel: `第 ${sourceIndex + 1} 步 · ${sourceStep.endpoint_name || '未命名接口'} 的最近响应`, field: target.field,
           fieldLabel: `${fieldDisplayName[target.field]} · ${target.parameter}`, parameter: target.parameter, variableName,
@@ -1229,8 +1396,9 @@
     if (typeof item.retry_on_failure !== 'boolean') item.retry_on_failure = false;
     item.failure_retry_count = Math.min(5, Math.max(1, Number(item.failure_retry_count) || 1));
     editText[item.id] = { request_override: requestOverrideJson(requestDefaults(item.endpoint_info, item.request_override), item.endpoint_info) };
-    extractRules[item.id] = toExtractRules(item.extract);
-    validateRules[item.id] = toValidateRules(item.validate);
+    // 场景步骤是添加接口时的独立快照；空规则也是有效的场景覆盖。
+    extractRules[item.id] = toExtractRules(item.extract || {});
+    validateRules[item.id] = toValidateRules(item.validate || {});
     postSqlRules[item.id] = Array.isArray(item.post_sql) ? item.post_sql : [];
     pollingConfigs[item.id] = normalizePollingConfig(item.polling);
     activeConfigTabs[item.id] ||= 'request_override';
@@ -1287,7 +1455,7 @@
    */
   async function validateSelectedEndpointIds(source: 'main' | 'branch') {
     const original = source === 'main' ? [...selectedEndpoints.value] : [...branchEndpointIds.value];
-    await loadInterfaceTree();
+    await Promise.all([loadInterfaceTree(), loadProjectVariables(), loadDynamicFunctions()]);
     const selectableIds = new Set(availableEndpoints.value.map((endpoint: any) => Number(endpoint.id)));
     const valid = Array.from(new Set(original.map(Number).filter((endpointId) => selectableIds.has(endpointId))));
     const removedCount = original.length - valid.length;
@@ -1819,16 +1987,29 @@
     try {
       const payload = await projectVariableApi.getDataList({ project: form.projects.join(',') });
       projectVariables.value = asList(payload).map((variable: any) => ({
-        id: variable.id, name: variable.name || '', value: variable.value || '', project_name: variable.project_name,
+        id: variable.id, name: variable.name || '', value: variable.value ?? '', description: variable.description || '', project_name: variable.project_name,
       }));
     } catch {
       projectVariables.value = [];
     }
   }
 
+  async function loadDynamicFunctions() {
+    if (!form.projects.length) {
+      dynamicFunctions.value = [];
+      return;
+    }
+    try {
+      const payload = await dynamicFunctionApi.getDataList({ projects: form.projects.join(','), page: 1, pageSize: 999 });
+      dynamicFunctions.value = asList(payload).filter((item: any) => item.enabled !== false);
+    } catch {
+      dynamicFunctions.value = [];
+    }
+  }
+
   watch(() => form.projects, async () => {
     refreshEnvironmentOptions(Boolean(runEnvironment.value));
-    await Promise.all([loadInterfaceTree(), loadProjectVariables()]);
+    await Promise.all([loadInterfaceTree(), loadProjectVariables(), loadDynamicFunctions()]);
   }, { deep: true });
   onMounted(load);
 </script>
@@ -2220,7 +2401,7 @@
   .scene-save-state.created .save-state-dot::after { font-size: 11px; font-weight: 700; content: '✓'; }
   .scene-save-state strong { color: #229657; font-size: 12px; }
 
-  .scene-workspace-layout { grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; }
+  .scene-workspace-layout { grid-template-columns: minmax(0, 1fr) 400px; gap: 14px; }
   .steps-card { position: relative; border-radius: 5px; box-shadow: none; }
   .steps-card :deep(.n-card-header) { min-height: 62px; padding: 12px 20px; }
   .steps-card :deep(.n-card__content) { position: relative; padding: 8px 20px 18px; }
@@ -2332,6 +2513,50 @@
   .scene-variable-list { padding: 8px 16px 14px; }
   .scene-variable-list div { min-height: 42px; padding: 0; border-bottom: 0; }
   .scene-variable-list code { border: 1px solid #d8dee8; color: #24344b; background: #f9fafc; }
+  .scene-variable-panel { overflow: visible; }
+  .scene-variable-panel > header { min-height: 46px; padding: 0 12px; border-bottom: 0; }
+  .scene-variable-panel > header strong { font-size: 14px; }
+  .variable-collapse-button { display: inline-grid; width: 28px; height: 28px; padding: 0; border: 0; place-items: center; color: #617086; background: transparent; cursor: pointer; }
+  .variable-collapse-button :deep(svg) { font-size: 16px; transition: transform .18s ease; }
+  .variable-collapse-button :deep(svg.collapsed) { transform: rotate(180deg); }
+  .scene-variable-content { min-width: 0; padding: 0 0 12px; overflow: hidden; }
+  .scene-variable-search { width: auto; min-width: 0; max-width: calc(100% - 24px); margin: 0 12px 10px; box-sizing: border-box; }
+  .scene-variable-search :deep(.n-input-wrapper) { min-height: 38px; padding: 0 11px; border-radius: 5px; }
+  .scene-variable-search :deep(.n-input__prefix) { margin-right: 7px; color: #9aa6b7; font-size: 16px; }
+  .scene-variable-search :deep(.n-input__input-el) { font-size: 12px; }
+  .scene-variable-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); min-height: 42px; padding: 0 9px; border-bottom: 1px solid #e6eaf0; }
+  .scene-variable-tabs button { position: relative; display: inline-flex; min-width: 0; height: 42px; padding: 0 3px; border: 0; align-items: center; justify-content: center; gap: 4px; color: #66758b; background: transparent; font-size: 11px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+  .scene-variable-tabs button::after { position: absolute; right: 4px; bottom: -1px; left: 4px; height: 2px; border-radius: 2px 2px 0 0; background: transparent; content: ''; }
+  .scene-variable-tabs button b { display: inline-grid; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px; place-items: center; color: #7e8ca1; background: #f1f3f7; font-size: 10px; font-variant-numeric: tabular-nums; }
+  .scene-variable-tabs button.active { color: #2468f2; }
+  .scene-variable-tabs button.active::after { background: #2468f2; }
+  .scene-variable-tabs button.active b { color: #2468f2; background: #edf3ff; }
+  .scene-variable-groups { max-height: min(600px, calc(100vh - 170px)); padding: 4px 0 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #c9d2df transparent; }
+  .scene-variable-group { margin: 0 10px 10px; overflow: hidden; border: 1px solid #dfe5ed; border-radius: 5px; background: #fff; }
+  .scene-variable-group > header { display: flex; min-height: 38px; padding: 0 10px; border-bottom: 1px solid #e8ecf2; align-items: center; justify-content: space-between; background: #fbfcfe; }
+  .scene-variable-group > header > div { display: flex; min-width: 0; align-items: center; gap: 6px; }
+  .scene-variable-group > header :deep(svg) { width: 8px; height: 8px; flex: none; color: #18a058; }
+  .scene-variable-group > header :deep(svg:nth-of-type(2)) { width: 6px; height: 6px; color: #18a058; opacity: .9; }
+  .scene-variable-group > header strong { color: #18a058; font-size: 12px; font-weight: 650; }
+  .scene-variable-group > header span { overflow: hidden; color: #8a96a8; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .scene-variable-group > header > b { color: #6d7b90; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .scene-variable-group.is-function > header :deep(svg), .scene-variable-group.is-function > header :deep(svg:nth-of-type(2)), .scene-variable-group.is-function > header strong { color: #7c4ce0; }
+  .scene-variable-group.is-extract > header :deep(svg), .scene-variable-group.is-extract > header :deep(svg:nth-of-type(2)), .scene-variable-group.is-extract > header strong { color: #ee940f; }
+  .scene-variable-row { display: grid; min-height: 40px; padding: 0 9px; grid-template-columns: minmax(82px, .8fr) minmax(0, 1.35fr) auto; align-items: center; gap: 7px; border-bottom: 1px solid #edf0f5; }
+  .scene-variable-row:last-child { border-bottom: 0; }
+  .scene-variable-row:hover { background: #fbfcff; }
+  .scene-variable-row code { min-width: 0; overflow: hidden; color: #34445a; font: 11px/24px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+  .scene-variable-group.is-function .scene-variable-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .scene-variable-group.is-function .scene-variable-value { display: none; }
+  .scene-variable-row code.selected { padding: 0 4px; border-radius: 3px; color: #2468f2; background: #edf3ff; }
+  .scene-variable-value { display: inline-flex; min-width: 0; overflow: hidden; align-items: center; gap: 4px; color: #7f8da2; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .scene-variable-value:not(:has(.variable-eye-button)) { display: block; }
+  .variable-eye-button { display: inline-grid; width: 20px; height: 20px; padding: 0; border: 0; flex: none; place-items: center; color: #8794a7; background: transparent; cursor: pointer; }
+  .variable-eye-button :deep(svg) { font-size: 15px; }
+  .scene-variable-actions { display: inline-flex; align-items: center; gap: 6px; }
+  .scene-variable-actions button { padding: 2px 0; border: 0; color: #2468f2; background: transparent; font-size: 10px; font-weight: 600; cursor: pointer; }
+  .scene-variable-actions button:hover { color: #164fc3; }
+  .scene-variable-empty { min-height: 148px; }
   .recent-run-summary { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 15px 17px 8px; color: #445166; font-size: 12px; }
   .recent-run-summary strong { font-weight: 500; }
   .run-context-panel time { display: block; padding: 0 17px 10px; color: #7c899b; font-size: 11px; }
@@ -2339,7 +2564,7 @@
   .execution-rule-panel p { padding: 14px 18px 18px; font-size: 12px; line-height: 1.7; }
 
   @media (max-width: 1260px) {
-    .scene-workspace-layout { grid-template-columns: minmax(0, 1fr) 280px; }
+    .scene-workspace-layout { grid-template-columns: minmax(0, 1fr) 360px; }
     .basic-fields { grid-template-columns: minmax(190px, 1fr) minmax(130px, .6fr) minmax(260px, 1.2fr); }
   }
   @media (max-width: 1040px) {

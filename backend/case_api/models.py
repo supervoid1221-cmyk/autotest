@@ -76,6 +76,9 @@ class Endpoint(models.Model):
     # {"file": [{"name": "demo.xlsx", "path": "uploaded_api_files/uuid.xlsx", "size": 1024}]}
     # 文件内容保存在平台服务器，配置中仅保存文件元数据和受限的相对路径。
     files = models.JSONField("上传文件", default=dict, blank=True)
+    # 接口库级别的默认提取与断言。场景步骤可单独覆盖；未配置步骤规则时继承这里的配置。
+    extract = models.JSONField("数据提取", default=dict, blank=True)
+    validate = models.JSONField("断言", default=dict, blank=True)
 
     def to_yaml_data(self, base_url, auth_headers=None, override=None):
         if self.url and not self.url.startswith(("http://", "https://")) and not (base_url or "").strip():
@@ -121,7 +124,12 @@ class Endpoint(models.Model):
         # requests 会在 multipart 请求时生成带 boundary 的 Content-Type；手填会导致文件无法解析。
         if request["files"]:
             request["headers"] = {key: value for key, value in request["headers"].items() if key.lower() != "content-type"}
-        result = {"test_name": self.name, "request": request, "extract": {}, "validate": {}}
+        result = {
+            "test_name": self.name,
+            "request": request,
+            "extract": self.extract or {},
+            "validate": self.validate or {},
+        }
         if self.parametrize:
             result["parametrize"] = self.parametrize
         return result

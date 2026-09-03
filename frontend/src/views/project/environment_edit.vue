@@ -194,6 +194,22 @@
               jwt expired 或 HTTP 401 时触发兜底刷新。</div
             >
           </section>
+          <section class="config-panel browser-token-config">
+            <div class="browser-token-heading">
+              <div><strong>UI 用例免登录</strong><span>执行 UI 用例前将当前 Token 注入浏览器</span></div>
+              <n-switch v-model:value="formValue.browser_token_enabled" />
+            </div>
+            <div v-if="formValue.browser_token_enabled" class="browser-token-grid">
+              <n-form-item><label class="field-label">存储位置</label><n-select v-model:value="formValue.browser_token_storage" :options="browserTokenStorageOptions" /></n-form-item>
+              <n-form-item><label class="field-label">存储键</label><n-input v-model:value="formValue.browser_token_key" :placeholder="formValue.token_name || 'token'" /></n-form-item>
+              <n-form-item><label class="field-label">包含请求头前缀</label><n-switch v-model:value="formValue.browser_token_include_prefix" /></n-form-item>
+              <template v-if="formValue.browser_token_storage === 'cookie'">
+                <n-form-item><label class="field-label">Cookie 域</label><n-input v-model:value="formValue.browser_cookie_domain" placeholder="留空时根据环境地址自动生成" /></n-form-item>
+                <n-form-item><label class="field-label">Cookie 路径</label><n-input v-model:value="formValue.browser_cookie_path" placeholder="/" /></n-form-item>
+              </template>
+            </div>
+            <p v-if="formValue.browser_token_enabled" class="browser-token-tip">优先使用当前项目接口最新提取的 Token；没有提取值时使用项目 Token 或环境自动登录 Token。</p>
+          </section>
         </main>
 
         <aside class="side-column">
@@ -343,6 +359,11 @@
     label: value,
     value,
   }));
+  const browserTokenStorageOptions = [
+    { label: 'localStorage', value: 'local_storage' },
+    { label: 'sessionStorage', value: 'session_storage' },
+    { label: 'Cookie', value: 'cookie' },
+  ];
   const requestTabs: Array<{ key: ParameterKey; label: string }> = [
     { key: 'login_headers', label: 'Headers' },
     { key: 'login_params', label: 'Params' },
@@ -365,6 +386,12 @@
     token_header: 'Authorization',
     token_prefix: 'Bearer ',
     token_ttl: 1800,
+    browser_token_enabled: true,
+    browser_token_storage: 'local_storage',
+    browser_token_key: '',
+    browser_token_include_prefix: false,
+    browser_cookie_domain: '',
+    browser_cookie_path: '/',
   });
   const formValue = reactive<Environment>(initial());
   const parameterTexts = reactive<Record<ParameterKey, string>>({
@@ -1151,6 +1178,11 @@
   .ttl-note :deep(.n-icon) {
     color: #3979e9;
   }
+  .browser-token-config { margin-top: 16px; padding: 16px; border: 1px solid #e1e7f0; border-radius: 6px; background: #fbfcfe; }
+  .browser-token-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .browser-token-heading > div { display: flex; align-items: baseline; gap: 10px; }.browser-token-heading strong { color: #283548; font-size: 14px; }.browser-token-heading span { color: #7d899b; font-size: 12px; }
+  .browser-token-grid { display: grid; grid-template-columns: 1fr 1fr 0.8fr; gap: 28px; margin-top: 14px; }.browser-token-grid :deep(.n-form-item) { margin-bottom: 0; }
+  .browser-token-tip { margin: 8px 0 0; color: #7d899b; font-size: 12px; line-height: 1.6; }
   .side-panel {
     overflow: hidden;
   }
@@ -1390,6 +1422,7 @@
     .basic-grid,
     .token-grid.first-row,
     .token-grid.second-row,
+    .browser-token-grid,
     .side-column {
       grid-template-columns: 1fr;
       gap: 12px;

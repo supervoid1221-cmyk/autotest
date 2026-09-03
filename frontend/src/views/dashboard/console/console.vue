@@ -100,7 +100,7 @@
         <div class="compact-table-head upcoming-columns"><span>项目 / 套件</span><span>环境</span><span>调度类型</span><span>下次执行时间</span><span>操作</span></div>
         <div v-if="visibleUpcomingRuns.length" class="compact-list">
           <div v-for="item in visibleUpcomingRuns.slice(0, 4)" :key="item.id" class="compact-row upcoming-columns">
-            <strong>{{ item.project }} / {{ item.suite }}</strong><span class="env-tag">{{ item.environment }}</span><span>Cron</span><time>{{ item.time }}</time><button type="button" class="text-link" @click="openSuite(item)">查看套件</button>
+            <strong>{{ item.project }} / {{ item.suite }}</strong><span class="env-tag">{{ item.environment }}</span><span>{{ item.scheduleType }}</span><time>{{ item.time }}</time><button type="button" class="text-link" @click="openSuite(item)">查看套件</button>
           </div>
         </div>
         <div v-else class="empty-block">暂无计划执行的套件</div>
@@ -177,6 +177,16 @@ function environmentLabel(value: any) {
   const key = String(value || '').trim().toLowerCase();
   return ({ dev: '开发', test: '测试', pre: '预发', prod: '生产' } as Record<string, string>)[key] || (value ? String(value) : '-');
 }
+function scheduleTypeLabel(value: any) {
+  const key = String(value || '').trim().toLowerCase();
+  return ({
+    once: '一次性',
+    daily: '每日',
+    weekly: '每周',
+    monthly: '每月',
+    custom: '自定义',
+  } as Record<string, string>)[key] || '定时任务';
+}
 function projectQuality(endpointCount: number, scenarioCount: number, passRate: number) {
   if (!endpointCount || !scenarioCount) return { label: '待完善', tone: 'warning' };
   if (passRate >= 80) return { label: '健康', tone: 'healthy' };
@@ -221,7 +231,33 @@ async function loadDashboard() {
       const lastRun = recentRuns.value.find((run) => run.projectIds.includes(project.id));
       return { ...project, endpoint_count: endpointCount, scenario_count: scenarioCount, coverage, pass_rate: passRate, last_run: lastRun?.dateTime || '-', quality: projectQuality(endpointCount, scenarioCount, passRate) };
     });
-    upcomingRuns.value = pickList(suiteData).filter((suite: any) => suite.run_type === 'C' && suite.next_run).sort((a: any, b: any) => new Date(a.next_run).getTime() - new Date(b.next_run).getTime()).map((suite: any) => ({ id: suite.id, projectId: Number(suite.project), project: suite.project_name || '未知项目', suite: suite.name || '未知套件', environment: environmentLabel(suite.environment_name), time: formatDateTime(suite.next_run, true) }));
+    const projectNameMap = new Map(
+      projects.value.map((project: any) => [Number(project.id), project.name || '未知项目'])
+    );
+    const now = Date.now();
+    upcomingRuns.value = pickList(suiteData)
+      .map((suite: any) => ({ ...suite, nextRunAt: new Date(suite.next_run).getTime() }))
+      .filter(
+        (suite: any) =>
+          suite.run_type === 'C' &&
+          suite.enabled !== false &&
+          suite.next_run &&
+          Number.isFinite(suite.nextRunAt) &&
+          suite.nextRunAt > now
+      )
+      .sort((a: any, b: any) => a.nextRunAt - b.nextRunAt)
+      .map((suite: any) => {
+        const projectId = Number(suite.project);
+        return {
+          id: suite.id,
+          projectId,
+          project: projectNameMap.get(projectId) || suite.project_name || '未知项目',
+          suite: suite.name || '未知套件',
+          environment: environmentLabel(suite.environment_name),
+          scheduleType: scheduleTypeLabel(suite.schedule_kind),
+          time: formatDateTime(suite.next_run, true),
+        };
+      });
   } catch (error: any) { window['$message']?.error(error?.message || '主控台数据加载失败'); }
   finally { loading.value = false; }
 }
