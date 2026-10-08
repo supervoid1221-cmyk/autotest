@@ -6,6 +6,17 @@ import router, { setupRouter } from './router';
 import { setupStore } from '@/store';
 import { initializeBranding } from '@/config/website.config';
 
+// 页面在发布前已打开时，懒加载路由可能仍引用旧版资源。只自动刷新一次，
+// 重新读取最新 index.html；一分钟内再次失败则保留错误，避免刷新循环。
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault();
+  const key = 'frontend-preload-reload-at';
+  const lastReload = Number(sessionStorage.getItem(key) || 0);
+  if (Date.now() - lastReload < 60_000) return;
+  sessionStorage.setItem(key, String(Date.now()));
+  window.location.reload();
+});
+
 async function bootstrap() {
   await initializeBranding();
   const app = createApp(App);
