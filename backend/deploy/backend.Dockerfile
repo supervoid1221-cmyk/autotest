@@ -1,4 +1,4 @@
-FROM docker.io/grafana/k6:1.0.0 AS k6-runtime
+FROM docker.m.daocloud.io/grafana/k6:1.0.0 AS k6-runtime
 
 FROM docker.m.daocloud.io/library/python:3.11-slim-bookworm
 
