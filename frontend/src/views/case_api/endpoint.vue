@@ -34,6 +34,7 @@
           <div class="list-primary-actions">
             <n-button @click="openRecording">接口录制</n-button>
             <n-button @click="openImport">Import</n-button>
+            <n-button @click="openSwaggerImport">导入 Swagger</n-button>
             <n-button type="primary" :disabled="!selectedModuleId" @click="addData">添加接口</n-button>
           </div>
         </header>
@@ -62,37 +63,9 @@
       <n-form label-placement="top"><n-form-item label="模块名称" required><n-input v-model:value="moduleForm.name" placeholder="例如：订单管理" maxlength="64" /></n-form-item></n-form>
     </n-modal>
 
-    <n-modal v-model:show="deleteModuleVisible" :mask-closable="false">
-      <section class="delete-module-dialog">
-        <header class="delete-dialog-header">
-          <div><h3>删除模块</h3><p>确定删除模块「{{ deletingModule?.name }}」吗？</p></div>
-          <n-button text class="dialog-close" @click="deleteModuleVisible = false">×</n-button>
-        </header>
-        <div class="delete-dialog-body">
-          <div class="endpoint-risk-count">该模块下共有 <strong>{{ deletingModule?.endpoint_count || 0 }}</strong> 个接口。</div>
-          <n-radio-group v-model:value="deleteMode" class="delete-mode-list">
-            <label class="delete-mode-item" :class="{ selected: deleteMode === 'unassign' }">
-              <n-radio value="unassign" />
-              <span><strong>仅删除模块，接口移至未分组</strong><small>推荐选择，接口数据将保留，可稍后重新分配模块。</small></span>
-            </label>
-            <label class="delete-mode-item danger" :class="{ selected: deleteMode === 'cascade' }">
-              <n-radio value="cascade" />
-              <span><strong>删除模块及模块下全部接口</strong><small>接口及相关引用将被永久删除，此操作不可恢复。</small></span>
-            </label>
-          </n-radio-group>
-          <div v-if="deleteMode === 'cascade'" class="danger-confirm-area">
-            <span>请输入 <strong>确认删除</strong> 继续</span>
-            <n-input v-model:value="deleteConfirmText" placeholder="确认删除" />
-          </div>
-        </div>
-        <footer class="delete-dialog-footer">
-          <n-button @click="deleteModuleVisible = false">取消</n-button>
-          <n-button type="error" :loading="moduleDeleting" :disabled="deleteMode === 'cascade' && deleteConfirmText !== '确认删除'" @click="confirmDeleteModule">确认删除</n-button>
-        </footer>
-      </section>
-    </n-modal>
+    <ModuleDeleteDialog v-model:show="deleteModuleVisible" :module="deletingModule" @deleted="handleModuleDeleted" />
 
-    <n-modal v-model:show="importVisible" preset="card" title="导入 cURL" class="curl-import-modal" :style="{ width: 'min(1100px, calc(100vw - 48px))' }" :mask-closable="false">
+    <n-modal v-model:show="importVisible" preset="card" title="导入 cURL" class="platform-form-modal curl-import-modal" :mask-closable="false">
       <div class="curl-import-layout">
         <section class="curl-source-panel">
           <div class="panel-heading">粘贴请求</div>
@@ -129,9 +102,7 @@
                 <template #label>
                   <div class="header-field-label">
                     <span>请求头</span>
-                    <n-button v-if="hasSensitiveHeaders" text type="primary" size="tiny" @click="sensitiveHeadersVisible = !sensitiveHeadersVisible">
-                      {{ sensitiveHeadersVisible ? '隐藏敏感信息' : '显示敏感信息' }}
-                    </n-button>
+                    <button v-if="hasSensitiveHeaders" type="button" class="sensitive-header-eye" :title="sensitiveHeadersVisible ? '隐藏具体信息' : '查看具体信息'" :aria-label="sensitiveHeadersVisible ? '隐藏请求头敏感信息' : '查看请求头敏感信息'" @click="sensitiveHeadersVisible = !sensitiveHeadersVisible"><PhEyeSlash v-if="sensitiveHeadersVisible"/><PhEye v-else/></button>
                   </div>
                 </template>
                 <n-input
@@ -169,28 +140,67 @@
         </n-space>
       </template>
     </n-modal>
+    <n-modal v-model:show="swaggerVisible" preset="card" title="导入 Swagger / OpenAPI" class="platform-form-modal swagger-import-modal" :mask-closable="false">
+      <n-form label-placement="top">
+        <div class="swagger-target-row">
+          <n-form-item label="所属项目" required><n-select v-model:value="swaggerForm.project" :options="projectOptions" placeholder="选择项目" @update:value="handleSwaggerProjectChange" /></n-form-item>
+          <n-form-item label="所属模块（可选）"><n-select v-model:value="swaggerForm.module" :options="swaggerModuleOptions" :disabled="!swaggerForm.project" clearable placeholder="留空则按文档标签自动创建模块" @update:value="swaggerPreview = null" /></n-form-item>
+        </div>
+        <n-form-item label="文档 URL"><n-input v-model:value="swaggerForm.url" placeholder="例如 http://127.0.0.1:8000/api/schema/openapi.json" /></n-form-item>
+        <div class="swagger-source-actions">
+          <n-button :loading="swaggerLoading" @click="loadSwaggerUrl">读取 URL</n-button>
+          <label class="swagger-file-label">选择 JSON / YAML 文件<input type="file" accept=".json,.yaml,.yml,application/json,text/yaml" @change="loadSwaggerFile" /></label>
+        </div>
+        <n-form-item label="文档内容"><n-input v-model:value="swaggerForm.content" type="textarea" :autosize="{ minRows: 8, maxRows: 13 }" placeholder="粘贴 Swagger 2.0 / OpenAPI 3.x 的 JSON 或 YAML 内容" @update:value="swaggerPreview = null" /></n-form-item>
+        <n-alert type="info" :show-icon="false">留空模块时，优先按文档 tags 创建或复用同名模块；没有 tags 则按路径首段归类。只导入接口定义，不执行请求；重复的“方法 + 路径”将跳过。</n-alert>
+        <n-button class="swagger-preview-button" type="primary" :loading="swaggerLoading" @click="previewSwagger">解析预览</n-button>
+        <div v-if="swaggerPreview" class="swagger-preview">
+          <div>共 {{ swaggerPreview.count }} 个接口，可新增 {{ swaggerPreview.new }} 个，重复 {{ swaggerPreview.count - swaggerPreview.new }} 个；目标模块 {{ swaggerPreview.modules.length }} 个</div>
+          <div class="swagger-preview-list"><div v-for="(item, index) in swaggerPreview.endpoints" :key="index" class="swagger-preview-item"><span>{{ item.method }}</span><span :title="item.name">{{ item.name }}</span><span :title="item.module_name">{{ item.module_name }}</span><code :title="item.url">{{ item.url }}</code><span>{{ item.duplicate ? '跳过' : '新增' }}</span></div></div>
+          <div class="swagger-relation-heading">关联建议 · {{ swaggerPreview.relations.length }} 条</div>
+          <p class="swagger-relation-tip">仅根据文档结构推断，不会运行接口。勾选确认后可生成场景；接口库默认参数不会被改写。</p>
+          <n-checkbox-group v-model:value="swaggerSelectedRelations">
+            <div class="swagger-relation-list"><label v-for="relation in swaggerPreview.relations" :key="relation.id" class="swagger-relation-item"><n-checkbox :value="relation.id" /><span><strong>{{ relation.source_name }} → {{ relation.target_name }}</strong><small>{{ relation.response_path }} → {{ relation.target_field }}.{{ relation.target_key }} = <code>{{ '${' + relation.variable + '}' }}</code></small><small>{{ relation.reason }} · 置信度 {{ relation.score }}</small></span></label><n-empty v-if="!swaggerPreview.relations.length" description="未发现可可靠匹配的关联；仍可只导入接口" /></div>
+          </n-checkbox-group>
+          <div class="swagger-scenario-option"><n-checkbox v-model:checked="swaggerCreateScenario" :disabled="!swaggerSelectedRelations.length">按已确认的关联生成场景</n-checkbox><n-input v-if="swaggerCreateScenario" v-model:value="swaggerScenarioName" maxlength="64" placeholder="场景名称" /></div>
+        </div>
+      </n-form>
+      <template #footer><n-space justify="end"><n-button @click="swaggerVisible = false">取消</n-button><n-button type="primary" :disabled="!swaggerPreview || (!swaggerPreview.new && !swaggerCreateScenario)" :loading="swaggerLoading" @click="saveSwagger">导入 {{ swaggerPreview?.new || 0 }} 个接口{{ swaggerCreateScenario ? '并生成场景' : '' }}</n-button></n-space></template>
+    </n-modal>
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { computed, reactive, ref, h, onMounted } from 'vue';
+import { asList } from '@/utils/list';
+
+  import { computed, reactive, ref, h, onMounted, watch } from 'vue';
   import { BasicTable } from '@/components/Table';
   import { createEndpointColumns } from './endpointColumns';
   import { NButton, NSpace, useDialog, useMessage } from 'naive-ui';
   import { useRouter } from 'vue-router';
-  import { EndpointAPI, EndpointModuleAPI } from '@/api/case_api/http';
-  import { EnvironmentAPI, ProjectAPI } from '@/api/project/http';
+  import { EndpointAPI } from '@/api/case_api/http';
+  import { EnvironmentAPI, ModuleAPI, ProjectAPI } from '@/api/project/http';
+  import ModuleDeleteDialog from '@/views/case_shared/ModuleDeleteDialog.vue';
+  import { PhEye, PhEyeSlash } from '@phosphor-icons/vue';
 
   const message = useMessage();
   const dialog = useDialog();
   const actionRef = ref();
   const router = useRouter();
   const api = new EndpointAPI();
-  const moduleApi = new EndpointModuleAPI();
+  const moduleApi = new ModuleAPI();
   const projectApi = new ProjectAPI();
   const environmentApi = new EnvironmentAPI();
   const columns = createEndpointColumns((record) => handleEdit(record));
   const importVisible = ref(false);
+  const swaggerVisible = ref(false);
+  const swaggerLoading = ref(false);
+  const swaggerForm = reactive({ project: null as number | null, module: null as number | null, url: '', content: '' });
+  const swaggerPreview = ref<{ count: number; new: number; modules: string[]; endpoints: Array<{ name: string; method: string; url: string; module_name: string; duplicate: boolean }>; relations: Array<{ id: string; source_name: string; target_name: string; target_field: string; target_key: string; response_path: string; variable: string; score: number; reason: string }> } | null>(null);
+  const swaggerSelectedRelations = ref<string[]>([]);
+  const swaggerCreateScenario = ref(false);
+  const swaggerScenarioName = ref('');
+  watch(swaggerSelectedRelations, (selected) => { if (!selected.length) swaggerCreateScenario.value = false; });
   const importParsed = ref(false);
   const importing = ref(false);
   const sensitiveHeadersVisible = ref(false);
@@ -205,10 +215,7 @@
   const editingModuleId = ref<number | null>(null);
   const moduleForm = reactive({ project: null as number | null, name: '' });
   const deleteModuleVisible = ref(false);
-  const moduleDeleting = ref(false);
   const deletingModule = ref<any>(null);
-  const deleteMode = ref<'unassign' | 'cascade'>('unassign');
-  const deleteConfirmText = ref('');
   const moduleActionOptions = [
     { label: '重命名模块', key: 'rename' },
     { label: '删除模块', key: 'delete', props: { style: 'color: #d03050;' } },
@@ -245,6 +252,7 @@
   const importModuleOptions = computed(() => modules.value
     .filter((module) => module.project === importForm.project)
     .map((module) => ({ label: module.name, value: module.id })));
+  const swaggerModuleOptions = computed(() => modules.value.filter((module) => module.project === swaggerForm.project).map((module) => ({ label: module.name, value: module.id })));
   const selectedProject = computed(() => projects.value.find((project) => project.id === selectedProjectId.value));
   const selectedModule = computed(() => modules.value.find((module) => module.id === selectedModuleId.value));
   const tableTitle = computed(() => {
@@ -342,8 +350,6 @@
     }
     if (key === 'delete') {
       deletingModule.value = module;
-      deleteMode.value = 'unassign';
-      deleteConfirmText.value = '';
       deleteModuleVisible.value = true;
     }
   }
@@ -371,29 +377,14 @@
     }
   }
 
-  async function confirmDeleteModule() {
+  async function handleModuleDeleted() {
     const module = deletingModule.value;
-    if (!module?.id) return;
-    if (deleteMode.value === 'cascade' && deleteConfirmText.value !== '确认删除') {
-      message.warning('请输入“确认删除”。');
-      return;
+    if (selectedModuleId.value === module?.id) {
+      selectedModuleId.value = null;
+      selectedProjectId.value = module?.project ?? selectedProjectId.value;
     }
-    try {
-      moduleDeleting.value = true;
-      const result = await moduleApi.deleteModule(module.id, deleteMode.value === 'cascade');
-      if (selectedModuleId.value === module.id) {
-        selectedModuleId.value = null;
-        selectedProjectId.value = module.project;
-      }
-      deleteModuleVisible.value = false;
-      await loadTree();
-      reloadTable();
-      message.success(result?.detail || (deleteMode.value === 'cascade' ? '模块及接口已删除。' : '模块已删除，接口已移至未分组。'));
-    } catch (error: any) {
-      message.error(error.message || '模块删除失败。');
-    } finally {
-      moduleDeleting.value = false;
-    }
+    await loadTree();
+    reloadTable();
   }
 
   async function openImport() {
@@ -407,6 +398,79 @@
     const environmentList = await environmentApi.getDataList({});
     projectOptions.value = projects.value.map((project: any) => ({ label: project.name, value: project.id }));
     environments.value = environmentList;
+  }
+
+  function openSwaggerImport() {
+    Object.assign(swaggerForm, { project: selectedProjectId.value, module: null, url: '', content: '' });
+    projectOptions.value = projects.value.map((project: any) => ({ label: project.name, value: project.id }));
+    swaggerPreview.value = null;
+    swaggerSelectedRelations.value = [];
+    swaggerCreateScenario.value = false;
+    swaggerScenarioName.value = `Swagger 关联场景 ${new Date().toLocaleString('sv-SE')}`;
+    swaggerVisible.value = true;
+  }
+
+  function handleSwaggerProjectChange() {
+    swaggerForm.module = null;
+    swaggerPreview.value = null;
+  }
+
+  async function loadSwaggerFile(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { message.error('文件不能超过 2 MB'); return; }
+    swaggerForm.content = await file.text();
+    swaggerPreview.value = null;
+    message.success('文件已读取，请解析预览');
+  }
+
+  async function loadSwaggerUrl() {
+    try {
+      const url = new URL(swaggerForm.url);
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('请输入 HTTP 或 HTTPS 文档地址');
+      swaggerLoading.value = true;
+      const response = await fetch(url.href, { credentials: url.origin === window.location.origin ? 'same-origin' : 'omit' });
+      if (!response.ok) throw new Error(`读取失败（HTTP ${response.status}）`);
+      const text = await response.text();
+      if (new Blob([text]).size > 2 * 1024 * 1024) throw new Error('文档不能超过 2 MB');
+      swaggerForm.content = text;
+      swaggerPreview.value = null;
+      message.success('文档已读取，请解析预览');
+    } catch (error: any) { message.error(error.message || '读取失败；跨域地址可下载文件后导入'); }
+    finally { swaggerLoading.value = false; }
+  }
+
+  function swaggerPayload() {
+    if (!swaggerForm.project || !swaggerForm.content.trim()) throw new Error('请选择项目并提供文档内容');
+    return { project: swaggerForm.project, module: swaggerForm.module, content: swaggerForm.content };
+  }
+
+  async function previewSwagger() {
+    try {
+      swaggerLoading.value = true;
+      swaggerPreview.value = null;
+      swaggerSelectedRelations.value = [];
+      swaggerCreateScenario.value = false;
+      const result = await api.importSwagger(swaggerPayload());
+      swaggerPreview.value = result as typeof swaggerPreview.value;
+    } catch (error: any) { message.error(error.message || 'Swagger 解析失败'); }
+    finally { swaggerLoading.value = false; }
+  }
+
+  async function saveSwagger() {
+    try {
+      if (swaggerCreateScenario.value && !swaggerSelectedRelations.value.length) throw new Error('请先选择至少一条接口关联');
+      swaggerLoading.value = true;
+      const result = await api.importSwagger({ ...swaggerPayload(), save: true, create_scenario: swaggerCreateScenario.value, scenario_name: swaggerScenarioName.value, relation_ids: swaggerCreateScenario.value ? swaggerSelectedRelations.value : [] });
+      message.success(`导入成功：新增 ${result.created || 0} 个，跳过 ${result.skipped || 0} 个`);
+      swaggerVisible.value = false;
+      await loadTree();
+      reloadTable();
+      if (result.scenario_id) await router.push({ name: 'case_api_scenario_edit', params: { id: result.scenario_id } });
+    } catch (error: any) { message.error(error.message || 'Swagger 导入失败'); }
+    finally { swaggerLoading.value = false; }
   }
 
   function handleImportProjectChange() {
@@ -541,7 +605,7 @@
         projectApi.getDataList({ pageSize: 999 }),
         moduleApi.getDataList({ pageSize: 999 }),
       ]);
-      const asList = (data: any) => Array.isArray(data) ? data : data?.list || data?.results || [];
+      
       projects.value = asList(projectData);
       modules.value = asList(moduleData);
       if (!selectedProjectId.value && projects.value.length) selectedProjectId.value = projects.value[0].id;
@@ -557,6 +621,24 @@
 </script>
 
 <style lang="less" scoped>
+  :global(.swagger-import-modal.n-card) { width: min(900px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; }
+  .swagger-target-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .swagger-source-actions { display: flex; align-items: center; gap: 12px; margin: -8px 0 14px; }
+  .swagger-file-label { display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; border: 1px solid #d9d9e3; border-radius: 4px; cursor: pointer; }
+  .swagger-file-label input { display: none; }
+  .swagger-preview-button { margin-top: 14px; }
+  .swagger-preview { margin-top: 14px; }
+  .swagger-preview-list { max-height: 280px; margin-top: 8px; overflow: auto; border: 1px solid #e5eaf1; border-radius: 6px; }
+  .swagger-preview-item { display: grid; grid-template-columns: 60px minmax(100px, 1fr) minmax(100px, 1fr) minmax(150px, 2fr) 48px; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #edf1f5; font-size: 12px; }
+  .swagger-preview-item > span, .swagger-preview-item code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .swagger-relation-heading { margin-top: 18px; font-size: 14px; font-weight: 600; }
+  .swagger-relation-tip { margin: 6px 0 10px; color: #7b8797; font-size: 12px; }
+  .swagger-relation-list { max-height: 235px; overflow: auto; border: 1px solid #e5eaf1; border-radius: 6px; }
+  .swagger-relation-item { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border-bottom: 1px solid #edf1f5; cursor: pointer; }
+  .swagger-relation-item > span { display: grid; gap: 3px; min-width: 0; }
+  .swagger-relation-item strong { font-size: 12px; font-weight: 600; }
+  .swagger-relation-item small { color: #7b8797; font-size: 11px; }
+  .swagger-scenario-option { display: grid; gap: 8px; margin-top: 14px; }
   .endpoint-management { display: grid; grid-template-columns: 248px minmax(0, 1fr); align-items: start; gap: 16px; }
   .endpoint-tree-panel { min-height: 520px; overflow: hidden; border: 1px solid #e5eaf1; border-radius: 8px; background: #fff; }
   .tree-heading { padding: 17px 16px 13px; border-bottom: 1px solid #edf1f5; }
@@ -595,6 +677,14 @@
   .endpoint-table-card :deep(.endpoint-name-link) { max-width: 100%; overflow: hidden; padding: 0; border: 0; color: #246fd1; background: transparent; font: inherit; font-size: 14px; font-weight: 550; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
   .endpoint-table-card :deep(.endpoint-name-link:hover) { color: #1757a6; text-decoration: underline; text-underline-offset: 3px; }
   .endpoint-table-card :deep(.endpoint-name-link:focus-visible) { border-radius: 3px; outline: 2px solid rgba(37, 111, 209, .28); outline-offset: 2px; }
+  .endpoint-table-card :deep(.endpoint-path) { color: #374151; font: 13px 'JetBrains Mono', monospace; }
+  .endpoint-table-card :deep(.endpoint-empty-value) { color: #94a3b8; }
+  .endpoint-table-card :deep(.endpoint-method-tag) { display: inline-block; min-width: 56px; padding: 2px 10px; border-radius: 4px; color: #374151; background: #f3f4f6; font: 600 12px 'JetBrains Mono', monospace; text-align: center; }
+  .endpoint-table-card :deep(.endpoint-method-tag.method-get) { color: #318357; background: #eef8f2; }
+  .endpoint-table-card :deep(.endpoint-method-tag.method-post) { color: #da820b; background: #fff6e8; }
+  .endpoint-table-card :deep(.endpoint-method-tag.method-put) { color: #277bc5; background: #eef5fb; }
+  .endpoint-table-card :deep(.endpoint-method-tag.method-patch) { color: #277bc5; background: #eef5fb; }
+  .endpoint-table-card :deep(.endpoint-method-tag.method-delete) { color: #d44857; background: #fff0f2; }
   :global(.curl-import-modal.n-card) { max-height: calc(100vh - 48px); overflow: auto; }
   .curl-import-layout { display: grid; grid-template-columns: minmax(340px, .9fr) minmax(420px, 1.1fr); margin: -12px -16px; }
   .curl-source-panel { padding: 20px 22px 22px; border-right: 1px solid #e8ecf1; background: #fafbfd; }
@@ -612,24 +702,9 @@
   .body-type { width: 132px; }
   .header-field-label { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px; }
   .masked-header-editor :deep(textarea) { color: #6f7d90; letter-spacing: .02em; }
-  .delete-module-dialog { width: min(520px, calc(100vw - 32px)); overflow: hidden; border-radius: 8px; background: #fff; box-shadow: 0 18px 50px rgba(30, 43, 63, .2); }
-  .delete-dialog-header { display: flex; align-items: flex-start; justify-content: space-between; padding: 20px 22px 16px; border-bottom: 1px solid #edf0f4; }
-  .delete-dialog-header h3 { margin: 0; color: #202b3c; font-size: 18px; font-weight: 650; }
-  .delete-dialog-header p { margin: 7px 0 0; color: #5f6c7e; font-size: 13px; }
-  .dialog-close { width: 28px; color: #7c8796; font-size: 22px; line-height: 1; }
-  .delete-dialog-body { padding: 18px 22px 20px; }
-  .endpoint-risk-count { padding: 11px 13px; border: 1px solid #f1d49a; border-radius: 6px; color: #76551c; background: #fffaf0; font-size: 13px; }
-  .endpoint-risk-count strong { color: #a86500; }
-  .delete-mode-list { display: grid; gap: 10px; width: 100%; margin-top: 14px; }
-  .delete-mode-item { display: flex; align-items: flex-start; gap: 10px; padding: 13px; border: 1px solid #e2e7ee; border-radius: 7px; cursor: pointer; transition: border-color .16s, background .16s; }
-  .delete-mode-item:hover, .delete-mode-item.selected { border-color: #91baf0; background: #f7fbff; }
-  .delete-mode-item.danger:hover, .delete-mode-item.danger.selected { border-color: #efb3b9; background: #fff8f8; }
-  .delete-mode-item > span { display: grid; gap: 4px; }
-  .delete-mode-item strong { color: #303b4b; font-size: 13px; font-weight: 600; }
-  .delete-mode-item small { color: #8995a5; font-size: 12px; line-height: 1.5; }
-  .delete-mode-item.danger strong { color: #c13f4b; }
-  .danger-confirm-area { display: grid; gap: 7px; margin-top: 12px; padding: 12px 13px; border-radius: 6px; background: #fff2f3; color: #b83b46; font-size: 12px; }
-  .delete-dialog-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px; border-top: 1px solid #edf0f4; background: #fafbfc; }
+  .sensitive-header-eye { display: inline-grid; width: 26px; height: 26px; padding: 0; place-items: center; border: 0; border-radius: 4px; color: #6c8194; background: transparent; cursor: pointer; }
+  .sensitive-header-eye:hover { color: #008b95; background: rgba(0, 139, 149, .1); }
+  .sensitive-header-eye svg { width: 17px; height: 17px; }
   @media (max-width: 760px) {
     .endpoint-management { grid-template-columns: 1fr; }
     .endpoint-tree-panel { min-height: auto; }

@@ -3,6 +3,7 @@
 该执行器只处理 PlaywrightCase/PlaywrightStep，既有 Selenium 执行器完全不变。
 """
 import re
+import base64
 import time
 import os
 import json
@@ -16,14 +17,20 @@ from pathlib import Path
 
 import yaml
 
-from project.models import Environment
-from case_ui.browser_token import playwright_cookie, storage_init_script
+from project.models import Environment, ProjectVariable
+from case_ui.browser_token import (
+    playwright_cookie,
+    should_inject_environment_auth,
+    storage_init_script,
+)
 from case_ui.models import playwright_step_display_name
+from case_ui.scenario_text import MASKED_SECRET
 from case_ui.smart_locator import SmartLocatorError, resolve as resolve_smart
 from case_ui.smart_locator.engine import start_ui_transition_watch, wait_for_dialog_state, wait_for_ui_transition
 from case_ui.smart_locator.fingerprints import load_for_step, remember_for_step
 from case_ui.smart_locator.normalizer import normalize, semantic_terms
 from suite.reporting import load_variable_resolution, record_variable_resolution, recalculate_native_report
+from suite.execution_log import write_execution_log
 
 try:
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -220,6 +227,11 @@ def _capture_step_screenshot(page, case_id, step_id, status):
     if page is None:
         return ""
     try:
+        if case_id is None:
+            image = page.screenshot(
+                full_page=False, animations="disabled", caret="hide", scale="css",
+            )
+            return "data:image/png;base64," + base64.b64encode(image).decode("ascii")
         normalized_status = "passed" if status == "passed" else "failed"
         relative_path = Path("screenshots") / (
             f"playwright_{normalized_status}_{case_id}_{step_id}_{int(time.time() * 1000)}.png"
@@ -365,6 +377,121 @@ def _step_timeout(options, default_timeout):
     if seconds > 300:
         return round(seconds)
     return max(1, round(seconds * 1000))
+
+
+def _click_targets(target):
+    """点击步骤可用 -- 分隔多个按顺序执行的语义元素。"""
+    targets = [part.strip() for part in str(target or "").split("--")]
+    if not all(targets):
+        raise ValueError("连续点击的每个页面元素都不能为空，请用 -- 分隔元素名称。")
+    return targets
+
+
+def _resolve_open_dropdown_option(page, trigger_box, target):
+    """定位刚展开的无 ARIA 自定义下拉项，不把页面上同名普通文本当作按钮。"""
+    if not isinstance(trigger_box, dict) or not all(
+        isinstance(trigger_box.get(key), (int, float)) for key in ("x", "y", "width", "height")
+    ):
+        return None
+    token = f"pw-click-option-{int(time.time() * 1000000)}"
+    try:
+        result = page.evaluate("""({triggerBox, target, token}) => {
+            triggerBox = {
+                left: triggerBox.x, right: triggerBox.x + triggerBox.width,
+                bottom: triggerBox.y + triggerBox.height,
+                width: triggerBox.width, height: triggerBox.height
+            };
+            if (!triggerBox.width || !triggerBox.height) return {count: 0};
+            const visible = element => {
+                const style = getComputedStyle(element), box = element.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden'
+                    && Number(style.opacity || 1) !== 0 && box.width > 0 && box.height > 0;
+            };
+            const exact = element => (element.innerText || '').trim() === target;
+            const candidates = [...document.querySelectorAll('div, span, li, p, button, [role="option"]')]
+                .filter(element => visible(element) && exact(element))
+                .filter(element => ![...element.children].some(child => visible(child) && exact(child)))
+                .map(element => {
+                    let option = element;
+                    for (let parent = element.parentElement; parent && parent !== document.body;
+                         parent = parent.parentElement) {
+                        if (!exact(parent)) break;
+                        const style = getComputedStyle(parent);
+                        if (parent.matches('button, li, [role="option"], [role="menuitem"]')
+                            || style.cursor === 'pointer') { option = parent; break; }
+                    }
+                    const box = option.getBoundingClientRect();
+                    const x = box.left + box.width / 2, y = box.top + box.height / 2;
+                    const hit = document.elementFromPoint(x, y);
+                    return {option, box, hit};
+                })
+                .filter(({option, box, hit}) =>
+                    box.top >= triggerBox.bottom - 12 && box.top <= triggerBox.bottom + 500
+                    && box.left <= triggerBox.right + 40 && box.right >= triggerBox.left - 40
+                    && hit && hit !== document.body && hit !== document.documentElement
+                    && (option.contains(hit) || hit === option.parentElement)
+                );
+            const unique = [...new Set(candidates.map(item => item.option))];
+            if (unique.length === 1) unique[0].setAttribute('data-pw-click-option', token);
+            return {count: unique.length};
+        }""", {"triggerBox": trigger_box, "target": target, "token": token})
+    except Exception:
+        return None
+    if (result or {}).get("count") != 1:
+        return None
+    locator = page.locator(f'[data-pw-click-option="{token}"]')
+    return locator, {"strategy": "opened_dropdown_exact_text", "confidence": 100,
+                     "matched_phrase": target, "element": {"text": target, "inDialog": True}}
+
+
+def _execute_click_targets(page, step, timeout):
+    targets = _click_targets(step.target)
+    if len(targets) > 1 and (step.locator_mode == "manual" or step.fallback_value):
+        raise ValueError("连续点击不支持共用手动定位表达式，请分别创建点击步骤。")
+
+    clicks = []
+    previous_box = None
+    for index, target in enumerate(targets, start=1):
+        current_step = copy.copy(step)
+        current_step.target = target
+        if len(targets) > 1:
+            # 一个步骤只有一份持久化指纹，不能把最后一次点击的指纹用于定位第一项。
+            current_step.id = None
+            current_step.options = copy.deepcopy(step.options or {})
+            smart = current_step.options.get("smart_locator")
+            if isinstance(smart, dict):
+                smart.pop("aliases", None)
+                smart.pop("role", None)
+        try:
+            try:
+                locator, resolution = _resolve(page, current_step, timeout)
+            except SmartLocatorError:
+                option = _resolve_open_dropdown_option(page, previous_box, target)
+                if option is None:
+                    raise
+                locator, resolution = option
+            _remember_runtime_anchor(locator)
+            was_in_dialog = bool((resolution or {}).get("element", {}).get("inDialog"))
+            try:
+                clicked_box = locator.bounding_box() if len(targets) > 1 else None
+            except Exception:
+                clicked_box = None
+            transition_token = start_ui_transition_watch(page)
+            locator.click(timeout=timeout)
+            transition = wait_for_ui_transition(page, transition_token, timeout=min(timeout, 1500))
+            commit = _wait_for_commit_click(page, target, resolution, was_in_dialog, timeout)
+            if normalize(target) in {"删除", "移除", "delete", "remove"}:
+                wait_for_dialog_state(page, visible=not was_in_dialog, timeout=min(timeout, 1500))
+        except Exception as exc:
+            raise RuntimeError(f"第 {index}/{len(targets)} 个点击元素“{target}”失败：{exc}") from exc
+        if len(targets) == 1 and resolution and not resolution.get("strategy", "").startswith("manual:"):
+            remember_for_step(step.id, step.environment_name, resolution)
+        clicks.append({"target": target, "resolution": resolution, "ui_transition": transition, **commit})
+        previous_box = clicked_box
+
+    if len(clicks) == 1:
+        return {key: value for key, value in clicks[0].items() if key != "target"}
+    return {"clicks": clicks, "click_count": len(clicks), "resolution": clicks[-1]["resolution"]}
 
 
 def _steps_from_payload(data):
@@ -561,6 +688,8 @@ def _remember_runtime_anchor(locator):
 
 def _resolve(page, step, timeout):
     """自动定位优先；仅在自动定位失败且已配置兜底时使用手动表达式。"""
+    if step.action == "upload_file" and step.locator_mode != "manual":
+        return _resolve_upload_input(page, step, timeout)
     if step.locator_mode == "manual":
         if str(step.fallback_type or "").lower() == "xpath" and not _valid_xpath_expression(step.fallback_value):
             # 早期页面会把录制得到的语义名称（例如 email）误存为 XPath。
@@ -588,6 +717,49 @@ def _resolve(page, step, timeout):
         resolution["smart_locator_error"] = str(smart_error)
         resolution["fallback_used"] = True
         return locator, resolution
+
+
+def _resolve_upload_input(page, step, timeout):
+    """文件控件通常是隐藏的 input；按标签或属性精确匹配，唯一控件时兜底。"""
+    target = str(step.target or "").strip()
+    file_inputs = page.locator("input[type='file']")
+    file_inputs.first.wait_for(state="attached", timeout=timeout)
+    labeled = page.get_by_label(target, exact=True)
+    matches = []
+    for index in range(labeled.count()):
+        candidate = labeled.nth(index)
+        if candidate.evaluate("el => el.tagName === 'INPUT' && el.type === 'file'"):
+            matches.append(candidate)
+    if len(matches) == 1:
+        return matches[0], {"strategy": "file_input_label", "confidence": 100, "candidates": []}
+    if len(matches) > 1:
+        raise ValueError(f"上传文件元素「{target}」匹配多个文件控件，请提供更明确的名称。")
+
+    for index in range(file_inputs.count()):
+        candidate = file_inputs.nth(index)
+        if candidate.evaluate("(el, name) => [el.id, el.name, el.getAttribute('aria-label')].includes(name)", target):
+            matches.append(candidate)
+    if len(matches) == 1:
+        return matches[0], {"strategy": "file_input_attribute", "confidence": 95, "candidates": []}
+    if len(matches) > 1:
+        raise ValueError(f"上传文件元素「{target}」匹配多个文件控件，请提供更明确的名称。")
+    if file_inputs.count() == 1:
+        return file_inputs.first, {"strategy": "unique_file_input", "confidence": 75, "candidates": []}
+    raise ValueError(f"无法唯一定位上传文件元素「{target}」，请使用关联标签、ID、name 或 aria-label。")
+
+
+def _ensure_checked(locator, timeout):
+    """YAML 的「勾选」是幂等操作，已勾选时不再切换。"""
+    get_attribute = getattr(locator, "get_attribute", None)
+    aria_checked = get_attribute("aria-checked", timeout=timeout) if get_attribute else None
+    data_state = get_attribute("data-state", timeout=timeout) if get_attribute else None
+    if aria_checked == "true" or data_state in {"checked", "on"}:
+        return {"checked_before": True, "checked_after": True}
+    if aria_checked == "false" or data_state in {"unchecked", "off"}:
+        return _toggle_checked(locator, timeout)
+    if locator.is_checked(timeout=timeout):
+        return {"checked_before": True, "checked_after": True}
+    return _toggle_checked(locator, timeout)
 
 def _visible_matches(locator):
     matches = []
@@ -758,7 +930,7 @@ def _select_value(page, locator, value, timeout):
     option.click(timeout=timeout)
 
 
-def execute_playwright_case(case, tab_key=None):
+def execute_playwright_case(case, tab_key=None, *, raise_on_failure=True):
     if sync_playwright is None:
         raise RuntimeError("未安装 Playwright，请执行 pip install playwright，并安装浏览器依赖。")
     variables = _load_runtime_variables()
@@ -775,6 +947,8 @@ def execute_playwright_case(case, tab_key=None):
         viewport = data.get("viewport") or {"width": 1440, "height": 900}
         environment_name = str(data.get("environment_name") or "")
         environment = Environment.objects.filter(project_id=project_id, name=environment_name).first()
+        if not base_url and environment:
+            base_url = environment.base_url
     else:
         case_id = case.id
         project_id = case.project_id
@@ -789,9 +963,20 @@ def execute_playwright_case(case, tab_key=None):
             environment = Environment.objects.filter(project=case.project, name=case.environment_name).first()
         base_url = environment.base_url if environment else ""
         environment_name = str(case.environment_name or "")
-    token_variables = variables if os.environ.get("PLATFORM_RUN_RESULT_ID") else {}
-    browser_token = environment.browser_token_payload(token_variables, Path.cwd()) if environment else {}
+    for key, variable_value in ProjectVariable.values_for_projects([project_id]).items():
+        variables.setdefault(key, variable_value)
     steps, selected_tab_key = _steps_for_tab(steps, tab_key)
+    navigation_targets = [
+        _replace(step.value, variables) or _replace(step.target, variables)
+        for step in steps
+        if step.action == "goto"
+    ]
+    token_variables = variables if os.environ.get("PLATFORM_RUN_RESULT_ID") else {}
+    browser_token = (
+        environment.browser_token_payload(token_variables, Path.cwd())
+        if environment and should_inject_environment_auth(base_url, navigation_targets)
+        else {}
+    )
     for step in steps:
         # 套件执行环境优先于用例默认环境，用于选择环境级定位覆盖和历史指纹。
         step.environment_name = str(
@@ -801,6 +986,10 @@ def execute_playwright_case(case, tab_key=None):
         "case_id": case_id, "name": case_name, "engine": "playwright",
         "tab_key": selected_tab_key, "passed": True, "steps": [],
     }
+    write_execution_log(
+        f"智能 UI 用例开始：{case_name} · 浏览器 {browser_name} · "
+        f"模式 {'有界面' if run_mode == 'headed' else '无界面'} · 共 {len(steps)} 步"
+    )
     with sync_playwright() as playwright:
         browser_type = getattr(playwright, browser_name, None)
         if browser_type is None:
@@ -810,6 +999,7 @@ def execute_playwright_case(case, tab_key=None):
             browser = browser_type.launch(headless=run_mode != "headed")
         except Exception as exc:
             error = f"浏览器启动失败：{exc}"
+            write_execution_log(f"智能 UI {error}", "ERROR")
             report["passed"] = False
             if steps:
                 report["steps"].append({
@@ -840,6 +1030,7 @@ def execute_playwright_case(case, tab_key=None):
             if cookie:
                 context.add_cookies([cookie])
             page = context.new_page()
+            write_execution_log("智能 UI 浏览器已启动，会话准备完成")
             for step in steps:
                 started = time.perf_counter()
                 started_at = datetime.now().astimezone().isoformat()
@@ -851,10 +1042,20 @@ def execute_playwright_case(case, tab_key=None):
                 report["steps"].append(item)
                 _persist_native_result(report)
                 _update_native_step(case_id, step.id, status="running", started_at=started_at)
+                write_execution_log(
+                    f"智能 UI 步骤 {len(report['steps'])}/{len(steps)} 开始：{_step_name(step)}"
+                )
                 timeout = _step_timeout(step.options, default_timeout)
                 try:
                     value = _replace(step.value, variables)
                     target = _replace(step.target, variables)
+                    if (step.action == "input" and (step.options or {}).get("source_format") == "scenario_text"
+                            and MASKED_SECRET.fullmatch(value)):
+                        raise ValueError("输入步骤仍是 *** 占位符，请填写真实值或项目变量后再执行。")
+                    if (step.options or {}).get("source_format") == "scenario_text" and (
+                        _VARIABLE.search(value) or _VARIABLE.search(target)
+                    ):
+                        raise ValueError("场景变量未解析，请在项目变量中配置所引用的变量。")
                     runtime_step = copy.copy(step)
                     runtime_step.value = value
                     runtime_step.target = target
@@ -869,6 +1070,8 @@ def execute_playwright_case(case, tab_key=None):
                     elif step.action == "sleep":
                         page.wait_for_timeout(int(float(value) * 1000))
                         detail = {"seconds": float(value)}
+                    elif step.action == "click":
+                        detail = _execute_click_targets(page, runtime_step, timeout)
                     else:
                         locator, resolution = _resolve(page, runtime_step, timeout)
                         _remember_runtime_anchor(locator)
@@ -887,29 +1090,14 @@ def execute_playwright_case(case, tab_key=None):
                                 "value": _safe(step, value), "resolution": resolution,
                                 "clear_before_input": clear_before_input,
                             }
-                        elif step.action == "click":
-                            was_in_dialog = bool((resolution or {}).get("element", {}).get("inDialog"))
-                            transition_token = start_ui_transition_watch(page)
-                            locator.click(timeout=timeout)
-                            transition = wait_for_ui_transition(page, transition_token, timeout=min(timeout, 1500))
-                            commit = _wait_for_commit_click(
-                                page, target, resolution, was_in_dialog, timeout
-                            )
-                            detail = {
-                                "resolution": resolution,
-                                "ui_transition": transition,
-                                **commit,
-                            }
-                            # 删除通常是“列表删除 → 弹窗确认删除”两步。第一步等待弹窗
-                            # 完成挂载，第二步等待弹窗关闭，确保两次点击都产生实际效果。
-                            if normalize(target) in {"删除", "移除", "delete", "remove"}:
-                                wait_for_dialog_state(page, visible=not was_in_dialog, timeout=min(timeout, 1500))
                         elif step.action == "clear":
                             locator.fill("", timeout=timeout); detail = {"resolution": resolution}
                         elif step.action == "select":
                             _select_value(page, locator, value, timeout); detail = {"value": value, "resolution": resolution}
                         elif step.action == "check":
-                            detail = {"resolution": resolution, **_toggle_checked(locator, timeout)}
+                            check_action = (_ensure_checked if runtime_step.options.get("source_format") == "scenario_text"
+                                            else _toggle_checked)
+                            detail = {"resolution": resolution, **check_action(locator, timeout)}
                         elif step.action == "uncheck":
                             # 兼容历史步骤；新建和编辑页面不再提供“取消勾选”。
                             detail = {"resolution": resolution, **_ensure_unchecked(locator, timeout)}
@@ -975,6 +1163,27 @@ def execute_playwright_case(case, tab_key=None):
                 finished_at = datetime.now().astimezone().isoformat()
                 item["finished_at"] = finished_at
                 item["duration_ms"] = round((time.perf_counter() - started) * 1000, 2)
+                step_number = len(report["steps"])
+                if item["status"] == "passed":
+                    detail = item.get("detail") or {}
+                    value_summary = (
+                        f" · 输入内容：{detail.get('value')}"
+                        if step.action == "input" else ""
+                    )
+                    resolution = detail.get("resolution") or {}
+                    strategy = resolution.get("strategy") or ""
+                    locator_summary = f" · 定位：{strategy}" if strategy else ""
+                    write_execution_log(
+                        f"智能 UI 步骤 {step_number}/{len(steps)} 通过：{_step_name(step)}"
+                        f"{value_summary}{locator_summary} · {item['duration_ms']} ms",
+                        "SUCCESS",
+                    )
+                else:
+                    write_execution_log(
+                        f"智能 UI 步骤 {step_number}/{len(steps)} 失败：{_step_name(step)} · "
+                        f"{item['duration_ms']} ms · {item.get('error') or '未知错误'}",
+                        "ERROR",
+                    )
                 _update_native_step(
                     case_id, step.id, status=item["status"], passed=item.get("passed"),
                     started_at=started_at, finished_at=finished_at, duration_ms=item["duration_ms"],
@@ -988,8 +1197,57 @@ def execute_playwright_case(case, tab_key=None):
             browser.close()
     report["variables"] = {key: _safe(type("S", (), {"name": key, "target": key})(), value) for key, value in variables.items()}
     _persist_native_result(report)
-    if not report["passed"]:
+    if not report["passed"] and raise_on_failure:
         failures = [item for item in report["steps"] if item.get("status") == "failed"]
         summary = "；".join(f"{item.get('name')}: {item.get('error')}" for item in failures)
         raise AssertionError(f"Playwright 用例执行失败：{summary}")
+    if report["passed"]:
+        write_execution_log(f"智能 UI 用例执行结束：{case_name} · 通过", "SUCCESS")
     return report
+
+
+def execute_playwright_scenario_group(cases, *, raise_on_failure=True, persist_split=False):
+    """按场景顺序执行一个 YAML 文件，共用同一个浏览器和页面。
+
+    仍按原场景拆分报告；任一场景失败时，后续场景标记为未执行，
+    避免在登录/前置操作失败后继续操作错误页面。
+    """
+    if not cases:
+        raise ValueError("YAML 文件没有可执行场景。")
+    if len(cases) == 1:
+        report = execute_playwright_case(cases[0], raise_on_failure=raise_on_failure)
+        return [report]
+
+    combined = {key: value for key, value in cases[0].items() if key != "steps"}
+    combined["name"] = " / ".join(str(case.get("name") or "未命名场景") for case in cases)
+    # 套件仍写磁盘截图；临时批次 ID 不对应任何原生报告场景。
+    combined["id"] = f"yaml-batch-{cases[0].get('id')}" if persist_split else None
+    combined["steps"] = [step for case in cases for step in case.get("steps", [])]
+    execution_report = execute_playwright_case(combined, raise_on_failure=False)
+    executed_steps = execution_report.get("steps") or []
+    reports = []
+    offset = 0
+    for case in cases:
+        expected = len(case.get("steps", []))
+        steps = executed_steps[offset:offset + expected]
+        offset += expected
+        passed = len(steps) == expected and all(step.get("passed") is True for step in steps)
+        report = {
+            "case_id": case.get("id"), "name": case.get("name"), "engine": "playwright",
+            "passed": passed, "steps": steps, "variables": execution_report.get("variables", {}),
+        }
+        if not steps:
+            report["error"] = "前一个场景失败，未继续执行。"
+        elif not passed and not any(step.get("passed") is False for step in steps):
+            report["error"] = "前一个场景失败，剩余步骤未执行。"
+        if persist_split:
+            _persist_native_result(report)
+        reports.append(report)
+    if raise_on_failure and not all(report["passed"] for report in reports):
+        failed = next(report for report in reports if not report["passed"])
+        failed_step = next((step for step in failed["steps"] if step.get("passed") is False), None)
+        raise AssertionError(
+            f"YAML 场景「{failed['name']}」执行失败："
+            f"{failed_step.get('error') if failed_step else failed.get('error', '未完成')}"
+        )
+    return reports

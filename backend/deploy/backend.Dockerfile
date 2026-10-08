@@ -1,3 +1,5 @@
+FROM docker.io/grafana/k6:1.0.0 AS k6-runtime
+
 FROM docker.m.daocloud.io/library/python:3.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -10,6 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=120000
 
 WORKDIR /app
+
+COPY --from=k6-runtime /usr/bin/k6 /usr/local/bin/k6
 
 RUN sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
@@ -31,7 +35,11 @@ RUN pip install -r /app/requirements.txt gunicorn==23.0.0 \
 COPY . /app
 
 RUN mkdir -p /app/logs /app/screenshots /app/temps /app/upload_yaml \
-        /app/uploaded_api_files /app/runtime_auth_locks
+        /app/uploaded_api_files /app/runtime_auth_locks /app/performance_runs \
+        /app/app_uploads /app/app_runs /run/dynamic-functions \
+    && groupadd --gid 65532 function-runner \
+    && useradd --uid 65532 --gid 65532 --no-create-home --shell /usr/sbin/nologin function-runner \
+    && chown 65532:65532 /run/dynamic-functions
 
 EXPOSE 8000
 

@@ -42,6 +42,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useMessage } from 'naive-ui';
 import { MonitorAPI, type MonitorCheckSettings } from '@/api/monitor/http';
 import { useUserStore } from '@/store/modules/user';
+import { formatDateTime } from '@/utils/time';
 
 const message = useMessage();
 const userStore = useUserStore();
@@ -60,7 +61,7 @@ const intervalOptions = [
   { label: '每 30 分钟', value: 1800 },
   { label: '每 1 小时', value: 3600 },
 ];
-const formatTime = (value?: string | null) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '尚未执行';
+const formatTime = (value?: string | null) => formatDateTime(value, { empty: '尚未执行' });
 const load = async () => { loading.value = true; try { Object.assign(form, await MonitorAPI.checkSettings()); } catch (error: any) { message.error(error?.message || '监控设置加载失败'); } finally { loading.value = false; } };
 const save = async () => { saving.value = true; try { Object.assign(form, await MonitorAPI.updateCheckSettings({ ...form })); message.success('监控检查频率已保存'); } catch (error: any) { message.error(error?.message || '保存失败'); } finally { saving.value = false; } };
 const runNow = async () => { running.value = true; try { await MonitorAPI.runChecksNow(); message.success('监控检查已执行'); await load(); } catch (error: any) { message.error(error?.message || '执行检查失败'); } finally { running.value = false; } };

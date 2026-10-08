@@ -2,6 +2,7 @@ from django.conf import settings
 from django.db import models
 
 from Tesla.model_fields import EncryptedTextField
+from account.models import get_default_tenant_id
 
 
 class ServerConnection(models.Model):
@@ -11,7 +12,15 @@ class ServerConnection(models.Model):
         PRIVATE_KEY = "private_key", "私钥认证"
         PASSWORD = "password", "密码认证"
 
-    name = models.CharField("连接名称", max_length=64, unique=True)
+    tenant = models.ForeignKey(
+        "account.Tenant",
+        on_delete=models.PROTECT,
+        related_name="server_connections",
+        default=get_default_tenant_id,
+        editable=False,
+        verbose_name="所属租户",
+    )
+    name = models.CharField("连接名称", max_length=64)
     project = models.ForeignKey(
         "project.Project",
         null=True,
@@ -42,6 +51,55 @@ class ServerConnection(models.Model):
 
     class Meta:
         ordering = ["-updated_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "name"], name="unique_tenant_server_connection_name",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "project"], name="server_tenant_project_idx"),
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.username}@{self.host}:{self.port})"
+
+
+class SystemConfiguration(models.Model):
+    """平台级单例配置，仅系统管理员可维护。"""
+
+    report_retention_days = models.PositiveSmallIntegerField("执行报告保留天数", default=15)
+    max_worker_count = models.PositiveSmallIntegerField(
+        "最大 Worker 数", default=2,
+        help_text="API、UI 和 App 任务共用的平台最大并发 Worker 数。",
+    )
+    max_performance_worker_count = models.PositiveSmallIntegerField(
+        "最大性能 Worker 数", default=1,
+        help_text="性能测试任务可同时启动的 k6 工作进程数。",
+    )
+    platform_icon = models.FileField(
+        "浅色背景 Logo", upload_to="system/branding/", blank=True, null=True,
+    )
+    platform_icon_dark = models.FileField(
+        "深色背景 Logo", upload_to="system/branding/", blank=True, null=True,
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="updated_system_configurations",
+        verbose_name="更新人",
+    )
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        verbose_name = "系统配置"
+        verbose_name_plural = "系统配置"
+
+    def __str__(self):
+        return (
+            f"系统配置（Worker {self.max_worker_count}，"
+            f"性能 Worker {self.max_performance_worker_count}，"
+            f"报告保留 {self.report_retention_days} 天）"
+        )

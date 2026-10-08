@@ -4,13 +4,10 @@
       v-if="
         !isMobile && isMixMenuNoneSub && (navMode === 'vertical' || navMode === 'horizontal-mix')
       "
-      show-trigger="bar"
-      @collapse="collapsed = true"
       :position="fixedMenu"
-      @expand="collapsed = false"
       :collapsed="collapsed"
       collapse-mode="width"
-      :collapsed-width="64"
+      :collapsed-width="68"
       :width="leftMenuWidth"
       :native-scrollbar="false"
       :inverted="inverted"
@@ -318,15 +315,20 @@
 
     /* 菜单容器左右留白，菜单项形成"胶囊"观感 */
     :deep(.n-menu) {
-      padding: 6px 10px 88px;
+      padding: 6px 10px 142px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+        'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
     }
 
-    /* 菜单项：圆角 + 行高 */
+    /* 菜单项：圆角 + 行高。
+       padding-left 显式给定：一级项现在被包在 group 节点里，Naive UI 会按层级
+       额外加缩进，不锁死的话一级菜单会被整体推到右边，和原型对不齐。 */
     :deep(.n-menu .n-menu-item-content) {
       position: relative;
-      border-radius: 8px;
-      height: 42px;
-      margin: 2px 0;
+      border-radius: 9px;
+      height: 40px;
+      padding-left: 10px;
+      margin: 1px 0;
       transition: none;
     }
 
@@ -349,23 +351,72 @@
       background-color: #2563eb;
     }
 
-    /* 图标与文字的间距更透气 */
+    /* 图标 18px，与文字间距 10px（对齐原型 .item 的 gap） */
     :deep(.n-menu .n-menu-item-content .n-menu-item-content__icon) {
       font-size: 18px;
+      margin-right: 10px;
     }
 
-    /* 子菜单项缩进后的左侧对齐线 */
+    :deep(.n-menu .n-menu-item-content .n-menu-item-content__arrow) {
+      font-size: 13px;
+    }
+
+    /* 子菜单项：更紧凑、更浅的缩进对齐线 */
     :deep(.n-menu .n-submenu-children .n-menu-item-content) {
-      padding-left: 44px;
+      height: 36px;
+      padding-left: 38px;
+      border-radius: 8px;
+      margin: 1px 0;
+      font-size: 13px;
     }
 
-    /* 菜单文字字号微调，层级更清晰 */
+    /* 一级 13.5px/500，二级 13px/400；选中项提升到 600。 */
     :deep(.n-menu .n-menu-item-content-header) {
       font-size: 13.5px;
+      font-weight: 500;
+    }
+
+    :deep(.n-menu .n-submenu-children .n-menu-item-content-header) {
+      font-size: 13px;
+      font-weight: 400;
+    }
+
+    :deep(.n-menu .n-menu-item-content--selected .n-menu-item-content-header),
+    :deep(.n-menu .n-menu-item-content--child-active .n-menu-item-content-header) {
+      font-weight: 600;
+    }
+
+    /* ===== 一级菜单分组标题 ===== */
+    :deep(.n-menu .n-menu-item-group-title) {
+      padding: 13px 10px 6px;
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.09em;
+      color: #a9b4c4;
+    }
+
+    /* 收起态只保留一条细分隔线，不显示分组文字 */
+    :deep(.n-menu .n-menu-item-group) {
+      margin: 0;
     }
   }
 
   .layout-sider-collapsed :deep(.n-menu) {
-    padding-bottom: 142px;
+    padding-bottom: 150px;
+  }
+
+  /* 收起时分组标题收缩为细分隔线 */
+  .layout-sider-collapsed :deep(.n-menu .n-menu-item-group-title) {
+    width: 32px;
+    min-width: 32px;
+    height: 1px;
+    padding: 0;
+    margin: 9px auto;
+    overflow: hidden;
+    background: #e8edf4;
+    color: transparent;
+    font-size: 0;
+    line-height: 0;
+    letter-spacing: 0;
   }
 </style>

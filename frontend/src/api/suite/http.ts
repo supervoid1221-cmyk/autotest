@@ -21,6 +21,16 @@ export class SuiteAPI extends BaseModelAPI<Suite> {
     });
   }
 
+  /** 列表页直接切换启用状态。用 PATCH 只提交 enabled，
+   *  避免为了改一个开关先把整份套件数据取回来再 PUT。 */
+  setEnabled(id: number, enabled: boolean) {
+    return http.request<Suite>({
+      url: `${this.base_url}${id}/`,
+      method: 'PATCH',
+      data: { enabled },
+    });
+  }
+
   syncScenarios(id: number, scenarioIds: number[]) {
     return http.request<Suite>({
       url: `${this.base_url}${id}/sync-scenarios/`,
@@ -65,6 +75,15 @@ export class RunResultAPI extends BaseModelAPI<RunResult> {
     // 运行状态是实时数据，避免浏览器、代理或生产网关复用上一轮执行的 GET 缓存。
     return http.request({
       url: `${this.base_url}${id}/progress/`,
+      method: 'get',
+      params: { _t: Date.now() },
+      headers: { 'Cache-Control': 'no-cache' },
+    });
+  }
+
+  getExecutionLog(id: number) {
+    return http.request({
+      url: `${this.base_url}${id}/execution-log/`,
       method: 'get',
       params: { _t: Date.now() },
       headers: { 'Cache-Control': 'no-cache' },

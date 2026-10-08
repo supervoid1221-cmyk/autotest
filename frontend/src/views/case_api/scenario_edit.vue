@@ -1,73 +1,20 @@
 <template>
-  <div class="scene-page">
-    <header class="scene-header">
-      <div class="scene-breadcrumb">
-        <span>API测试</span><i>/</i><span>场景管理</span><i>/</i><strong>场景详情</strong>
-      </div>
-      <div class="scene-heading">
-        <div class="scene-heading-copy">
-          <n-input v-model:value="form.name" class="scene-title-input" placeholder="请输入场景名称" />
-          <p>
-            <span>{{ selectedProjectLabels || '未关联项目' }}</span>
-            <span>{{ selectedEnvironmentLabel || '未选择环境' }}</span>
-            <span>{{ sceneStats.steps }} 个接口步骤</span>
-          </p>
-        </div>
-        <div class="page-actions">
-          <n-button @click="back">返回</n-button>
-          <n-button type="primary" secondary @click="saveScenario">保存场景</n-button>
-          <n-button type="primary" :disabled="!scenarioCreated || !runEnvironment" :loading="scenarioRunning" @click="runScenario">
-            <template #icon><PhPlay /></template>
-            运行场景
-          </n-button>
-        </div>
-      </div>
-    </header>
-
-    <section class="scene-basic-strip">
-      <n-form ref="formRef" :model="form" :rules="rules" label-placement="left" class="scene-form">
-        <div class="basic-fields">
-          <div class="basic-field">
-            <span class="basic-field-label">关联项目</span>
-            <n-select v-model:value="form.projects" :options="projectOptions" placeholder="请选择一个或多个项目" multiple filterable />
-          </div>
-          <div class="basic-field">
-            <span class="basic-field-label">执行环境</span>
-            <n-select
-              v-model:value="runEnvironment"
-              :options="environmentOptions"
-              :placeholder="environmentPlaceholder"
-              :disabled="!form.projects.length"
-            />
-          </div>
-          <div class="basic-field">
-            <span class="basic-field-label">场景描述</span>
-            <n-input v-model:value="form.description" placeholder="描述此场景的业务目标" />
-          </div>
-        </div>
-      </n-form>
-      <div class="scene-save-state" :class="{ created: scenarioCreated }">
-        <span class="save-state-dot"></span>
-        <div><strong>{{ scenarioCreated ? '已保存' : '未保存' }}</strong><small>{{ scenarioCreated ? '场景配置已保存' : '添加首个接口时自动保存' }}</small></div>
-      </div>
-    </section>
-
-    <div class="scene-workspace-layout">
-      <main class="scene-flow-column">
-    <n-card :bordered="false" class="scene-card steps-card">
-      <template #header>
-        <div class="flow-card-heading">
-          <span class="card-title">流程编排</span>
-          <small>按顺序执行接口步骤，判断分支仅在条件满足时进入，完成后继续主流程</small>
-        </div>
-      </template>
-      <template #header-extra>
-        <div class="flow-header-actions-host">
-        <div class="add-row">
-        <n-popover trigger="click" placement="bottom-start" :show="endpointPickerVisible" :style="{ padding: '0' }" @update:show="handleEndpointPickerVisible">
+ <n-config-provider class="scenario-studio" :theme-overrides="studioTheme">
+  <div class="scene-page studio-page">
+   <header class="studio-header">
+    <div class="studio-breadcrumb"><button @click="back">API测试</button><span>/</span><button @click="back">场景管理</button></div>
+    <n-form ref="formRef" :model="form" :rules="rules" class="studio-form">
+     <div class="studio-title-row"><div class="studio-name" :style="{ '--scenario-name-width': Math.min(440, Math.max(130, form.name.length * 26 + 12)) + 'px' }"><n-input v-model:value="form.name" placeholder="请输入场景名称" aria-label="场景名称"/><span class="studio-saved"><PhCheckCircle weight="fill"/>{{ scenarioCreated && savedFormSignature === formSignature ? '已保存' : '未保存' }}</span></div><div class="studio-actions"><n-select v-model:value="runEnvironment" :options="environmentOptions" :placeholder="environmentPlaceholder" :disabled="!form.projects.length" aria-label="执行环境"/><n-button type="primary" ghost @click="saveScenario"><template #icon><PhFloppyDisk/></template>保存场景</n-button><n-button type="primary" :disabled="!scenarioCreated || !runEnvironment" :loading="scenarioRunning" @click="runScenario"><template #icon><PhPlay weight="fill"/></template>运行场景</n-button></div></div>
+     <div class="studio-metadata"><div class="studio-project-field"><span>关联项目</span><n-select v-model:value="form.projects" :options="projectOptions" multiple filterable :max-tag-count="2" placeholder="请选择项目" aria-label="关联项目"/></div><i></i><n-input v-model:value="form.description" placeholder="描述此场景的业务目标" aria-label="场景描述"/></div>
+    </n-form>
+   </header>
+   <div class="studio-workspace">
+    <aside class="studio-flow">
+     <div class="studio-flow-heading"><strong>流程步骤</strong><span>{{ sceneStats.steps }} 个接口</span></div>
+     <div class="studio-flow-tools"><n-popover trigger="click" placement="bottom-start" :show="endpointPickerVisible" :style="{ padding: '0' }" @update:show="handleEndpointPickerVisible">
           <template #trigger>
             <n-button class="endpoint-select-trigger" :class="{ 'endpoint-select-trigger--active': selectedEndpoints.length }">
-              <span class="endpoint-select-plus">＋</span>
+              <PhPlus />
               <span class="endpoint-select-text">添加接口</span>
             </n-button>
           </template>
@@ -127,218 +74,40 @@
               </section>
             </div>
           </div>
-        </n-popover>
-        <n-space>
-          <n-button class="condition-add-button" @click="addConditionNode"><span class="condition-add-icon">◇</span> 添加判断分支</n-button>
-        </n-space>
-      </div>
-        </div>
-      </template>
-
+        </n-popover><n-button @click="addConditionNode"><template #icon><PhPlus/></template>判断分支</n-button></div>
+     <div class="studio-tree">
       <draggable v-if="hasFlowNodes" v-model="steps" :item-key="flowNodeKey" handle=".drag-handle" @end="saveOrder">
-        <template #item="{ element, index }">
-          <template v-if="element.node_type === 'condition'">
-            <section class="condition-card">
-              <header class="condition-head condition-head--collapsible" @click="toggleConditionCollapsed(element.node_id || element.id)">
-                <span class="drag-handle" title="拖拽排序" @click.stop>⠿</span>
-                <span class="step-no condition-step-no">{{ String(index + 1).padStart(2, '0') }}</span>
-                <span class="condition-marker" aria-hidden="true"></span>
-                <div class="step-summary condition-summary"><div class="step-name">{{ element.name }}</div><div class="condition-subtitle">从上到下匹配，第一个满足条件的分支</div></div>
-                <n-button text type="primary" class="text-action" @click.stop="openConditionEditor(element)">编辑条件</n-button>
-                <n-button text type="error" class="delete-button" @click.stop="removeFlowNode(element)">删除</n-button>
-                <span class="condition-chevron">{{ collapsedConditionIds.has(element.node_id || element.id) ? '⌄' : '⌃' }}</span>
-              </header>
-              <template v-if="!collapsedConditionIds.has(element.node_id || element.id)"><div class="branch-list">
-                <section v-for="branch in element.branches || []" :key="branch.id" class="branch-lane">
-                  <header class="branch-head branch-head--collapsible" @click="toggleBranchCollapsed(branch.id)">
-                    <div><strong>{{ branch.name }}</strong><span class="condition-chip">{{ branchConditionSummary(branch) }}</span></div>
-                    <n-space size="small"><n-button text size="small" type="primary" class="text-action" @click.stop="openBranchEditor(element, branch)">编辑</n-button><n-button text size="small" type="error" @click.stop="removeBranch(branch)">删除</n-button><span class="branch-chevron">{{ collapsedBranchIds.has(branch.id) ? '⌄' : '⌃' }}</span></n-space>
-                  </header>
-                  <template v-if="!collapsedBranchIds.has(branch.id)"><draggable v-model="branch.nodes" item-key="id" handle=".branch-drag-handle" @end="saveBranchOrder(branch)">
-                    <template #item="{ element: child, index: childIndex }">
-                      <section class="step-card branch-step-card" :data-step-id="child.step_info?.id" :class="{ expanded: expandedId === child.step_info?.id, passed: runResults[child.step_info?.id]?.passed === true, failed: runResults[child.step_info?.id]?.passed === false }">
-                        <div class="step-head branch-step-head" @click="toggleBranchStep(child.step_info)">
-                          <span class="branch-drag-handle" title="拖拽排序" @click.stop>⠿</span><span class="branch-step-order">{{ index + 1 }}.{{ childIndex + 1 }}</span><div class="branch-step-summary"><div class="step-name">{{ child.step_info?.endpoint_name || '未命名接口' }}</div><div v-if="!isRequestTargetEditing(child.step_info)" class="step-url request-target-display" title="点击修改请求方式和 URL" @click.stop="beginRequestTargetEdit(child.step_info)"><span class="method-pill" :style="methodStyle(stepMethod(child.step_info))">{{ stepMethod(child.step_info) }}</span><span class="request-url-text">{{ stepUrl(child.step_info) }}</span></div><div v-else class="request-target-inline" @click.stop><n-select class="inline-method-select" size="small" :value="stepMethod(child.step_info)" :options="requestMethodOptions" :style="methodCssVars(stepMethod(child.step_info))" @update:value="updateRequestMethod(child.step_info, $event)" /><n-input class="inline-url-input" size="small" :value="stepUrl(child.step_info)" placeholder="请输入请求 URL" @update:value="updateRequestUrl(child.step_info, $event)" /><n-button v-if="hasRequestTargetOverride(child.step_info)" quaternary circle size="tiny" class="request-target-reset" title="恢复接口默认请求方式和 URL" @click.stop="resetRequestTarget(child.step_info)"><template #icon><PhArrowClockwise /></template></n-button><n-button text size="tiny" type="primary" class="request-target-done" @click.stop="finishRequestTargetEdit(child.step_info)">完成</n-button></div></div>
-                          <div class="step-header-meta branch-step-meta"><span class="step-meta-link" role="button" tabindex="0" @click.stop="openStepConfig(child.step_info, 'extract')" @keydown.enter.stop="openStepConfig(child.step_info, 'extract')">提取 {{ extractRuleCount(child.step_info?.id) }}</span><span class="step-meta-link" role="button" tabindex="0" @click.stop="openStepConfig(child.step_info, 'validate')" @keydown.enter.stop="openStepConfig(child.step_info, 'validate')">断言 {{ validateRuleCount(child.step_info?.id) }}</span></div><n-button text size="small" type="primary" class="text-action" :loading="runningStepId === child.step_info?.id" @click.stop="runStep(child.step_info)">运行</n-button><n-button text size="small" type="primary" class="text-action" @click.stop="copyBranchStep(child, branch)">复制</n-button><n-button text size="small" type="error" @click.stop="removeFlowNode(child)">删除</n-button><span class="chevron">{{ expandedId === child.step_info?.id ? '⌃' : '⌄' }}</span>
-                        </div>
-                        <div v-if="expandedId === child.step_info?.id" class="step-body branch-step-body">
-                          <n-tabs v-model:value="activeConfigTabs[child.step_info.id]" type="line" class="step-config-tabs">
-                            <n-tab-pane name="request_override" :tab="tabTitle(PhSlidersHorizontal, '参数覆盖', jsonItemCount(editText[child.step_info.id]?.request_override))">
-                              <div class="step-workspace">
-                                <section class="editor-panel"><header class="workspace-panel-head"><div><strong>参数覆盖</strong><span>覆盖本步骤请求的入参值，支持静态值、变量和函数。</span></div><n-space size="small"><n-button size="small" class="editor-tool-button" @click.stop="formatOverride(child.step_info)"><template #icon><PhSparkle /></template>格式化</n-button><n-button size="small" class="editor-tool-button" @click.stop="restoreOverride(child.step_info)"><template #icon><PhArrowClockwise /></template>从接口默认值恢复</n-button></n-space></header><div class="json-editor"><pre class="editor-gutter">{{ lineNumbers(editText[child.step_info.id]?.request_override) }}</pre><n-input v-model:value="editText[child.step_info.id].request_override" type="textarea" :autosize="{ minRows: 14, maxRows: 22 }" placeholder="{}" @focus="rememberRequestEditorCursor(child.step_info, $event)" @click="rememberRequestEditorCursor(child.step_info, $event)" @keyup="rememberRequestEditorCursor(child.step_info, $event)" @blur="saveStep(child.step_info)" /></div><div class="override-tip"><PhInfo /> 支持直接填写参数对象；关联 Headers、Params、Data 或 JSON 时将自动应用到对应请求区域。</div></section>
-                                <aside class="workspace-sidebar"><section class="side-panel variable-panel"><header><strong>变量关联</strong><PhInfo /></header><template v-if="availableVariables(child.step_info).length"><p>项目参数和上游接口已提取的变量都可引用到当前请求。</p><div class="available-variables"><span v-for="variable in availableVariables(child.step_info)" :key="`${variable.scope || 'step'}-${variable.stepId}-${variable.name}`" class="variable-chip" :title="variable.scope === 'project' ? `项目参数${variable.projectName ? ` · ${variable.projectName}` : ''}` : `来自第 ${variable.stepOrder} 步 ${variable.stepName}：${variable.expression}`"><code>{{ variableReference(variable.name) }}</code><em>{{ variable.scope === 'project' ? '项目参数' : `第 ${variable.stepOrder} 步` }}</em></span></div><div v-if="variableSuggestions(child.step_info).length" class="variable-suggestion-list"><div v-for="suggestion in variableSuggestions(child.step_info)" :key="suggestion.key" class="variable-suggestion-item"><code>{{ variableReference(suggestion.variableName) }}</code><n-button text size="small" type="primary" @click.stop="applySuggestion(child.step_info, suggestion)">引用</n-button></div></div><n-button block type="primary" secondary :disabled="!variableSuggestions(child.step_info).length" @click.stop="applyAllSuggestions(child.step_info)">智能关联{{ variableSuggestions(child.step_info).length ? `（${variableSuggestions(child.step_info).length}）` : '' }}</n-button></template><template v-else><div class="variable-empty-icon"><PhPackage /></div><h4>暂未发现可用的上游变量</h4><p>运行上游接口或先配置数据提取后，可在这里关联变量。</p><n-button block type="primary" secondary @click.stop="activeConfigTabs[child.step_info.id] = 'extract'">查看数据提取</n-button></template></section><section class="side-panel request-overview"><header><strong>请求概览</strong></header><div><span><PhSlidersHorizontal /> Params</span><b>{{ requestFieldCount(child.step_info, 'params') }}</b></div><div><span><PhFileText /> Data</span><b>{{ requestFieldCount(child.step_info, 'data') }}</b></div><div><span><PhBracketsCurly /> JSON</span><b>{{ requestFieldCount(child.step_info, 'json') }}</b></div></section></aside>
-                              </div>
-                            </n-tab-pane>
-                            <n-tab-pane name="extract" :tab="tabTitle(PhDatabase, '数据提取', extractRuleCount(child.step_info.id))">
-                              <div class="extract-actions">
-                                <span>执行后保存变量，后续接口优先使用 <code>${变量名}</code>，同时兼容 <code v-pre>{{变量名}}</code></span>
-                                <n-button type="primary" @click.stop="addExtractRule(child.step_info)">＋ 添加提取规则</n-button>
-                              </div>
-                              <div class="extract-rule-table">
-                                <div class="extract-rule-row extract-rule-header"><span>变量名</span><span>提取方式</span><span>响应来源</span><span>表达式</span><span>结果索引 / 捕获组</span><span></span></div>
-                                <div v-for="(rule, ruleIndex) in extractRules[child.step_info.id] || []" :key="`${child.step_info.id}-${ruleIndex}`" class="extract-rule-row">
-                                  <n-input v-model:value="rule.name" placeholder="如：token" size="small" @update:value="handleExtractNameInput(rule, $event)" @blur="saveStep(child.step_info)" />
-                                  <n-select v-model:value="rule.mode" :options="extractModeOptions" size="small" @update:value="handleExtractModeChange(child.step_info, rule)" />
-                                  <n-select v-model:value="rule.source" :options="rule.mode === 'jsonpath' ? jsonPathSourceOptions : extractSourceOptions" size="small" @update:value="saveStep(child.step_info)" />
-                                  <n-auto-complete v-if="rule.mode === 'jsonpath'" v-model:value="rule.expression" :options="responseExpressionOptions(child.step_info, rule)" :render-label="renderResponsePathLabel" :get-show="() => true" blur-after-select clearable size="small" placeholder="运行接口后可选择响应路径" @select="handleResponsePathSelect(rule, $event)" @blur="saveStep(child.step_info)" />
-                                  <n-input v-else v-model:value="rule.expression" placeholder="如：token=(.*?)& 或 code=(.+?)$" size="small" @blur="saveStep(child.step_info)" />
-                                  <n-input-number v-model:value="rule.index" :min="0" :show-button="false" size="small" @update:value="saveStep(child.step_info)" />
-                                  <n-button text type="error" class="delete-button" size="small" @click.stop="removeExtractRule(child.step_info, ruleIndex)">删除</n-button>
-                                  <ExtractProcessorEditor v-model="rule.processors" @change="saveStep(child.step_info)" />
-                                </div>
-                                <n-empty v-if="!(extractRules[child.step_info.id] || []).length" size="small" description="暂无提取规则" class="extract-empty" />
-                              </div>
-                              <div class="extract-tip">JSONPath 示例：<code>$.data.token</code>；正则示例：<code>token=(.*?)&amp;</code>、<code>code=(.+?)$</code>。正则的“捕获组”填 <code>1</code> 可取得括号中的内容，<code>0</code> 表示完整匹配。</div>
-                            </n-tab-pane>
-                            <n-tab-pane name="validate" :tab="tabTitle(PhShieldCheck, '断言', validateRuleCount(child.step_info.id))">
-                              <div class="extract-actions">
-                                <span>实际值使用 JSONPath：<code>$.data.code</code>、<code>$.status_code</code>；期望值支持 <code>${变量名}</code>，可引用前序及当前接口提取的变量</span>
-                                <n-button type="primary" @click.stop="addValidateRule(child.step_info)">＋ 添加断言</n-button>
-                              </div>
-                              <div class="validate-rule-table">
-                                <div class="validate-rule-row validate-rule-header"><span>实际值</span><span>断言方式</span><span>期望值</span><span></span></div>
-                                <div v-for="(rule, ruleIndex) in validateRules[child.step_info.id] || []" :key="`${child.step_info.id}-validate-${ruleIndex}`" class="validate-rule-row">
-                                  <n-input v-model:value="rule.actual" placeholder="如：$.data.code" size="small" @blur="saveStep(child.step_info)" />
-                                  <n-select v-model:value="rule.type" :options="validateTypeOptions" size="small" @update:value="saveStep(child.step_info)" />
-                                  <n-input v-model:value="rule.expected" placeholder="如：200 或 ${token}" size="small" @blur="saveStep(child.step_info)" />
-                                  <n-button text type="error" class="delete-button" size="small" @click.stop="removeValidateRule(child.step_info, ruleIndex)">删除</n-button>
-                                </div>
-                                <n-empty v-if="!(validateRules[child.step_info.id] || []).length" size="small" description="暂无断言规则" class="extract-empty" />
-                              </div>
-                            </n-tab-pane>
-                            <n-tab-pane name="post_sql" :tab="tabTitle(PhDatabase, '后置数据库', postSqlCount(child.step_info.id))">
-                              <div class="extract-actions">
-                                <span>仅在接口响应、断言、数据提取均成功后执行。UPDATE 需在数据库连接中开启写入权限。</span>
-                                <n-button type="primary" @click.stop="addPostSql(child.step_info)">＋ 添加数据库操作</n-button>
-                              </div>
-                              <div class="post-sql-list">
-                                <div v-for="(_sql, sqlIndex) in postSqlRules[child.step_info.id] || []" :key="`${child.step_info.id}-post-sql-${sqlIndex}`" class="post-sql-row">
-                                  <n-input v-model:value="postSqlRules[child.step_info.id][sqlIndex]" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" placeholder='${execute_sql_mysql("UPDATE orders SET status=%s WHERE order_id=%s")}' @blur="saveStep(child.step_info)" />
-                                  <n-button text type="error" class="delete-button" size="small" @click.stop="removePostSql(child.step_info, sqlIndex)">删除</n-button>
-                                </div>
-                                <n-empty v-if="!(postSqlRules[child.step_info.id] || []).length" size="small" description="暂无后置数据库操作" class="extract-empty" />
-                              </div>
-                              <div class="extract-tip">每个 <code>%s</code> 前须写成 <code>字段=%s</code>，平台按字段名寻找已提取变量。例如：<code>${execute_sql_mysql("UPDATE orders SET status=%s WHERE order_id=%s")}</code>。</div>
-                            </n-tab-pane>
-                            <n-tab-pane name="polling" :tab="tabTitle(PhClock, '轮询', undefined, pollingConfigs[child.step_info.id]?.enabled)">
-                              <div class="polling-config">
-                                <div class="polling-tab-title"><span>轮询等待</span><n-switch v-model:value="pollingConfigs[child.step_info.id].enabled" @update:value="saveStep(child.step_info)" /></div>
-                                <template v-if="pollingConfigs[child.step_info.id]?.enabled">
-                                  <div class="polling-grid">
-                                    <label>总超时时间（秒）<n-input-number v-model:value="pollingConfigs[child.step_info.id].timeout" :min="1" :show-button="false" @update:value="saveStep(child.step_info)" /></label>
-                                    <label>轮询间隔（秒）<n-input-number v-model:value="pollingConfigs[child.step_info.id].interval" :min="1" :show-button="false" @update:value="saveStep(child.step_info)" /></label>
-                                    <label>首次等待（秒）<n-input-number v-model:value="pollingConfigs[child.step_info.id].initial_delay" :min="0" :show-button="false" @update:value="saveStep(child.step_info)" /></label>
-                                  </div>
-                                  <div class="polling-checkboxes">
-                                    <n-checkbox v-model:checked="pollingConfigs[child.step_info.id].retry_http_error" @update:checked="saveStep(child.step_info)">HTTP 4xx/5xx 时继续重试</n-checkbox>
-                                    <n-checkbox v-model:checked="pollingConfigs[child.step_info.id].retry_assertion" @update:checked="saveStep(child.step_info)">断言不满足时继续重试</n-checkbox>
-                                  </div>
-                                  <n-alert type="info" :show-icon="false" class="polling-tip">当前“断言”即轮询成功条件，请至少配置一条断言；满足全部断言即停止。超时后当前接口标记失败，且仅成功响应的数据提取会写入后续变量。</n-alert>
-                                </template>
-                              </div>
-                            </n-tab-pane>
-                            <n-tab-pane name="execution" :tab="tabTitle(PhShieldCheck, '执行控制', undefined, child.step_info.continue_on_failure !== false || child.step_info.retry_on_failure)">
-                              <section class="execution-control-list">
-                                <div class="execution-control-card">
-                                  <div><strong>接口失败后继续执行</strong><span>开启后，本接口最终失败仍会执行后续接口；场景最终结果仍会标记为失败。</span></div>
-                                  <n-switch v-model:value="child.step_info.continue_on_failure" @update:value="saveStep(child.step_info)" />
-                                </div>
-                                <div class="execution-control-card">
-                                  <div><strong>失败后重试</strong><span>当前接口完整执行失败后重新执行；重试结束后再判断是否继续后续步骤。</span></div>
-                                  <div class="execution-control-actions">
-                                    <template v-if="child.step_info.retry_on_failure"><n-input-number v-model:value="child.step_info.failure_retry_count" :min="1" :max="5" :precision="0" size="small" @update:value="saveStep(child.step_info)" /><span>次</span></template>
-                                    <n-switch v-model:value="child.step_info.retry_on_failure" @update:value="handleRetryToggle(child.step_info)" />
-                                  </div>
-                                </div>
-                              </section>
-                            </n-tab-pane>
-                          </n-tabs>
-                          <section v-if="runResults[child.step_info.id]" class="response-panel" :class="runResults[child.step_info.id].passed ? 'response-passed' : 'response-failed'"><div class="response-title"><span class="response-label">Response</span><div class="response-title-actions"><div class="response-search-box"><n-input v-model:value="responseSearch[child.step_info.id]" size="small" clearable placeholder="搜索响应内容，回车定位下一个" class="response-search" @update:value="(value) => handleResponseSearch(child.step_info.id, value)" @keyup.enter="focusNextResponseMatch(child.step_info.id)" /><span v-if="responseSearch[child.step_info.id]?.trim()" class="response-search-count">{{ responseMatchCount(child.step_info.id) ? `${(responseSearchIndex[child.step_info.id] || 0) + 1}/${responseMatchCount(child.step_info.id)}` : '未找到' }}</span></div><span>{{ runResults[child.step_info.id].status_code || '-' }} · {{ runResults[child.step_info.id].duration_ms ?? '-' }} ms</span></div></div><div v-if="runResults[child.step_info.id].errors?.length" class="response-errors">{{ runResults[child.step_info.id].errors.join('；') }}</div><div v-if="responseSearch[child.step_info.id]?.trim() && !responseMatchCount(child.step_info.id)" class="response-search-empty">未找到包含「{{ responseSearch[child.step_info.id] }}」的响应内容</div><pre :ref="(el) => setResponseBodyRef(child.step_info.id, el)" class="response-body" v-html="highlightedResponse(child.step_info.id)"></pre></section>
-                        </div>
-                      </section>
-                    </template>
-                  </draggable>
-                  <n-button type="primary" size="small" class="branch-add-button solid-primary-btn" @click="openBranchEndpointPicker(branch)">＋ 添加接口</n-button>
-                  </template>
-                </section>
-                <n-button type="primary" secondary class="add-branch-button" @click="addBranch(element)">＋ 添加分支</n-button>
-              </div>
-              <div class="branch-merge">⌘ 分支执行结束，继续主流程</div>
-              </template>
-            </section>
-          </template>
-          <section v-else class="step-card" :data-step-id="element.id" :class="{ expanded: expandedId === element.id, passed: runResults[element.id]?.passed === true, failed: runResults[element.id]?.passed === false }">
-            <div class="step-head" @click="toggleStep(element.id)">
-              <span class="drag-handle" title="拖拽排序">⠿</span>
-              <span class="step-no">{{ String(index + 1).padStart(2, '0') }}</span>
-              <div class="step-summary main-step-summary">
-                <div class="step-name">{{ element.endpoint_name || '未命名接口' }}</div>
-                <div v-if="!isRequestTargetEditing(element)" class="step-url request-target-display" title="点击修改请求方式和 URL" @click.stop="beginRequestTargetEdit(element)">
-                  <span class="method-pill" :style="methodStyle(stepMethod(element))">{{ stepMethod(element) }}</span>
-                  <span class="request-url-text">{{ stepUrl(element) }}</span>
-                </div>
-                <div v-else class="request-target-inline" @click.stop>
-                  <n-select class="inline-method-select" size="small" :value="stepMethod(element)" :options="requestMethodOptions" :style="methodCssVars(stepMethod(element))" @update:value="updateRequestMethod(element, $event)" />
-                  <n-input class="inline-url-input" size="small" :value="stepUrl(element)" placeholder="请输入请求 URL" @update:value="updateRequestUrl(element, $event)" />
-                  <n-button v-if="hasRequestTargetOverride(element)" quaternary circle size="tiny" class="request-target-reset" title="恢复接口默认请求方式和 URL" @click.stop="resetRequestTarget(element)"><template #icon><PhArrowClockwise /></template></n-button>
-                  <n-button text size="tiny" type="primary" class="request-target-done" @click.stop="finishRequestTargetEdit(element)">完成</n-button>
-                </div>
-              </div>
-              <div class="step-header-meta">
-                <span class="step-meta-link" role="button" tabindex="0" @click.stop="openStepConfig(element, 'extract')" @keydown.enter.stop="openStepConfig(element, 'extract')">提取 {{ extractRuleCount(element.id) }}</span>
-                <span class="step-meta-link" role="button" tabindex="0" @click.stop="openStepConfig(element, 'validate')" @keydown.enter.stop="openStepConfig(element, 'validate')">断言 {{ validateRuleCount(element.id) }}</span>
-              </div>
-              <n-button text type="primary" class="run-step-button" :loading="runningStepId === element.id" @click.stop="runStep(element)">{{ runResults[element.id] ? '重新运行' : '运行' }}</n-button>
-              <n-button text type="primary" class="text-action" @click.stop="copyStep(element)">复制</n-button>
-              <n-button text type="error" class="delete-button" @click.stop="removeStep(element.id)">删除</n-button>
-              <span class="chevron">{{ expandedId === element.id ? '⌃' : '⌄' }}</span>
-            </div>
-
-            <div v-if="expandedId === element.id" class="step-body">
-              <n-tabs v-model:value="activeConfigTabs[element.id]" type="line" class="step-config-tabs">
-                <n-tab-pane name="request_override" :tab="tabTitle(PhSlidersHorizontal, '参数覆盖', jsonItemCount(editText[element.id]?.request_override))">
-                  <div class="step-workspace">
-                    <section class="editor-panel">
-                      <header class="workspace-panel-head">
-                        <div><strong>参数覆盖</strong><span>覆盖本步骤请求的入参值，支持静态值、变量和函数。</span></div>
-                        <n-space size="small">
-                          <n-button size="small" class="editor-tool-button" @click.stop="formatOverride(element)"><template #icon><PhSparkle /></template>格式化</n-button>
-                          <n-button size="small" class="editor-tool-button" @click.stop="restoreOverride(element)"><template #icon><PhArrowClockwise /></template>从接口默认值恢复</n-button>
-                        </n-space>
-                      </header>
-                      <div class="json-editor">
-                        <pre class="editor-gutter">{{ lineNumbers(editText[element.id]?.request_override) }}</pre>
-                        <n-input v-model:value="editText[element.id].request_override" type="textarea" :autosize="{ minRows: 14, maxRows: 22 }" placeholder="{}" @focus="rememberRequestEditorCursor(element, $event)" @click="rememberRequestEditorCursor(element, $event)" @keyup="rememberRequestEditorCursor(element, $event)" @blur="saveStep(element)" />
-                      </div>
-                      <div class="override-tip"><PhInfo /> 支持直接填写参数对象；关联 Headers、Params、Data 或 JSON 时将自动应用到对应请求区域。</div>
-                    </section>
-                    <aside class="workspace-sidebar">
-                      <section class="side-panel variable-panel">
-                        <header><strong>变量关联</strong><PhInfo /></header>
-                        <template v-if="availableVariables(element).length">
-                          <p>项目参数和上游接口已提取的变量都可引用到当前请求。</p>
-                          <div class="available-variables">
-                            <span v-for="variable in availableVariables(element)" :key="`${variable.scope || 'step'}-${variable.stepId}-${variable.name}`" class="variable-chip" :title="variable.scope === 'project' ? `项目参数${variable.projectName ? ` · ${variable.projectName}` : ''}` : `来自第 ${variable.stepOrder} 步 ${variable.stepName}：${variable.expression}`"><code>{{ variableReference(variable.name) }}</code><em>{{ variable.scope === 'project' ? '项目参数' : `第 ${variable.stepOrder} 步` }}</em></span>
-                          </div>
-                          <div v-if="variableSuggestions(element).length" class="variable-suggestion-list"><div v-for="suggestion in variableSuggestions(element)" :key="suggestion.key" class="variable-suggestion-item"><code>{{ variableReference(suggestion.variableName) }}</code><n-button text size="small" type="primary" @click.stop="applySuggestion(element, suggestion)">引用</n-button></div></div>
-                          <n-button block type="primary" secondary :disabled="!variableSuggestions(element).length" @click.stop="applyAllSuggestions(element)">智能关联{{ variableSuggestions(element).length ? `（${variableSuggestions(element).length}）` : '' }}</n-button>
-                        </template>
-                        <template v-else>
-                          <div class="variable-empty-icon"><PhPackage /></div>
-                          <h4>暂未发现可用的上游变量</h4>
-                          <p>运行上游接口或先配置数据提取后，可在这里关联变量。</p>
-                          <n-button block type="primary" secondary @click.stop="activeConfigTabs[element.id] = 'extract'">查看数据提取</n-button>
-                        </template>
-                      </section>
-                      <section class="side-panel request-overview">
-                        <header><strong>请求概览</strong></header>
-                        <div><span><PhSlidersHorizontal /> Params</span><b>{{ requestFieldCount(element, 'params') }}</b></div>
-                        <div><span><PhFileText /> Data</span><b>{{ requestFieldCount(element, 'data') }}</b></div>
-                        <div><span><PhBracketsCurly /> JSON</span><b>{{ requestFieldCount(element, 'json') }}</b></div>
-                      </section>
-                    </aside>
-                  </div>
-                </n-tab-pane>
+       <template #item="{element,index}">
+        <div class="studio-tree-node">
+         <ScenarioFlowItem :name="element.node_type === 'condition' ? element.name : element.endpoint_name || '未命名接口'" :ordinal="String(index+1).padStart(2,'0')" :condition="element.node_type === 'condition'" :method="stepMethod(element)" :selected="element.node_type === 'condition' ? selectedConditionId === element.node_id : expandedId === element.id" :extracts="extractRuleCount(element.id)" :assertions="validateRuleCount(element.id)" :enabled="element.enabled !== false" :busy="togglingNodeId === element.node_id" :result="element.node_type === 'endpoint' ? runResults[element.id] : undefined" @select="selectStudioNode(element)" @toggle="toggleNodeEnabled(element, $event)" />
+         <div v-if="element.node_type === 'condition'" class="studio-branches">
+          <div v-for="branch in element.branches || []" :key="branch.id" class="studio-branch">
+           <button class="studio-condition-chip" @click="selectStudioNode(element); openBranchEditor(element,branch)"><PhGitBranch/><span>{{ branchConditionSummary(branch) }}</span></button>
+           <draggable v-model="branch.nodes" item-key="id" handle=".drag-handle" @end="saveBranchOrder(branch)"><template #item="{element:child,index:childIndex}">
+            <ScenarioFlowItem :name="child.step_info?.endpoint_name || '未命名接口'" :ordinal="index+1+'.'+(childIndex+1)" :method="stepMethod(child.step_info)" :selected="expandedId === child.step_info?.id" :extracts="extractRuleCount(child.step_info?.id)" :assertions="validateRuleCount(child.step_info?.id)" :enabled="child.enabled !== false" :busy="togglingNodeId === child.id" :result="runResults[child.step_info?.id]" @select="selectStudioStep(child.step_info)" @toggle="toggleNodeEnabled(child,$event)"/>
+           </template></draggable>
+           <button class="studio-branch-add" @click="openBranchEndpointPicker(branch)"><PhPlus/>添加分支接口</button>
+          </div>
+         </div>
+        </div>
+       </template>
+      </draggable>
+      <n-empty v-else description="添加接口开始编排" class="studio-empty"/>
+      <n-button block class="studio-add-bottom" @click="openEndpointPicker"><template #icon><PhPlus/></template>添加步骤</n-button>
+     </div>
+     <div class="studio-flow-footer"><PhDotsSixVertical/>拖动调整执行顺序</div>
+    </aside>
+    <main class="studio-main">
+     <template v-for="element in selectedStudioSteps" :key="element.id">
+      <section class="studio-editor">
+       <header class="studio-editor-heading"><h2><span>{{ studioStepOrdinal(element.id) }}</span>{{ element.endpoint_name || '未命名接口' }}</h2><span class="studio-snapshot">场景独立配置</span><div class="studio-step-actions"><button class="studio-icon" title="复制步骤" @click="copyStudioStep(element)"><PhCopy/></button><n-dropdown :options="[{label:'删除步骤',key:'delete'}]" @select="removeStudioStep(element)"><button class="studio-icon" aria-label="更多步骤操作"><PhDotsThree/></button></n-dropdown><n-button type="primary" ghost :loading="runningStepId === element.id" @click="runStep(element)"><template #icon><PhPlay weight="fill"/></template>调试此步</n-button></div></header>
+       <div class="studio-source"><span>来源：{{ studioStepSource(element) }}</span><button @click="openSourceEndpoint(element)">查看原接口 <PhArrowUpRight/></button></div>
+       <div class="studio-request-target"><n-select class="request-method-select" :style="methodCssVars(stepMethod(element))" :value="stepMethod(element)" :options="requestMethodOptions" :render-label="renderRequestMethodLabel" aria-label="请求方式" @update:value="updateRequestMethod(element,$event)"/><n-input :value="stepUrl(element)" placeholder="请输入请求 URL" aria-label="请求 URL" @update:value="updateRequestUrl(element,$event)" @blur="saveStep(element)"/></div>
+       <n-tabs v-model:value="activeConfigTabs[element.id]" type="line" class="step-config-tabs">
+                <n-tab-pane name="request_override" tab="请求参数">
+ <ScenarioRequestEditor :key="element.id" ref="requestPanel" :model-value="editText[element.id].request_override" :endpoint="element.endpoint_info" :suggestions="variableSuggestions(element)" @update:model-value="editText[element.id].request_override = $event" @save="saveStep(element)" @suggest="applySuggestion(element, $event)" />
+ <div class="studio-policy-shell"><button class="studio-policy" @click="activeConfigTabs[element.id] = 'execution'"><PhCaretRight /><strong>执行策略</strong><span>{{ element.continue_on_failure !== false ? '失败后继续' : '失败后停止' }}</span><i></i><span>重试：{{ element.retry_on_failure ? element.failure_retry_count + ' 次' : '关闭' }}</span><i></i><span>轮询：{{ pollingConfigs[element.id]?.enabled ? '开启' : '关闭' }}</span><PhGear /></button></div>
+ </n-tab-pane>
                 <n-tab-pane name="extract" :tab="tabTitle(PhDatabase, '数据提取', extractRuleCount(element.id))">
                   <div class="extract-actions">
                     <span>执行后保存变量，后续接口优先使用 <code>${变量名}</code>，同时兼容 <code v-pre>{{变量名}}</code></span>
@@ -407,9 +176,9 @@
                       </div>
                       <div class="polling-checkboxes">
                         <n-checkbox v-model:checked="pollingConfigs[element.id].retry_http_error" @update:checked="saveStep(element)">HTTP 4xx/5xx 时继续重试</n-checkbox>
-                        <n-checkbox v-model:checked="pollingConfigs[element.id].retry_assertion" @update:checked="saveStep(element)">断言不满足时继续重试</n-checkbox>
+                        <n-checkbox v-model:checked="pollingConfigs[element.id].retry_assertion" :disabled="validateRuleCount(element.id) === 0" @update:checked="saveStep(element)">断言不满足时继续重试</n-checkbox>
                       </div>
-                      <n-alert type="info" :show-icon="false" class="polling-tip">当前“断言”即轮询成功条件，请至少配置一条断言；满足全部断言即停止。超时后当前接口标记失败，且仅成功响应的数据提取会写入后续变量。</n-alert>
+                      <n-alert type="info" :show-icon="false" class="polling-tip">{{ validateRuleCount(element.id) ? '已配置的断言为轮询成功条件，满足全部断言即停止。' : '当前未配置断言，HTTP 2xx/3xx 响应即视为轮询成功。' }} HTTP 4xx/5xx 是否继续轮询由上方选项控制；仅成功响应的数据提取会写入后续变量。</n-alert>
                     </template>
                   </div>
                 </n-tab-pane>
@@ -429,125 +198,35 @@
                   </section>
                 </n-tab-pane>
               </n-tabs>
-              <section v-if="runResults[element.id]" class="response-panel" :class="runResults[element.id].passed ? 'response-passed' : 'response-failed'">
-                <div class="response-title">
-                  <span class="response-label">Response</span>
-                  <div class="response-title-actions">
-                    <div class="response-search-box">
-                      <n-input v-model:value="responseSearch[element.id]" size="small" clearable placeholder="搜索响应内容，回车定位下一个" class="response-search" @update:value="(value) => handleResponseSearch(element.id, value)" @keyup.enter="focusNextResponseMatch(element.id)" />
-                      <span v-if="responseSearch[element.id]?.trim()" class="response-search-count">{{ responseMatchCount(element.id) ? `${(responseSearchIndex[element.id] || 0) + 1}/${responseMatchCount(element.id)}` : '未找到' }}</span>
-                    </div>
-                    <span>{{ runResults[element.id].status_code || '-' }} · {{ runResults[element.id].duration_ms ?? '-' }} ms</span>
-                  </div>
-                </div>
-                <div v-if="runResults[element.id].attempts?.length" class="response-attempts">
-                  <span v-for="attempt in runResults[element.id].attempts" :key="attempt.attempt">第 {{ attempt.attempt }} 次 · HTTP {{ attempt.status_code || '-' }} · {{ attempt.duration_ms ?? '-' }} ms{{ attempt.errors?.length ? ` · ${attempt.errors.join('；')}` : ' · 通过' }}</span>
-                </div>
-                <div v-if="runResults[element.id].data_driven_results?.length" class="data-driven-run-results">
-                  <span v-for="item in runResults[element.id].data_driven_results" :key="item.name" :class="item.passed ? 'data-driven-run-passed' : 'data-driven-run-failed'">
-                    {{ item.name }} · HTTP {{ item.status_code || '-' }} · {{ item.duration_ms ?? '-' }} ms · {{ item.passed ? '通过' : '失败' }}
-                  </span>
-                </div>
-                <div v-if="runResults[element.id].errors?.length" class="response-errors">{{ runResults[element.id].errors.join('；') }}</div>
-                <div v-if="responseSearch[element.id]?.trim() && !responseMatchCount(element.id)" class="response-search-empty">未找到包含「{{ responseSearch[element.id] }}」的响应内容</div>
-                <pre :ref="(el) => setResponseBodyRef(element.id, el)" class="response-body" v-html="highlightedResponse(element.id, runResults[element.id].response_body)"></pre>
-              </section>
-            </div>
-          </section>
-        </template>
-      </draggable>
-      <n-empty v-else description="请选择接口后添加到此场景" class="empty-state" />
-      <n-button v-if="hasFlowNodes" dashed block class="add-next-step" @click="openEndpointPicker">＋ 添加下一步骤</n-button>
-    </n-card>
-      </main>
-
-      <aside class="scene-context-column">
-        <section class="context-panel overview-panel">
-          <header><strong>场景概览</strong></header>
-          <div class="scene-stat-grid">
-            <div><b>{{ sceneStats.steps }}</b><span>步骤</span></div>
-            <div><b>{{ sceneStats.branches }}</b><span>分支</span></div>
-            <div><b>{{ sceneStats.extracts }}</b><span>提取变量</span></div>
-            <div><b>{{ sceneStats.assertions }}</b><span>断言规则</span></div>
-          </div>
-        </section>
-
-        <section class="context-panel scene-variable-panel">
-          <header>
-            <strong>可用变量</strong>
-            <button type="button" class="variable-collapse-button" :aria-label="sceneVariablesCollapsed ? '展开可用变量' : '收起可用变量'" @click="sceneVariablesCollapsed = !sceneVariablesCollapsed">
-              <PhCaretUp :class="{ collapsed: sceneVariablesCollapsed }" />
-            </button>
-          </header>
-          <div v-show="!sceneVariablesCollapsed" class="scene-variable-content">
-            <n-input v-model:value="sceneVariableSearch" clearable class="scene-variable-search" placeholder="搜索变量名或来源">
-              <template #prefix><PhMagnifyingGlass /></template>
-            </n-input>
-            <div class="scene-variable-tabs" role="tablist" aria-label="变量分类">
-              <button
-                v-for="tab in sceneVariableTabs"
-                :key="tab.key"
-                type="button"
-                role="tab"
-                :aria-selected="sceneVariableCategory === tab.key"
-                :class="{ active: sceneVariableCategory === tab.key }"
-                @click="sceneVariableCategory = tab.key"
-              >
-                <span>{{ tab.label }}</span><b>{{ tab.count }}</b>
-              </button>
-            </div>
-            <div v-if="filteredSceneVariableGroups.length" class="scene-variable-groups">
-              <section v-for="group in filteredSceneVariableGroups" :key="group.key" class="scene-variable-group" :class="`is-${group.key}`">
-                <header>
-                  <div><PhCircle weight="fill" /><strong>{{ group.label }}</strong><PhCircle weight="fill" /><span>{{ group.detail }}</span></div>
-                  <b>{{ group.items.length }}</b>
-                </header>
-                <div class="scene-variable-rows">
-                  <div v-for="variable in group.items" :key="variable.key" class="scene-variable-row">
-                    <code :class="{ selected: variable.name === 'login_token' }">{{ variable.reference }}</code>
-                    <span class="scene-variable-value" :title="sceneVariableDisplayValue(variable)">
-                      {{ sceneVariableDisplayValue(variable) }}
-                      <button v-if="variable.sensitive" type="button" class="variable-eye-button" :aria-label="revealedVariableKeys.has(variable.key) ? '隐藏变量值' : '显示变量值'" @click="toggleVariableVisibility(variable.key)">
-                        <PhEyeSlash v-if="revealedVariableKeys.has(variable.key)" /><PhEye v-else />
-                      </button>
-                    </span>
-                    <span class="scene-variable-actions"><button type="button" @click="copySceneVariable(variable)">复制</button><button type="button" @click="referenceSceneVariable(variable)">引用</button></span>
-                  </div>
-                </div>
-              </section>
-            </div>
-            <div v-else class="context-empty scene-variable-empty">
-              <PhPackage />
-              <span>{{ sceneVariableSearch ? '没有匹配的可用变量' : '暂无项目参数、动态函数或接口提取变量' }}</span>
-            </div>
-          </div>
-        </section>
-
-        <section class="context-panel run-context-panel">
-          <header><strong>最近运行</strong></header>
-          <div class="recent-run-summary">
-            <n-tag size="small" :type="sceneRunState.type" :bordered="false">{{ sceneRunState.shortLabel }}</n-tag>
-            <span>{{ selectedEnvironmentLabel || '未选择' }}</span>
-            <strong>{{ latestScenarioRun ? formatDuration(latestScenarioRun.durationMs) : '--' }}</strong>
-          </div>
-          <time>{{ latestScenarioRun?.finishedAt || '尚无运行记录' }}</time>
-          <n-button v-if="sceneRunState.executed" text type="primary" class="view-run-result" @click="viewRunResult">查看执行结果 <span>→</span></n-button>
-        </section>
-
-        <section class="context-panel execution-rule-panel">
-          <header><strong>执行规则</strong></header>
-          <p>主流程按顺序执行；判断节点命中首个分支，分支结束后继续主流程。</p>
-        </section>
-      </aside>
-    </div>
-
-    <n-modal v-model:show="branchEditorVisible" preset="card" :title="editingConditionOnly ? '编辑判断节点' : (editingBranch?.id ? '编辑分支' : '新增分支')" class="branch-editor-modal" :style="{ width: 'min(760px, calc(100vw - 32px))' }">
+      </section>
+      <ScenarioResultPanel :result="runResults[element.id]" :running="scenarioRunning || runningStepId === element.id" :finished-at="latestScenarioRun?.finishedAt" :summary="sceneRunState" :duration="latestScenarioRun ? formatDuration(latestScenarioRun.durationMs) : ''" :logs="studioRunLogs"/>
+     </template>
+     <section v-if="selectedStudioCondition" class="studio-editor studio-condition-editor">
+      <header class="studio-editor-heading"><h2><PhDiamond/>{{ selectedStudioCondition.name }}</h2><n-button @click="openConditionEditor(selectedStudioCondition)">编辑条件</n-button></header><p>从上到下匹配，第一个满足条件的分支进入执行，完成后继续主流程。</p>
+      <section v-for="branch in selectedStudioCondition.branches || []" :key="branch.id" class="studio-condition-detail"><header><strong>{{ branch.name }}</strong><n-space><n-button text type="primary" @click="openBranchEditor(selectedStudioCondition,branch)">编辑</n-button><n-button text type="error" @click="removeBranch(branch)">删除</n-button></n-space></header><p>{{ branchConditionSummary(branch) }}</p><n-button @click="openBranchEndpointPicker(branch)">添加分支接口</n-button></section>
+      <n-space><n-button type="primary" ghost @click="addBranch(selectedStudioCondition)">添加分支</n-button><n-button class="condition-delete-button" type="error" @click="removeFlowNode(selectedStudioCondition)">删除判断节点</n-button></n-space>
+     </section>
+     <section v-if="!selectedStudioSteps.length && !selectedStudioCondition" class="studio-editor studio-start"><PhTreeStructure/><h2>编排你的接口场景</h2><p>从左侧添加接口或选择步骤，配置请求、提取与断言。</p><n-button type="primary" @click="openEndpointPicker">添加接口</n-button></section>
+    </main>
+    <aside class="studio-variables">
+     <header><strong>可用变量</strong><button class="studio-icon" :aria-label="sceneVariablesCollapsed ? '展开可用变量' : '收起可用变量'" @click="sceneVariablesCollapsed = !sceneVariablesCollapsed"><PhCaretUp :class="{collapsed:sceneVariablesCollapsed}"/></button></header>
+     <div v-show="!sceneVariablesCollapsed" class="studio-variable-content">
+      <n-input v-model:value="sceneVariableSearch" clearable placeholder="搜索变量名或来源"><template #prefix><PhMagnifyingGlass/></template></n-input>
+      <nav class="studio-variable-tabs"><button v-for="tab in studioVariableTabs" :key="tab.key" :class="{active:sceneVariableCategory === tab.key}" @click="sceneVariableCategory = tab.key">{{ tab.label }}<b>{{ tab.count }}</b></button></nav>
+      <div class="studio-variable-groups"><section v-for="group in studioVariableGroups" :key="group.key" class="studio-variable-group">
+       <h3><PhCircle weight="fill" :class="'dot-'+group.key"/>{{ group.label }}</h3>
+       <div v-for="variable in group.items" :key="variable.key" class="studio-variable-row"><div class="studio-variable-name"><code>{{ variable.reference }}</code><button class="studio-icon" title="复制变量" @click="copySceneVariable(variable)"><PhCopy/></button><button class="studio-reference" @click="referenceStudioVariable(variable)">引用</button></div><p v-if="variable.category === 'extract'" class="studio-variable-source">{{ variable.source }}</p><div class="studio-variable-value"><span>{{ sceneVariableDisplayValue(variable) }}</span><button v-if="variable.sensitive" class="studio-icon" :aria-label="revealedVariableKeys.has(variable.key) ? '隐藏变量值' : '显示变量值'" @click="toggleVariableVisibility(variable.key)"><PhEyeSlash v-if="revealedVariableKeys.has(variable.key)"/><PhEye v-else/></button></div></div>
+      </section><n-empty v-if="!studioVariableGroups.length" size="small" description="暂无可用变量"/></div>
+     </div><footer><PhInfo/>仅显示当前步骤可用的上游变量</footer>
+    </aside>
+   </div>
+   <n-modal v-model:show="branchEditorVisible" preset="card" :title="editingConditionOnly ? '编辑判断节点' : (editingBranch?.id ? '编辑分支' : '新增分支')" class="branch-editor-modal" :style="{ width: 'min(760px, calc(100vw - 32px))' }">
       <n-form label-placement="top">
         <div class="branch-editor-top"><n-form-item :label="editingConditionOnly ? '判断名称' : '分支名称'"><n-input v-model:value="branchForm.name" /></n-form-item></div>
         <n-form-item label="条件关系"><n-radio-group v-model:value="branchForm.logic"><n-radio value="and">满足全部条件</n-radio><n-radio value="or">满足任一条件</n-radio></n-radio-group></n-form-item>
-        <template v-if="!editingConditionOnly"><div v-for="(condition, conditionIndex) in branchForm.conditions" :key="conditionIndex" class="condition-editor-row"><n-select v-model:value="condition.source" :options="conditionSourceOptions" /><n-select v-if="condition.source === 'step'" v-model:value="condition.step_id" :options="upstreamStepOptions" filterable placeholder="选择上游接口" /><n-input v-else v-model:value="condition.variable" placeholder="变量名，如 orderStatus" /><n-input v-if="condition.source === 'step'" v-model:value="condition.path" placeholder="JSONPath，如 $.data.status" /><n-select v-model:value="condition.operator" :options="conditionOperatorOptions" /><n-input v-if="!['exists', 'not_exists'].includes(condition.operator)" v-model:value="condition.expected" placeholder="期望值" /><n-button text type="error" :disabled="branchForm.conditions.length === 1" @click="branchForm.conditions.splice(conditionIndex, 1)">删除</n-button></div><n-button dashed size="small" @click="addConditionRule">＋ 添加条件</n-button></template>
+        <template v-if="!editingConditionOnly"><div v-for="(condition, conditionIndex) in branchForm.conditions" :key="conditionIndex" class="condition-editor-row"><n-select v-model:value="condition.source" :options="conditionSourceOptions" /><n-select v-if="condition.source === 'step'" v-model:value="condition.step_id" :options="upstreamStepOptions" filterable placeholder="选择上游接口" /><n-input v-else v-model:value="condition.variable" placeholder="变量名，如 orderStatus" /><n-input v-if="condition.source === 'step'" v-model:value="condition.path" placeholder="JSONPath，如 $.data.status" /><n-select v-model:value="condition.operator" :options="conditionOperatorOptions" /><n-input v-if="!['exists', 'not_exists'].includes(condition.operator)" v-model:value="condition.expected" placeholder="期望值" /><n-button class="condition-row-delete" text type="error" :disabled="branchForm.conditions.length === 1" @click="branchForm.conditions.splice(conditionIndex, 1)">删除</n-button></div><n-button class="branch-condition-add" dashed size="small" @click="addConditionRule">＋ 添加条件</n-button></template>
       </n-form>
-      <template #footer><n-space justify="end"><n-button @click="branchEditorVisible = false">取消</n-button><n-button type="primary" :loading="branchSaving" @click="saveBranch">保存</n-button></n-space></template>
+      <template #footer><n-space justify="end"><n-button class="branch-editor-cancel" @click="branchEditorVisible = false">取消</n-button><n-button class="branch-editor-save" type="primary" :loading="branchSaving" @click="saveBranch">保存</n-button></n-space></template>
     </n-modal>
 
     <n-modal v-model:show="branchEndpointPickerVisible" preset="card" title="添加分支接口" :style="{ width: 'min(980px, calc(100vw - 32px))' }">
@@ -562,7 +241,7 @@
         <n-tab-pane name="extract" tab="数据提取"><div class="extract-actions"><span>执行后保存变量，供之后接口引用。</span><n-button size="small" @click="addExtractRule(branchEditingStep)">＋ 添加提取规则</n-button></div><div class="extract-rule-table"><div v-for="(rule, ruleIndex) in extractRules[branchEditingStep.id] || []" :key="ruleIndex" class="extract-rule-row"><n-input v-model:value="rule.name" placeholder="变量名" size="small" @update:value="handleExtractNameInput(rule, $event)" @blur="saveStep(branchEditingStep)" /><n-select v-model:value="rule.mode" :options="extractModeOptions" size="small" @update:value="handleExtractModeChange(branchEditingStep, rule)" /><n-select v-model:value="rule.source" :options="rule.mode === 'jsonpath' ? jsonPathSourceOptions : extractSourceOptions" size="small" @update:value="saveStep(branchEditingStep)" /><n-auto-complete v-if="rule.mode === 'jsonpath'" v-model:value="rule.expression" :options="responseExpressionOptions(branchEditingStep, rule)" :render-label="renderResponsePathLabel" :get-show="() => true" blur-after-select clearable size="small" placeholder="运行接口后可选择响应路径" @select="handleResponsePathSelect(rule, $event)" @blur="saveStep(branchEditingStep)" /><n-input v-else v-model:value="rule.expression" placeholder="如：token=(.*?)& 或 code=(.+?)$" size="small" @blur="saveStep(branchEditingStep)" /><n-input-number v-model:value="rule.index" :min="0" :show-button="false" size="small" @update:value="saveStep(branchEditingStep)" /><n-button text type="error" @click="removeExtractRule(branchEditingStep, ruleIndex)">删除</n-button><ExtractProcessorEditor v-model="rule.processors" @change="saveStep(branchEditingStep)" /></div></div></n-tab-pane>
         <n-tab-pane name="validate" tab="断言"><div class="extract-actions"><span>使用 JSONPath 或变量进行断言。</span><n-button size="small" @click="addValidateRule(branchEditingStep)">＋ 添加断言</n-button></div><div class="validate-rule-table"><div v-for="(rule, ruleIndex) in validateRules[branchEditingStep.id] || []" :key="ruleIndex" class="validate-rule-row"><n-input v-model:value="rule.actual" placeholder="$.data.code" size="small" @blur="saveStep(branchEditingStep)" /><n-select v-model:value="rule.type" :options="validateTypeOptions" size="small" @update:value="saveStep(branchEditingStep)" /><n-input v-model:value="rule.expected" placeholder="期望值" size="small" @blur="saveStep(branchEditingStep)" /><n-button text type="error" @click="removeValidateRule(branchEditingStep, ruleIndex)">删除</n-button></div></div></n-tab-pane>
         <n-tab-pane name="post_sql" tab="后置数据库"><div class="extract-actions"><span>接口成功后执行数据库操作。</span><n-button size="small" @click="addPostSql(branchEditingStep)">＋ 添加数据库操作</n-button></div><div class="post-sql-list"><div v-for="(_sql, sqlIndex) in postSqlRules[branchEditingStep.id] || []" :key="sqlIndex" class="post-sql-row"><n-input v-model:value="postSqlRules[branchEditingStep.id][sqlIndex]" type="textarea" placeholder="${execute_sql_mysql(...)}" @blur="saveStep(branchEditingStep)" /><n-button text type="error" @click="removePostSql(branchEditingStep, sqlIndex)">删除</n-button></div></div></n-tab-pane>
-        <n-tab-pane name="polling" tab="轮询"><n-form label-placement="left" label-width="120"><n-form-item label="开启轮询"><n-switch v-model:value="pollingConfigs[branchEditingStep.id].enabled" @update:value="saveStep(branchEditingStep)" /></n-form-item><template v-if="pollingConfigs[branchEditingStep.id].enabled"><n-form-item label="超时时间（秒）"><n-input-number v-model:value="pollingConfigs[branchEditingStep.id].timeout" :min="1" @update:value="saveStep(branchEditingStep)" /></n-form-item><n-form-item label="轮询间隔（秒）"><n-input-number v-model:value="pollingConfigs[branchEditingStep.id].interval" :min="1" @update:value="saveStep(branchEditingStep)" /></n-form-item><n-form-item label="首次等待（秒）"><n-input-number v-model:value="pollingConfigs[branchEditingStep.id].initial_delay" :min="0" @update:value="saveStep(branchEditingStep)" /></n-form-item><n-checkbox v-model:checked="pollingConfigs[branchEditingStep.id].retry_http_error" @update:checked="saveStep(branchEditingStep)">HTTP 4xx/5xx 时继续重试</n-checkbox><n-checkbox v-model:checked="pollingConfigs[branchEditingStep.id].retry_assertion" @update:checked="saveStep(branchEditingStep)">断言不满足时继续重试</n-checkbox></template></n-form></n-tab-pane>
+        <n-tab-pane name="polling" tab="轮询"><n-form label-placement="left" label-width="120"><n-form-item label="开启轮询"><n-switch v-model:value="pollingConfigs[branchEditingStep.id].enabled" @update:value="saveStep(branchEditingStep)" /></n-form-item><template v-if="pollingConfigs[branchEditingStep.id].enabled"><n-form-item label="超时时间（秒）"><n-input-number v-model:value="pollingConfigs[branchEditingStep.id].timeout" :min="1" @update:value="saveStep(branchEditingStep)" /></n-form-item><n-form-item label="轮询间隔（秒）"><n-input-number v-model:value="pollingConfigs[branchEditingStep.id].interval" :min="1" @update:value="saveStep(branchEditingStep)" /></n-form-item><n-form-item label="首次等待（秒）"><n-input-number v-model:value="pollingConfigs[branchEditingStep.id].initial_delay" :min="0" @update:value="saveStep(branchEditingStep)" /></n-form-item><n-checkbox v-model:checked="pollingConfigs[branchEditingStep.id].retry_http_error" @update:checked="saveStep(branchEditingStep)">HTTP 4xx/5xx 时继续重试</n-checkbox><n-checkbox v-model:checked="pollingConfigs[branchEditingStep.id].retry_assertion" :disabled="validateRuleCount(branchEditingStep.id) === 0" @update:checked="saveStep(branchEditingStep)">断言不满足时继续重试</n-checkbox><n-alert type="info" :show-icon="false" class="polling-tip">{{ validateRuleCount(branchEditingStep.id) ? '已配置的断言为轮询成功条件，满足全部断言即停止。' : '当前未配置断言，HTTP 2xx/3xx 响应即视为轮询成功。' }} HTTP 4xx/5xx 是否继续轮询由上方选项控制。</n-alert></template></n-form></n-tab-pane>
         <n-tab-pane name="execution" tab="执行控制"><section class="execution-control-list"><div class="execution-control-card"><div><strong>接口失败后继续执行</strong><span>开启后，本接口最终失败仍会执行后续接口；场景最终结果仍会标记为失败。</span></div><n-switch v-model:value="branchEditingStep.continue_on_failure" @update:value="saveStep(branchEditingStep)" /></div><div class="execution-control-card"><div><strong>失败后重试</strong><span>当前接口完整执行失败后重新执行；重试结束后再判断是否继续后续步骤。</span></div><div class="execution-control-actions"><template v-if="branchEditingStep.retry_on_failure"><n-input-number v-model:value="branchEditingStep.failure_retry_count" :min="1" :max="5" :precision="0" size="small" @update:value="saveStep(branchEditingStep)" /><span>次</span></template><n-switch v-model:value="branchEditingStep.retry_on_failure" @update:value="handleRetryToggle(branchEditingStep)" /></div></div></section></n-tab-pane>
       </n-tabs></template>
       <template #footer><n-space justify="end"><n-button @click="branchStepEditorVisible = false">关闭</n-button><n-button type="primary" @click="saveBranchStep">保存</n-button></n-space></template>
@@ -571,21 +250,28 @@
     <n-card v-if="!scenarioCreated" :bordered="false" class="scene-card save-tip">
       填写场景基本信息后，可直接选择接口并添加步骤，系统会自动保存场景。
     </n-card>
-  </div>
+  </div></n-config-provider>
 </template>
 
 <script lang="ts" setup>
+import { asList } from '@/utils/list';
+import { formatDurationMilliseconds as formatDuration } from '@/utils/time';
+
   defineOptions({ name: 'case_api_scenario_edit' });
   import { computed, h, nextTick, onMounted, reactive, ref, watch } from 'vue';
   import draggable from 'vuedraggable';
   import { useMessage } from 'naive-ui';
   import { useRoute, useRouter } from 'vue-router';
   import { PhArrowClockwise, PhBracketsCurly, PhCaretUp, PhCircle, PhClock, PhDatabase, PhEye, PhEyeSlash, PhFileText, PhInfo, PhMagnifyingGlass, PhPackage, PhPlay, PhShieldCheck, PhSlidersHorizontal, PhSparkle } from '@phosphor-icons/vue';
-  import { EndpointAPI, EndpointModuleAPI, ScenarioAPI, ScenarioBranchAPI, ScenarioFlowNodeAPI, ScenarioStepAPI } from '@/api/case_api/http';
+  import { EndpointAPI, ScenarioAPI, ScenarioBranchAPI, ScenarioFlowNodeAPI, ScenarioStepAPI } from '@/api/case_api/http';
   import type { ScenarioBranch, ScenarioBranchCondition } from '@/api/case_api/models';
-  import { DynamicFunctionAPI, EnvironmentAPI, ProjectAPI, ProjectVariableAPI } from '@/api/project/http';
+  import { DynamicFunctionAPI, EnvironmentAPI, ModuleAPI, ProjectAPI, ProjectVariableAPI } from '@/api/project/http';
   import { useSubmitRedirect } from '@/hooks/web/useSubmitRedirect';
   import ExtractProcessorEditor from './components/ExtractProcessorEditor.vue';
+  import ScenarioFlowItem from './components/ScenarioFlowItem.vue';
+  import ScenarioRequestEditor from './components/ScenarioRequestEditor.vue';
+  import ScenarioResultPanel from './components/ScenarioResultPanel.vue';
+  import { PhArrowUpRight, PhCaretRight, PhCheckCircle, PhCopy, PhDiamond, PhDotsSixVertical, PhDotsThree, PhFloppyDisk, PhGear, PhGitBranch, PhPlus, PhTreeStructure } from '@phosphor-icons/vue';
   import { defaultExtractRule, extractRuleFromConfig, extractRuleToConfig, type ExtractRule } from './extract-processors';
 
   const route = useRoute();
@@ -599,7 +285,7 @@
   const flowNodeApi = new ScenarioFlowNodeAPI();
   const branchApi = new ScenarioBranchAPI();
   const endpointApi = new EndpointAPI();
-  const endpointModuleApi = new EndpointModuleAPI();
+  const endpointModuleApi = new ModuleAPI();
   const projectApi = new ProjectAPI();
   const projectVariableApi = new ProjectVariableAPI();
   const dynamicFunctionApi = new DynamicFunctionAPI();
@@ -747,6 +433,8 @@
     enabled ? h('i', { class: 'tab-status-dot', title: '已启用' }) : null,
   ]);
   const form = reactive({ projects: [] as number[], name: '', description: '' });
+  const savedFormSignature = ref('');
+  const formSignature = computed(() => JSON.stringify([form.name, form.description, form.projects]));
   const rules = {
     projects: { required: true, type: 'array', min: 1, message: '请至少选择一个项目', trigger: 'change' },
     name: { required: true, message: '请输入场景名称', trigger: 'blur' },
@@ -870,7 +558,6 @@
     if (results.length) return { label: '执行完成', shortLabel: '通过', type: 'success' as const, executed: results.length, passed, failed };
     return { label: '尚未运行', shortLabel: '未运行', type: 'default' as const, executed: 0, passed: 0, failed: 0 };
   });
-  const formatDuration = (durationMs: number) => durationMs >= 1000 ? `${(durationMs / 1000).toFixed(2)} 秒` : `${Math.round(durationMs)} ms`;
   const formatRunTime = () => new Intl.DateTimeFormat('zh-CN', {
     year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   }).format(new Date()).replaceAll('/', '-');
@@ -1091,11 +778,11 @@
   const stepUrl = (step: any) => step?.request_url || step?.endpoint_info?.url || '';
   const methodStyle = (method?: string) => {
     const styles: Record<string, { color: string; background: string }> = {
-      GET: { color: '#1677ff', background: '#eaf3ff' },
-      POST: { color: '#20a162', background: '#ebf8f0' },
-      PUT: { color: '#d97706', background: '#fff5e6' },
-      PATCH: { color: '#7c3aed', background: '#f3edff' },
-      DELETE: { color: '#dc2626', background: '#fff0f0' },
+      GET: { color: '#318357', background: '#eef8f2' },
+      POST: { color: '#da820b', background: '#fff6e8' },
+      PUT: { color: '#277bc5', background: '#eef5fb' },
+      PATCH: { color: '#277bc5', background: '#eef5fb' },
+      DELETE: { color: '#d44857', background: '#fff0f2' },
     };
     return styles[formatMethod(method)] || { color: '#667085', background: '#f2f4f7' };
   };
@@ -1103,6 +790,10 @@
     const style = methodStyle(method);
     return { '--method-color': style.color, '--method-background': style.background } as Record<string, string>;
   };
+  const renderRequestMethodLabel = (option: any) => h('span', {
+    class: ['request-method-option', `method-${formatMethod(String(option.value)).toLowerCase()}`],
+    style: { color: methodStyle(String(option.value)).color, fontWeight: '600' },
+  }, String(option.label));
   const hasRequestTargetOverride = (step: any) => Boolean(step?.request_method || step?.request_url);
   const isRequestTargetEditing = (step: any) => editingRequestTargetIds.has(Number(step?.id));
   const requestDefaults = (endpoint: any, override: Record<string, unknown> = {}) => {
@@ -1389,7 +1080,7 @@
     for (const suggestion of suggestions) await applySuggestion(step, suggestion);
   }
 
-  const asList = (data: any) => Array.isArray(data) ? data : data?.list || data?.results || [];
+  
   const initializeStep = (item: any) => {
     if (!item?.id) return;
     if (typeof item.continue_on_failure !== 'boolean') item.continue_on_failure = true;
@@ -1519,12 +1210,15 @@
   async function loadSteps() {
     const nodes = asList(await flowNodeApi.getDataList({ scenario: id, main: true }));
     steps.value = nodes.map((node: any) => node.node_type === 'endpoint'
-      ? { ...node.step_info, id: node.step, step_id: node.step, node_id: node.id, node_type: 'endpoint' }
+      ? { ...node.step_info, id: node.step, step_id: node.step, node_id: node.id, node_type: 'endpoint', enabled: node.enabled !== false }
       : { ...node, node_id: node.id, node_type: 'condition' });
     steps.value.forEach((item: any) => {
       if (item.node_type === 'endpoint') initializeStep({ ...item, id: item.step_id });
       else (item.branches || []).forEach((branch: any) => (branch.nodes || []).forEach((node: any) => initializeStep(node.step_info)));
     });
+    if (!allEndpointSteps.value.some((step: any) => step.id === expandedId.value) && !selectedConditionId.value) {
+      expandedId.value = allEndpointSteps.value[0]?.id || null;
+    }
   }
   async function load() {
     projectOptions.value = (await projectApi.getDataList({})).map((item: any) => ({ label: item.name, value: item.id }));
@@ -1532,6 +1226,7 @@
     if (id) {
       const scenario = await scenarioApi.getDataByID(id);
       Object.assign(form, scenario, { projects: scenario.projects?.length ? scenario.projects : [scenario.project] });
+      savedFormSignature.value = formSignature.value;
       await loadSteps();
     }
     refreshEnvironmentOptions();
@@ -1550,6 +1245,7 @@
     }
     if (id) {
       await scenarioApi.update(id, form as any);
+      savedFormSignature.value = formSignature.value;
       scenarioCreated.value = true;
       return id;
     }
@@ -1559,6 +1255,7 @@
     const createdId = Number(created?.id || created?.pk);
     if (!createdId) throw new Error('场景创建成功但未返回场景 ID，请刷新后重试');
     id = createdId;
+    savedFormSignature.value = formSignature.value;
     scenarioCreated.value = true;
     message.success('场景已自动保存');
     return id;
@@ -1566,12 +1263,14 @@
   async function saveScenario() {
     if (!form.name.trim()) { message.warning('请输入场景名称'); return; }
     if (!form.projects.length) { message.warning('请至少选择一个项目'); return; }
-    formRef.value.validate(async (errors: unknown) => {
-      if (errors) return;
+    try {
       await ensureScenarioSaved();
+      const saved = await Promise.all(allEndpointSteps.value.map((step: any) => saveStep(step, true)));
+      if (saved.some((success) => !success)) return;
       message.success('场景已保存');
-      redirectAfterSubmit({ name: 'case_api_scenario' });
-    });
+    } catch (error: any) {
+      message.error(error.message || '场景保存失败');
+    }
   }
   async function addStep() {
     if (!selectedEndpoints.value.length) return;
@@ -1593,7 +1292,7 @@
   }
   async function saveStep(step: any, silent = false) {
     try {
-      await stepApi.update(step.id, {
+      const payload = {
         request_method: step.request_method || '',
         request_url: step.request_url || '',
         request_override: parse(editText[step.id].request_override),
@@ -1604,9 +1303,15 @@
         continue_on_failure: step.continue_on_failure !== false,
         retry_on_failure: Boolean(step.retry_on_failure),
         failure_retry_count: Math.min(5, Math.max(1, Number(step.failure_retry_count) || 1)),
-      });
+      };
+      await stepApi.update(step.id, payload);
+      Object.assign(step, payload);
+      const stored = allEndpointSteps.value.find((item: any) => Number(item.id) === Number(step.id));
+      if (stored) Object.assign(stored, payload);
+      return true;
     } catch (error: any) {
       message.error(error.message || '步骤保存失败');
+      return false;
     }
   }
   async function handleRetryToggle(step: any) {
@@ -1709,7 +1414,7 @@
     if (!runEnvironment.value) { message.warning('请先选择运行环境'); return; }
     try {
       const stepId = step.step_id || step.id;
-      await saveStep({ ...step, id: stepId }, true);
+      if (!await saveStep({ ...step, id: stepId }, true)) return;
       runningStepId.value = stepId;
       const result = await stepApi.runById(stepId, runEnvironment.value);
       runResults[stepId] = result;
@@ -1724,7 +1429,8 @@
     try {
       scenarioRunning.value = true;
       // 场景运行前先写入当前页面已编辑的步骤配置，保证调试内容与页面一致。
-      await Promise.all(steps.value.filter((step: any) => step.node_type === 'endpoint').map((step: any) => saveStep({ ...step, id: step.step_id }, true)));
+      const saved = await Promise.all(allEndpointSteps.value.map((step: any) => saveStep({ ...step, id: step.step_id || step.id }, true)));
+      if (saved.some((success) => !success)) return;
       const response = await scenarioApi.runById(id, runEnvironment.value);
       (response.results || []).forEach((result: any) => { runResults[result.step_id] = result; });
       latestScenarioRun.value = { durationMs: performance.now() - startedAt, finishedAt: formatRunTime() };
@@ -2011,6 +1717,38 @@
     refreshEnvironmentOptions(Boolean(runEnvironment.value));
     await Promise.all([loadInterfaceTree(), loadProjectVariables(), loadDynamicFunctions()]);
   }, { deep: true });
+  const studioTheme = { common: { primaryColor: '#008b95', primaryColorHover: '#009da6', primaryColorPressed: '#00747d', primaryColorSuppl: '#008b95', borderRadius: '5px', textColorBase: '#203044' }, Button: {fontWeight: '500'}, Tabs: {tabTextColorActiveLine: '#008b95',barColor:'#008b95'} };
+  const selectedConditionId = ref<number | null>(null);
+  const requestPanel = ref<any>();
+  const togglingNodeId = ref<number | null>(null);
+  const selectedStudioSteps = computed(() => selectedConditionId.value ? [] : allEndpointSteps.value.filter((step: any) => step.id === expandedId.value));
+  const selectedStudioCondition = computed(() => steps.value.find((node: any) => node.node_type === 'condition' && node.node_id === selectedConditionId.value));
+  const studioRunLogs = computed(() => allEndpointSteps.value.filter((step: any) => runResults[step.id]).map((step: any) => ({id:step.id,name:step.endpoint_name || '未命名接口',result:runResults[step.id]})));
+  const studioVariableItems = computed(() => {
+    const current = selectedStudioSteps.value[0];
+    const allowed = new Set(current ? availableVariables(current).filter((item: any) => item.scope !== 'project').map((item: any) => `extract-${item.stepId}-${item.name}`) : []);
+    return sceneVariableItems.value.filter(item => item.category !== 'extract' || allowed.has(item.key)).map(item => {
+      if (item.category !== 'extract') return item;
+      const match = item.key.match(/^extract-(\d+)-/); const result = match ? runResults[Number(match[1])]?.extracted : undefined;
+      const hasValue = result && Object.prototype.hasOwnProperty.call(result,item.name);
+      return {...item, source:item.source.replace(/ · \$.*$/, ''), value:hasValue ? (typeof result[item.name] === 'string' ? result[item.name] : JSON.stringify(result[item.name])) : '执行后提取', sensitive:/token|secret|password|authorization/i.test(item.name)};
+    });
+  });
+  const studioVariableTabs = computed(() => [{key:'all',label:'全部'},{key:'extract',label:'上游提取'},{key:'project',label:'项目参数'},{key:'function',label:'函数'}].map(item => ({...item,count:studioVariableItems.value.filter(v=>item.key === 'all' || v.category === item.key).length})));
+  const studioVariableGroups = computed(() => {
+    const query = sceneVariableSearch.value.toLowerCase().trim();
+    return [{key:'extract',label:'上游提取'},{key:'project',label:'项目参数'},{key:'function',label:'动态函数'}].map(group=>({...group,items:studioVariableItems.value.filter(v=>v.category === group.key && (sceneVariableCategory.value === 'all' || v.category === sceneVariableCategory.value) && (!query || [v.name,v.reference,v.source].some(text=>text.toLowerCase().includes(query))))})).filter(group=>group.items.length);
+  });
+  function selectStudioStep(step: any) { if (!step?.id) return; if (!editText[step.id]) initializeStep(step); selectedConditionId.value = null; expandedId.value = step.id; }
+  function selectStudioNode(node: any) { if (node.node_type === 'condition') {selectedConditionId.value = node.node_id; expandedId.value = null;} else selectStudioStep(node); }
+  function studioStepOrdinal(stepId: number) { for (let i=0;i<steps.value.length;i++) {const node=steps.value[i];if (node.node_type === 'endpoint' && node.id === stepId) return String(i+1).padStart(2,'0');for (const branch of node.branches || []) {const index=(branch.nodes || []).findIndex((child:any)=>child.step_info?.id === stepId);if(index>=0)return `${i+1}.${index+1}`;}}return ''; }
+  function studioStepSource(step: any) { const endpoint=step.endpoint_info || {}; const project=projectOptions.value.find(item=>item.value === endpoint.project)?.label;return [project,endpoint.module_name,step.endpoint_name].filter(Boolean).join(' / '); }
+  function openSourceEndpoint(step: any) { if(step.endpoint) router.push({name:'case_api_endpoint_edit',params:{id:step.endpoint}});else message.warning('原接口已不存在'); }
+  function studioBranchFor(step: any) { for(const node of steps.value)for(const branch of node.branches || []){const child=(branch.nodes || []).find((child:any)=>child.step_info?.id === step.id);if(child)return {branch,child};}return null; }
+  function copyStudioStep(step: any) { const located=studioBranchFor(step); if(located) return copyBranchStep(located.child,located.branch);return copyStep(step); }
+  function removeStudioStep(step: any) { const located=studioBranchFor(step); if(located) return removeFlowNode(located.child);return removeStep(step.id); }
+  function referenceStudioVariable(variable: SceneVariableItem) {const panel=Array.isArray(requestPanel.value) ? requestPanel.value[0] : requestPanel.value;if(!panel){copySceneVariable(variable);return;}panel.insertVariable(variable.reference);message.success('已插入变量');}
+  async function toggleNodeEnabled(node: any, enabled: boolean) {const nodeId=node.node_id || node.id;togglingNodeId.value=nodeId;try{await flowNodeApi.update(nodeId,{scenario:id,node_type:node.node_type,step:node.node_type === 'endpoint' ? node.step_id || node.step : null,name:node.node_type === 'condition' ? node.name : '',enabled} as any);node.enabled=enabled;}catch(error:any){message.error(error.message || '更新启用状态失败');}finally{togglingNodeId.value=null;}}
   onMounted(load);
 </script>
 
@@ -2585,3 +2323,4 @@
     .editor-panel { border-right: 0; border-bottom: 1px solid #dfe5ee; }
   }
 </style>
+<style scoped src="./scenario-studio.css"></style>

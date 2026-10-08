@@ -3,25 +3,27 @@ import { VAxios } from './Axios';
 import { AxiosTransform } from './axiosTransform';
 import axios, { AxiosResponse } from 'axios';
 import { checkStatus } from './checkStatus';
-import { joinTimestamp, formatRequestDate } from './helper';
+import { joinTimestamp, formatRequestDate, extractErrorMessage } from './helper';
 import { RequestEnum, ResultEnum, ContentTypeEnum } from '@/enums/httpEnum';
 import { PageEnum } from '@/enums/pageEnum';
 
 import { useGlobSetting } from '@/hooks/setting';
 
-import { isString } from '@/utils/is/';
+import { isObject, isString } from '@/utils/is/';
 import { deepMerge, isUrl } from '@/utils';
 import { setObjToUrlParams } from '@/utils/urlUtils';
 
 import { RequestOptions, Result, CreateAxiosOptions } from './types';
 
 import { useUser } from '@/store/modules/user';
+import { useScreenLockStore } from '@/store/modules/screenLock';
 
 const globSetting = useGlobSetting();
 const urlPrefix = globSetting.urlPrefix || '';
 
 import router from '@/router';
 import { storage } from '@/utils/Storage';
+import { CURRENT_TENANT } from '@/store/mutation-types';
 
 /**
  * @description: 数据处理，方便区分多种处理方式
@@ -49,6 +51,12 @@ const transform: AxiosTransform = {
     // 用于页面代码可能需要直接获取code，data，message这些信息时开启
     if (!isTransformResponse) {
       return res.data;
+    }
+
+    // 超时或请求被中断时可能没有 AxiosResponse，先给出可读错误，
+    // 避免继续读取 res.status 产生「Cannot read properties of undefined」。
+    if (!res) {
+      throw new Error('请求未返回响应，请检查网络或稍后重试');
     }
 
     // DELETE 等接口使用 204 表示成功且没有响应体，不能按空响应判定为网络错误。
@@ -189,6 +197,10 @@ const transform: AxiosTransform = {
         ? `${options.authenticationScheme} ${token}`
         : token;
     }
+    const tenantId = String(storage.get(CURRENT_TENANT, '') || '');
+    if (tenantId && (config as Recordable)?.requestOptions?.withToken !== false) {
+      (config as Recordable).headers['X-Tenant-ID'] = tenantId;
+    }
     return config;
   },
 
@@ -199,14 +211,16 @@ const transform: AxiosTransform = {
     const $dialog = window['$dialog'];
     const $message = window['$message'];
     const { response, code, message } = error || {};
-    // TODO 此处要根据后端接口返回格式修改
-    const msg: string =
-      response && response.data && response.data.message ? response.data.message : '';
+    // 后端错误体的字段名不统一（detail / status / message），DRF 还会把值包成数组，
+    // 直接读 data.message 会拿到 undefined，最终弹出一个空白提示。统一摊平后再展示。
+    const msg: string = extractErrorMessage(response?.data);
     const err: string = error.toString();
     try {
-      if (code === 'ECONNABORTED' && message.indexOf('timeout') !== -1) {
-        $message.error('接口请求超时，请刷新页面重试!');
-        return;
+      if (code === 'ECONNABORTED' && String(message || '').includes('timeout')) {
+        const timeoutMessage = '接口请求超时，请刷新页面重试!';
+        $message.error(timeoutMessage);
+        error.message = timeoutMessage;
+        return Promise.reject(error);
       }
       if (err && err.includes('Network Error')) {
         $dialog.info({
@@ -224,15 +238,46 @@ const transform: AxiosTransform = {
     } catch (error) {
       throw new Error(error as any);
     }
+    const currentToken = useUser().getToken;
+    const requestHeaders = error?.config?.headers;
+    const requestAuthorization = String(
+      requestHeaders?.get?.('Authorization') || requestHeaders?.Authorization || ''
+    );
+    const requestToken = requestAuthorization.replace(/^Token\s+/i, '').trim();
+    const staleAuthResponse = Boolean(
+      response?.status === 401 && requestToken && currentToken && requestToken !== currentToken
+    );
+
     // 请求是否被取消
     const isCancel = axios.isCancel(error);
-    if (!isCancel) {
+    if (!isCancel && !staleAuthResponse) {
       checkStatus(error.response && error.response.status, msg);
     } else {
       console.warn(error, '请求被取消！');
     }
-    //return Promise.reject(error);
-    return Promise.reject(response?.data);
+    // 各页面普遍用 `error?.message || '兜底文案'` 读失败原因，而后端返回的是 { detail: ... }，
+    // 具体原因会被兜底文案盖掉。这里把摊平后的文案挂到 message 上，兼容所有既有读法；
+    // 其余字段（detail / errors 等）原样保留，不影响已有的分支判断。
+    const rawData = response?.data;
+    if (
+      response?.status === 401 &&
+      router.currentRoute.value?.name !== PageEnum.BASE_LOGIN_NAME &&
+      currentToken &&
+      // 忽略重新登录前已发出、但在新令牌换发后才返回的旧 401。
+      (!requestToken || requestToken === currentToken)
+    ) {
+      // 令牌过期时保留当前页面与标签，由屏保层完成重新认证。
+      useScreenLockStore().setLock(true, 'expired', router.currentRoute.value.fullPath);
+    }
+    if (isObject(rawData)) {
+      return Promise.reject({
+        ...rawData,
+        ...(msg && rawData.message !== msg ? { message: msg } : {}),
+        httpStatus: response?.status,
+        staleAuthResponse,
+      });
+    }
+    return Promise.reject(rawData);
   },
 };
 

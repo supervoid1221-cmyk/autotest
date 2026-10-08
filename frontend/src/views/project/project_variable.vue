@@ -43,6 +43,8 @@
 </template>
 
 <script lang="ts" setup>
+import { asList } from '@/utils/list';
+
   import { computed, onMounted, ref } from 'vue';
   import { NButton, NCard, NEmpty, NInput, NSpace, NSelect, useDialog, useMessage } from 'naive-ui';
   import { ProjectAPI, ProjectVariableAPI } from '@/api/project/http';
@@ -57,10 +59,7 @@
   const variables = ref<ProjectVariableRow[]>([]);
   const savingIndex = ref<number | null>(null);
 
-  const asList = (payload: any): any[] => {
-    if (Array.isArray(payload)) return payload;
-    return payload?.results || payload?.list || payload?.data || [];
-  };
+  
   const projectOptions = computed(() => projects.value.map((project) => ({ value: project.id, label: project.name })));
 
   async function loadProjects() {

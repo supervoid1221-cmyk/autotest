@@ -1,6 +1,6 @@
 import { RouteRecordRaw } from 'vue-router';
 import { Layout } from '@/router/constant';
-import { PhSquaresFour } from '@phosphor-icons/vue';
+import { PhFolder } from '@phosphor-icons/vue';
 import { renderIcon } from '@/utils/index';
 
 /**
@@ -21,8 +21,9 @@ const routes: Array<RouteRecordRaw> = [
     component: Layout,
     meta: {
       title: '项目管理',
-      icon: renderIcon(PhSquaresFour),
+      icon: renderIcon(PhFolder),
       sort: 16,
+      group: '工作区',
     },
     children: [
       {

@@ -6,7 +6,11 @@
       v-if="navMode === 'horizontal' || (navMode === 'horizontal-mix' && mixMenu)"
     >
       <div class="logo" v-if="navMode === 'horizontal'">
-        <img :src="websiteConfig.logo" alt="" />
+        <img
+          :class="{ 'logo-image--contrast': websiteConfig.logoNeedsContrastPlate }"
+          :src="websiteConfig.logo"
+          alt=""
+        />
         <h2 v-show="!collapsed" class="title">{{ websiteConfig.title }}</h2>
       </div>
       <AsideMenu
@@ -359,6 +363,14 @@
           width: auto;
           height: 32px;
           margin-right: 10px;
+        }
+
+        img.logo-image--contrast {
+          box-sizing: border-box;
+          padding: 4px;
+          border: 1px solid #cfd5dc;
+          border-radius: 8px;
+          background: #eef1f3;
         }
 
         .title {

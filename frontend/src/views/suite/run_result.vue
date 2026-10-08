@@ -38,6 +38,8 @@
 </template>
 
 <script lang="ts" setup>
+import { asList } from '@/utils/list';
+
   import { computed, reactive, ref, h, onActivated, onMounted, nextTick } from 'vue';
   import { BasicTable } from '@/components/Table';
   import { NButton, NSelect, useDialog, useMessage } from 'naive-ui';
@@ -66,10 +68,7 @@
     return Array.from(new Set(names)).map((name) => ({ label: name, value: name }));
   });
 
-  const asList = (payload: any): any[] => {
-    if (Array.isArray(payload)) return payload;
-    return payload?.results || payload?.list || payload?.data || [];
-  };
+  
 
   const actionColumn = reactive({
     width: 240,
@@ -94,7 +93,7 @@
           {
             text: true,
             type: 'primary',
-            onClick: () => router.push({ name: 'suite_report', params: { id: record.id } }),
+            onClick: () => router.push({ name: 'execution_report', params: { sourceType: 'suite', id: record.id } }),
           },
           { default: () => '查看报告' }
         )

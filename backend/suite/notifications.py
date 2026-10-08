@@ -41,6 +41,26 @@ def notification_response_summary(response, validation_error=""):
     return f"{validation_error}；响应：{body}"[:500]
 
 
+def notification_payload(platform, text, *, markdown_separator="\n> "):
+    """统一机器人协议，调用方保留各自的正文格式。"""
+    if platform == "lark":
+        return {"msg_type": "text", "content": {"text": text}}
+    return {"msgtype": "markdown", "markdown": {"content": text.replace("\n", markdown_separator)}}
+
+
+def deliver_notification(channel, payload, delivery, *, timeout=8):
+    """发送并保存投递结果；渠道选择和重试策略由业务模块负责。"""
+    try:
+        response = requests.post(channel.webhook_url, json=payload, timeout=timeout)
+        succeeded, detail = validate_notification_response(channel.platform, response)
+        delivery.response_code = response.status_code
+        delivery.response_summary = notification_response_summary(response, detail)
+        delivery.status = "sent" if succeeded else "failed"
+    except Exception as exc:
+        delivery.response_summary = str(exc)[:500]
+    delivery.save(update_fields=["status", "response_code", "response_summary"])
+
+
 def _format_duration(result, report):
     """将本次执行耗时格式化为“2分18秒”。"""
     duration_ms = report.get("duration_ms")
@@ -99,20 +119,6 @@ def notify_execution_result(result_id):
     rules = NotificationRule.objects.select_related("channel").filter(enabled=True, channel__enabled=True, channel__projects=result.project).filter(Q(event=event) | Q(event=NotificationRule.Event.ALL)).filter(Q(suite__isnull=True) | Q(suite=result.suite)).distinct()
     text = _build_notification_text(result, event)
     for rule in rules:
-        payload = {"msg_type": "text", "content": {"text": text}} if rule.channel.platform == "lark" else {"msgtype": "markdown", "markdown": {"content": text.replace("\n", "\n> ")}}
+        payload = notification_payload(rule.channel.platform, text)
         delivery = NotificationDelivery.objects.create(result=result, channel=rule.channel, rule=rule, event=event, status=NotificationDelivery.Status.FAILED, payload=payload)
-        try:
-            response = requests.post(rule.channel.webhook_url, json=payload, timeout=8)
-            succeeded, validation_error = validate_notification_response(
-                rule.channel.platform, response
-            )
-            delivery.response_code = response.status_code
-            delivery.response_summary = notification_response_summary(response, validation_error)
-            delivery.status = (
-                NotificationDelivery.Status.SENT
-                if succeeded
-                else NotificationDelivery.Status.FAILED
-            )
-        except Exception as exc:
-            delivery.response_summary = str(exc)[:500]
-        delivery.save(update_fields=["status", "response_code", "response_summary"])
+        deliver_notification(rule.channel, payload, delivery)

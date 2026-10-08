@@ -5,6 +5,7 @@ from django.conf import settings
 from django.db import models
 
 from project.models import Project
+from account.models import get_default_tenant_id
 from Tesla.model_fields import EncryptedJSONField
 
 
@@ -15,24 +16,6 @@ AUTH_HEADER_NAMES = {
     "authorization", "token", "x-token", "x-auth-token", "access-token",
     "access_token", "x-access-token", "bearer-token",
 }
-
-
-class EndpointModule(models.Model):
-    """项目下的接口分组，项目名称作为固定根节点展示。"""
-
-    project = models.ForeignKey(
-        Project, on_delete=models.CASCADE, related_name="endpoint_modules", verbose_name="所属项目"
-    )
-    name = models.CharField("模块名称", max_length=64)
-
-    class Meta:
-        ordering = ["project_id", "id"]
-        constraints = [
-            models.UniqueConstraint(fields=["project", "name"], name="unique_endpoint_module_name")
-        ]
-
-    def __str__(self):
-        return self.name
 
 
 class Endpoint(models.Model):
@@ -47,8 +30,9 @@ class Endpoint(models.Model):
         related_name="created_endpoints", verbose_name="创建人",
     )
     # 允许旧接口暂时不归属模块；新建接口由前端在模块内创建并选择模块。
+    # 目录由三个 case 模块共享，见 project.Module。
     module = models.ForeignKey(
-        EndpointModule,
+        "project.Module",
         on_delete=models.SET_NULL,
         related_name="endpoints",
         null=True,
@@ -65,8 +49,15 @@ class Endpoint(models.Model):
     json = EncryptedJSONField(
         "JSON参数", max_length=10240, blank=True, null=True
     )  # 必须是json
+    body_type = models.CharField(
+        "请求体类型",
+        max_length=16,
+        choices=(("json", "JSON"), ("data", "x-www-form-urlencoded"), ("form_data", "form-data")),
+        default="json",
+    )
     # [["字段1", "字段2"], ["值1", "值2"], ...]；执行器按每一行展开独立请求。
     parametrize = EncryptedJSONField("数据驱动参数", default=list, blank=True)
+    dataset_options = models.JSONField("数据驱动配置", default=dict, blank=True)
     cookies = EncryptedJSONField(
         "Cookies", max_length=10240, blank=True, null=True
     )  # 必须是json
@@ -83,7 +74,7 @@ class Endpoint(models.Model):
     def to_yaml_data(self, base_url, auth_headers=None, override=None):
         if self.url and not self.url.startswith(("http://", "https://")) and not (base_url or "").strip():
             raise ValueError(f"接口「{self.name}」使用相对地址，但未找到可用的执行环境 Base URL。")
-        request = {"method": self.method, "url": self.url, "params": self.params or {}, "data": self.data or {}, "json": self.json or {}, "headers": self.headers or {}, "files": self.files or {}}
+        request = {"method": self.method, "url": self.url, "params": self.params or {}, "data": self.data or {}, "json": self.json or {}, "headers": self.headers or {}, "files": self.files or {}, "body_type": self.body_type or "json"}
         if request["url"] and not request["url"].startswith(("http://", "https://")):
             request["url"] = f"{base_url.rstrip('/')}/{request['url'].lstrip('/')}"
         # 场景参数覆盖使用“直接参数对象”格式，例如 {"page": "1"}。
@@ -122,7 +113,7 @@ class Endpoint(models.Model):
             and re.match(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$", str(key))
         }
         # requests 会在 multipart 请求时生成带 boundary 的 Content-Type；手填会导致文件无法解析。
-        if request["files"]:
+        if request["files"] or request["body_type"] == "form_data":
             request["headers"] = {key: value for key, value in request["headers"].items() if key.lower() != "content-type"}
         result = {
             "test_name": self.name,
@@ -130,14 +121,22 @@ class Endpoint(models.Model):
             "extract": self.extract or {},
             "validate": self.validate or {},
         }
-        if self.parametrize:
-            result["parametrize"] = self.parametrize
+        if self.parametrize and self.dataset_options.get("enabled", True):
+            disabled = self.dataset_options.get("disabled_rows", [])
+            rows = [row for index, row in enumerate(self.parametrize[1:]) if index not in disabled]
+            if not rows:
+                raise ValueError("请至少启用一行数据。")
+            result["parametrize"] = [self.parametrize[0], *rows]
         return result
 
 
 class Scenario(models.Model):
     """业务场景：按顺序编排多个接口用例。"""
 
+    tenant = models.ForeignKey(
+        "account.Tenant", on_delete=models.PROTECT, related_name="api_scenarios",
+        default=get_default_tenant_id, editable=False,
+    )
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="scenarios")
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
@@ -150,6 +149,10 @@ class Scenario(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "project", "name"], name="unique_tenant_api_scenario_name"),
+        ]
+        indexes = [models.Index(fields=["tenant", "project", "created_at"], name="api_scn_tenant_proj_idx")]
 
 
 class ScenarioStep(models.Model):
@@ -213,6 +216,7 @@ class ScenarioFlowNode(models.Model):
     name = models.CharField("节点名称", max_length=64, blank=True)
     order = models.PositiveIntegerField("执行顺序", default=1)
     condition_logic = models.CharField("条件关系", max_length=8, default="and")
+    enabled = models.BooleanField("启用节点", default=True)
 
     class Meta:
         ordering = ["parent_branch_id", "order", "id"]

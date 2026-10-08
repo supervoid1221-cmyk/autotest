@@ -1,17 +1,5 @@
 import { h } from 'vue';
-
-const formatNextRun = (value: unknown): string => {
-  if (!value) return '-';
-  const date = new Date(value as string);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-};
+import { formatDateTime } from '@/utils/time';
 
 export const columns = [
   {
@@ -30,12 +18,20 @@ export const columns = [
     title: '运行模式',
     key: 'run_type_display',
     width: 100,
+    render: (row: any) =>
+      h(
+        'span',
+        {},
+        row.run_type === 'C' || row.run_type_display === 'Cron'
+          ? '定时任务'
+          : row.run_type_display || '-'
+      ),
   },
   {
     title: '下次执行时间',
     key: 'next_run',
     width: 170,
-    render: (row: any) => h('span', {}, formatNextRun(row.next_run)),
+    render: (row: any) => h('span', {}, formatDateTime(row.next_run, { includeSeconds: false })),
   },
   {
     title: '场景步骤数',
@@ -43,8 +39,13 @@ export const columns = [
     width: 100,
   },
   {
-    title: 'UI 用例数',
-    key: 'case_ui_count',
+    title: 'UI 步骤数',
+    key: 'ui_step_count',
+    width: 100,
+  },
+  {
+    title: 'App 步骤数',
+    key: 'app_step_count',
     width: 100,
   },
   {

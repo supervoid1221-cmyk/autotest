@@ -7,7 +7,9 @@ import yaml
 from fullstack_framework.commons import case_util
 from fullstack_framework.commons.models import CaseInfo
 from fullstack_framework.commons.ui_executor import execute_ui_case
-from case_ui.playwright_executor import execute_playwright_case
+from case_ui.playwright_executor import execute_playwright_case, execute_playwright_scenario_group
+from case_app.executor import execute_suite_app_case
+from suite.execution_log import write_execution_log
 
 
 def _load_execution_plan():
@@ -23,7 +25,10 @@ def _load_execution_plan():
 
 def _item_name(item):
     case = item.get("case") or {}
-    prefix = "API" if item.get("type") in {"api", "api_flow"} else "Playwright UI" if item.get("type") == "playwright_ui" else "UI"
+    if item.get("type") == "yaml_ui_group":
+        cases = item.get("cases") or []
+        return f"YAML UI · {' / '.join(str(case.get('name') or '未命名') for case in cases)}"
+    prefix = "API" if item.get("type") in {"api", "api_flow"} else "App" if item.get("type") == "app" else "YAML UI" if item.get("type") == "yaml_ui" else "Playwright UI" if item.get("type") == "playwright_ui" else "UI"
     return f"{prefix} · {case.get('test_name') or case.get('name') or '未命名'}"
 
 
@@ -38,6 +43,18 @@ execution_items = _load_execution_plan()
 
 @pytest.mark.parametrize("execution_item", execution_items, ids=[_item_name(item) for item in execution_items])
 def test_execution_item(execution_item):
+    item_name = _item_name(execution_item)
+    write_execution_log(f"开始执行：{item_name}")
+    try:
+        _execute_execution_item(execution_item)
+    except Exception as exc:
+        write_execution_log(f"执行失败：{item_name} · {exc}", "ERROR")
+        raise
+    else:
+        write_execution_log(f"执行通过：{item_name}", "SUCCESS")
+
+
+def _execute_execution_item(execution_item):
     item_type = execution_item.get("type")
     case_data = execution_item.get("case") or {}
     if item_type == "api":
@@ -56,7 +73,13 @@ def test_execution_item(execution_item):
             # UI 步骤可能提取新变量，后续 API 必须立即读到。
             _reload_api_variables()
         return
-    if item_type == "playwright_ui":
+    if item_type in {"playwright_ui", "yaml_ui"}:
         execute_playwright_case(case_data)
+        return
+    if item_type == "yaml_ui_group":
+        execute_playwright_scenario_group(execution_item.get("cases") or [], persist_split=True)
+        return
+    if item_type == "app":
+        execute_suite_app_case(case_data)
         return
     raise ValueError(f"不支持的套件执行项类型：{item_type}")

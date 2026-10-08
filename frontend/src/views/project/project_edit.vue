@@ -230,7 +230,7 @@
             <section class="side-panel permission-panel">
               <div class="side-panel-title">
                 <h2>成员与权限</h2>
-                <span>{{ overviewMembers.length }} 人</span>
+                <span>{{ selectedMembers.length }} 人</span>
               </div>
               <div v-if="overviewMembers.length" class="permission-list">
                 <div v-for="member in overviewMembers" :key="member.value" class="permission-item">
@@ -242,6 +242,9 @@
                     <span>{{ member.role }}</span>
                   </div>
                   <em :class="member.roleClass">{{ member.role }}</em>
+                </div>
+                <div v-if="selectedMembers.length > overviewMembers.length" class="permission-more">
+                  还有 {{ selectedMembers.length - overviewMembers.length }} 位成员，在左侧「项目成员」中查看
                 </div>
               </div>
               <n-empty v-else class="compact-empty" size="small" description="暂无成员" />
@@ -267,6 +270,8 @@
 </template>
 
 <script lang="ts" setup>
+import { asList } from '@/utils/list';
+
   import { computed, onMounted, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
   import { useRoute, useRouter } from 'vue-router';
@@ -352,10 +357,7 @@
     name: { required: true, message: '请输入项目名称', trigger: ['blur', 'input'] },
   };
 
-  const asList = (payload: any): any[] => {
-    if (Array.isArray(payload)) return payload;
-    return payload?.results || payload?.list || payload?.data || [];
-  };
+  
 
   function getInitial(label: string) {
     return String(label || '?')
@@ -905,6 +907,12 @@
 
   .permission-list {
     padding: 5px 16px;
+  }
+  .permission-more {
+    padding: 9px 0;
+    border-top: 1px dashed #edf0f5;
+    color: #9aa5b7;
+    font-size: 10px;
   }
   .permission-item {
     display: grid;

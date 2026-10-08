@@ -78,15 +78,20 @@
         </n-empty>
       </n-spin>
 
-      <footer v-if="filteredList.length" class="template-footer">
-        <span>{{ pageStart }}–{{ pageEnd }} / 共 {{ filteredList.length }} 个模板</span>
-        <n-pagination v-model:page="currentPage" :page-count="pageCount" :page-slot="5" />
-      </footer>
+      <PaginationFooter
+        v-if="filteredList.length"
+        v-model:page="currentPage"
+        v-model:page-size="pageSize"
+        :total="filteredList.length"
+      />
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
+import { asList } from '@/utils/list';
+import PaginationFooter from '@/components/PaginationFooter/index.vue';
+
   import { computed, h, onMounted, ref, watch } from 'vue';
   import { useRouter } from 'vue-router';
   import {
@@ -120,7 +125,7 @@
   const projectFilter = ref<number | null>(null);
   const typeFilter = ref<string | null>(null);
   const currentPage = ref(1);
-  const pageSize = 8;
+  const pageSize = ref(10);
   const isAdmin = computed(() => Boolean((userStore.info as any)?.is_admin));
 
   const cardIcons = [
@@ -172,13 +177,11 @@
     });
   });
 
-  const pageCount = computed(() => Math.max(1, Math.ceil(filteredList.value.length / pageSize)));
+  const pageCount = computed(() => Math.max(1, Math.ceil(filteredList.value.length / pageSize.value)));
   const pageList = computed(() => {
-    const start = (currentPage.value - 1) * pageSize;
-    return filteredList.value.slice(start, start + pageSize);
+    const start = (currentPage.value - 1) * pageSize.value;
+    return filteredList.value.slice(start, start + pageSize.value);
   });
-  const pageStart = computed(() => (currentPage.value - 1) * pageSize + 1);
-  const pageEnd = computed(() => Math.min(currentPage.value * pageSize, filteredList.value.length));
   const hasActiveFilter = computed(() =>
     Boolean(keyword.value.trim() || projectFilter.value !== null || typeFilter.value !== null)
   );
@@ -191,10 +194,7 @@
     { label: '删除模板', key: 'delete', icon: renderIcon(PhTrash, '#e5484d') },
   ];
 
-  function asList(payload: any): ExecutionTemplate[] {
-    if (Array.isArray(payload)) return payload;
-    return payload?.list || payload?.results || payload?.data || [];
-  }
+  
 
   async function load() {
     loading.value = true;
@@ -266,7 +266,7 @@
     });
   }
 
-  watch([keyword, projectFilter, typeFilter], () => {
+  watch([keyword, projectFilter, typeFilter, pageSize], () => {
     currentPage.value = 1;
   });
 
@@ -492,19 +492,6 @@
     padding: 100px 0;
   }
 
-  .template-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    min-height: 76px;
-    color: #58667a;
-    font-size: 14px;
-  }
-
-  :deep(.template-footer .n-pagination-item) {
-    border-radius: 6px;
-  }
-
   @media (max-width: 1180px) {
     .template-grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -545,12 +532,6 @@
     }
     .template-grid {
       grid-template-columns: 1fr;
-    }
-    .template-footer {
-      align-items: flex-start;
-      flex-direction: column;
-      gap: 12px;
-      padding: 18px 0;
     }
   }
 </style>

@@ -8,6 +8,7 @@ import logging
 import requests
 from fullstack_framework.commons import settings
 from case_api.file_utils import opened_request_files
+from fullstack_framework.commons.helix_signature import prepare_helix_signed_request
 
 logger = logging.getLogger("session")
 
@@ -32,6 +33,7 @@ class BeifanSession(requests.Session):
         cert=None,
         json=None,
         interface_name=None,
+        body_type=None,
     ) -> requests.Response:
         # 记录请求
 
@@ -40,6 +42,10 @@ class BeifanSession(requests.Session):
                 f"接口地址必须是完整 URL，当前值为：{url}。"
                 "请为所属项目配置项目地址，或在接口中填写完整地址。"
             )
+
+        headers, data, json = prepare_helix_signed_request(
+            method, url, headers=headers, params=params, json_body=json, data=data,
+        )
 
         # 每个接口使用独立日志块，便于实时日志快速区分相邻步骤。
         logger.info("")
@@ -53,6 +59,7 @@ class BeifanSession(requests.Session):
             ("json", json),
             ("data", data),
             ("files", files),
+            ("请求体类型", body_type),
         )
         for field_name, field_value in request_log_fields:
             if field_value not in (None, "", {}, [], ()):
@@ -90,6 +97,18 @@ class BeifanSession(requests.Session):
         with opened_request_files(files) as request_files:
             if request_files:
                 request_kwargs["files"] = request_files
+            elif body_type == "form_data":
+                # requests 只有收到 files 参数才会生成 multipart boundary。
+                # 使用 (None, value) 表示纯文本 part，确保无文件的 form-data 也按 multipart 发送。
+                text_parts = []
+                for field_name, field_value in (data or {}).items():
+                    values = field_value if isinstance(field_value, (list, tuple)) else [field_value]
+                    text_parts.extend(
+                        (str(field_name), (None, "" if value is None else str(value)))
+                        for value in values
+                    )
+                request_kwargs.pop("data", None)
+                request_kwargs["files"] = text_parts or [("_form_data", (None, ""))]
             resp = super().request(method=method, url=url, **request_kwargs)
 
         # 记录响应

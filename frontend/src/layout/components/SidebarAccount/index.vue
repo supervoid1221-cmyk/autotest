@@ -1,5 +1,18 @@
 <template>
   <div class="sidebar-account" :class="{ 'sidebar-account-collapsed': collapsed }">
+    <div v-if="!collapsed" class="tenant-row">
+      <PhBuildings :size="16" aria-hidden="true" />
+      <n-select
+        v-model:value="tenantStore.currentTenantId"
+        class="tenant-select"
+        size="small"
+        :options="tenantStore.tenantOptions"
+        :loading="tenantStore.loading"
+        :disabled="tenantStore.loading || tenantStore.tenantOptions.length <= 1"
+        placeholder="选择租户"
+        @update:value="switchTenant"
+      />
+    </div>
     <div class="account-row">
       <n-dropdown
         trigger="click"
@@ -52,12 +65,14 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, ref } from 'vue';
+  import { computed, onMounted, ref } from 'vue';
   import { useDialog, useMessage } from 'naive-ui';
-  import { PhGearSix, PhSidebarSimple } from '@phosphor-icons/vue';
+  import { PhBuildings, PhGearSix, PhSidebarSimple } from '@phosphor-icons/vue';
   import { useRoute, useRouter } from 'vue-router';
   import { useUserStore } from '@/store/modules/user';
+  import { useTenantStore } from '@/store/modules/tenant';
   import { TABS_ROUTES } from '@/store/mutation-types';
+  import { storage } from '@/utils/Storage';
   import ProjectSetting from '@/layout/components/Header/ProjectSetting.vue';
 
   defineProps<{
@@ -69,6 +84,7 @@
   }>();
 
   const userStore = useUserStore();
+  const tenantStore = useTenantStore();
   const router = useRouter();
   const route = useRoute();
   const dialog = useDialog();
@@ -124,6 +140,20 @@
   function openSetting() {
     drawerSetting.value?.openDrawer();
   }
+
+  async function switchTenant(tenantId: string) {
+    tenantStore.setCurrentTenant(tenantId);
+    storage.remove(TABS_ROUTES);
+    location.reload();
+  }
+
+  onMounted(async () => {
+    try {
+      await tenantStore.loadTenants();
+    } catch (error) {
+      message.error('租户列表加载失败');
+    }
+  });
 </script>
 
 <style lang="less" scoped>
@@ -148,6 +178,21 @@
 
   .account-row {
     gap: 8px;
+  }
+
+  .tenant-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    margin-bottom: 7px;
+    padding: 0 5px;
+    color: #657286;
+  }
+
+  .tenant-select {
+    min-width: 0;
+    flex: 1;
   }
 
   .account-trigger {
@@ -229,5 +274,25 @@
   .sidebar-account-collapsed .account-trigger {
     flex: none;
     padding: 5px;
+  }
+
+  html[data-theme='dark'] .sidebar-account {
+    border-top-color: #273244;
+    background: rgb(18 24 34 / 96%);
+  }
+
+  html[data-theme='dark'] .account-trigger {
+    color: #e4e9f1;
+  }
+
+  html[data-theme='dark'] .account-trigger:hover,
+  html[data-theme='dark'] .account-icon-button:hover {
+    background: #273142;
+  }
+
+  html[data-theme='dark'] .account-copy small,
+  html[data-theme='dark'] .account-icon-button,
+  html[data-theme='dark'] .tenant-row {
+    color: #98a4b7;
   }
 </style>

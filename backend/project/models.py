@@ -5,11 +5,13 @@ from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import hashlib
 import jsonpath
 import requests
 import yaml
 
 from Tesla.model_fields import EncryptedJSONField, EncryptedTextField
+from account.models import get_default_tenant_id
 
 try:
     import fcntl
@@ -37,10 +39,13 @@ def response_indicates_expired_token(response):
 
 
 @contextmanager
-def _environment_auth_lock(project_id, environment_name):
+def _environment_auth_lock(tenant_id, project_id, environment_name):
     """以文件锁协调多个执行子进程，确保同一项目环境只会发起一次登录刷新。"""
-    lock_dir = Path(__file__).resolve().parent.parent / "runtime_auth_locks"
-    lock_dir.mkdir(exist_ok=True)
+    from account.tenant_runtime import tenant_path
+    lock_dir = tenant_path(
+        Path(__file__).resolve().parent.parent / "runtime_auth_locks", tenant_id
+    )
+    lock_dir.mkdir(parents=True, exist_ok=True)
     lock_path = lock_dir / f"project_{project_id}_{environment_name}.lock"
     with open(lock_path, "a+", encoding="utf-8") as lock_file:
         if fcntl:
@@ -56,6 +61,13 @@ def _environment_auth_lock(project_id, environment_name):
 class Project(models.Model):
     objects: models.QuerySet  # 将来会有这个属性
 
+    tenant = models.ForeignKey(
+        "account.Tenant",
+        on_delete=models.PROTECT,
+        related_name="projects",
+        verbose_name="所属租户",
+        default=get_default_tenant_id,
+    )
     name = models.CharField("项目名称", max_length=32)
     # 项目简介在页面中为可选项；允许提交空字符串，避免新建项目时因未填写简介被校验拦截。
     intro = models.CharField("项目简介", max_length=256, default="", blank=True)
@@ -67,6 +79,9 @@ class Project(models.Model):
         default=1,
         related_name="project_pm_list",
     )
+
+    class Meta:
+        indexes = [models.Index(fields=["tenant", "name"], name="project_tenant_name_idx")]
 
 
 class ProjectVariable(models.Model):
@@ -106,6 +121,38 @@ class ProjectVariable(models.Model):
         for variable in cls.objects.filter(project_id__in=ordered_ids).order_by("project_id", "id"):
             values.setdefault(variable.project_id, {})[variable.name] = variable.value
         return values
+
+
+class Module(models.Model):
+    """项目下的共享目录。
+
+    接口管理、UI 元素管理、App 元素管理共用这一张表：在任意一个页面新建、
+    重命名或删除目录，另外两个页面立刻看到同一份数据，不必把同一个业务模块
+    维护三遍。目录本身只归属项目，具体资产的归属由各自的 ``module`` 外键表达。
+
+    ``name`` 取 96 是为了兼容改造前 App 元素目录的宽度（那套模型允许 96 个字符），
+    否则迁移合并时超长名称会被截断。
+    """
+
+    objects: models.QuerySet
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="modules", verbose_name="所属项目")
+    name = models.CharField("模块名称", max_length=96)
+    created_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="created_modules", verbose_name="创建人",
+    )
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["project_id", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["project", "name"], name="unique_project_module_name"),
+        ]
+
+    def __str__(self):
+        return f"{self.project.name} / {self.name}"
 
 
 class Environment(models.Model):
@@ -221,6 +268,15 @@ class Environment(models.Model):
 
         values = jsonpath.jsonpath(response_json, self.token_jsonpath)
         if not values:
+            # 许多上游登录接口即使账号错误、触发验证码或风控，也会返回 HTTP 200。
+            # 优先展示业务错误，避免把真实登录失败误报成 JSONPath 配置错误。
+            business_message = str(response_json.get("msg") or "").strip() if isinstance(response_json, dict) else ""
+            business_code = response_json.get("code") if isinstance(response_json, dict) else None
+            if business_message:
+                code_text = f"（业务码 {business_code}）" if business_code not in (None, "") else ""
+                raise ValueError(
+                    f"环境「{self.name}」自动登录失败{code_text}：{business_message}"
+                )
             raise ValueError(
                 f"环境「{self.name}」未能按表达式「{self.token_jsonpath}」提取 Token。"
             )
@@ -248,7 +304,7 @@ class Environment(models.Model):
         if not self.auth_enabled:
             return {}
 
-        with _environment_auth_lock(self.project_id, self.name):
+        with _environment_auth_lock(self.project.tenant_id, self.project_id, self.name):
             # 每次都从数据库读取最新缓存，避免不同套件进程使用旧 Environment 实例。
             environment = Environment.objects.get(pk=self.pk)
             if not force_refresh and environment._cached_token_valid():
@@ -337,8 +393,9 @@ class DatabaseConnection(models.Model):
     ssh_strict_host_key = models.BooleanField("校验 SSH 主机指纹", default=True)
     ssl_mode = models.CharField("TLS 模式", max_length=16, choices=SSLMode.choices, default=SSLMode.PREFERRED)
     connect_timeout = models.PositiveIntegerField("连接超时（秒）", default=10)
-    # SELECT 默认可用；写入能力必须由连接配置显式开启，避免测试过程误改数据。
+    # SELECT 默认可用；各类写操作必须由连接配置独立开启，避免测试过程误改数据。
     allow_write = models.BooleanField("允许执行 UPDATE", default=False)
+    allow_delete = models.BooleanField("允许执行 DELETE", default=False)
     enabled = models.BooleanField("启用", default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -357,6 +414,20 @@ class DynamicFunction(models.Model):
     name = models.CharField("函数名称", max_length=64, blank=True, default="functions")
     description = models.CharField("函数说明", max_length=256, blank=True, default="")
     code = models.TextField("函数代码")
+    class ApprovalStatus(models.TextChoices):
+        DRAFT = "draft", "待审批"
+        APPROVED = "approved", "已审批"
+        REJECTED = "rejected", "已驳回"
+
+    language = models.CharField("运行语言", max_length=16, default="python", editable=False)
+    version = models.PositiveIntegerField("版本", default=1)
+    code_hash = models.CharField("代码摘要", max_length=64, blank=True, default="", editable=False)
+    approval_status = models.CharField("审批状态", max_length=16, choices=ApprovalStatus.choices, default=ApprovalStatus.DRAFT)
+    timeout_seconds = models.PositiveSmallIntegerField("超时秒数", default=3)
+    memory_mb = models.PositiveSmallIntegerField("内存上限 MB", default=128)
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="created_dynamic_functions")
+    approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="approved_dynamic_functions")
+    approved_at = models.DateTimeField(null=True, blank=True)
     enabled = models.BooleanField("启用", default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -368,3 +439,24 @@ class DynamicFunction(models.Model):
         if not self.pk:
             return "未保存动态函数"
         return "、".join(self.projects.values_list("name", flat=True)) or f"动态函数 #{self.pk}"
+
+    def save(self, *args, **kwargs):
+        self.code_hash = hashlib.sha256(str(self.code or "").encode("utf-8")).hexdigest()
+        super().save(*args, **kwargs)
+
+
+class DynamicFunctionRevision(models.Model):
+    """审批时保存不可变代码快照，供审计和历史执行定位。"""
+    dynamic_function = models.ForeignKey(DynamicFunction, on_delete=models.CASCADE, related_name="revisions")
+    version = models.PositiveIntegerField()
+    code = models.TextField()
+    code_hash = models.CharField(max_length=64)
+    project_ids = models.JSONField(default=list)
+    timeout_seconds = models.PositiveSmallIntegerField(default=3)
+    memory_mb = models.PositiveSmallIntegerField(default=128)
+    approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="approved_dynamic_function_revisions")
+    approved_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-version"]
+        constraints = [models.UniqueConstraint(fields=["dynamic_function", "version"], name="unique_dynamic_function_revision")]

@@ -38,6 +38,9 @@
             ><span>所属项目</span><strong>{{ projectName }}</strong></div
           >
           <div
+            ><span>执行环境</span><strong>{{ form.environment_name || '未选择' }}</strong></div
+          >
+          <div
             ><span>浏览器</span><strong>{{ browserLabel }}</strong></div
           >
           <div
@@ -64,7 +67,16 @@
               :options="projectOptions"
               filterable
               placeholder="请选择项目"
-              @update:value="loadElements"
+              @update:value="projectChanged"
+            />
+          </n-form-item>
+          <n-form-item label="执行环境">
+            <n-select
+              v-model:value="form.environment_name"
+              :options="environmentNameOptions"
+              :disabled="!form.project"
+              clearable
+              placeholder="请选择环境"
             />
           </n-form-item>
           <n-form-item label="浏览器">
@@ -184,7 +196,7 @@
                 </span>
                 <div class="playwright-step-copy">
                   <strong>{{ actionLabel(step.action) }}</strong>
-                  <span>{{ stepSummary(step) }}</span>
+                  <div class="step-summary-line"><span>{{ stepSummary(step) }}</span><button v-if="isPasswordStep(step) && step.value" type="button" class="step-summary-eye" :title="isStepValueRevealed(step) ? '隐藏具体信息' : '查看具体信息'" :aria-label="isStepValueRevealed(step) ? '隐藏密码步骤的操作值' : '查看密码步骤的操作值'" @click.stop="toggleStepValue(step)"><n-icon :component="isStepValueRevealed(step) ? EyeInvisibleOutlined : EyeOutlined"/></button></div>
                 </div>
                 <div class="playwright-card-actions">
                   <n-button text title="复制步骤" @click.stop="duplicateStep(index)"
@@ -250,7 +262,9 @@
                     :placeholder="
                       selectedPlaywrightStep.manual_fallback
                         ? '输入定位表达式'
-                        : '输入元素描述，如：邮箱、创建用户'
+                        : selectedPlaywrightStep.action === 'click'
+                          ? '输入元素描述，连续点击用 -- 分隔，如：IP管理--测试连接'
+                          : '输入元素描述，如：邮箱、创建用户'
                     "
                   />
                 </label>
@@ -440,7 +454,7 @@
             </div>
 
             <footer class="inspector-actions">
-              <span>修改会实时保留在当前步骤中</span>
+              <span class="inspector-hint">修改会实时保留在当前步骤中</span>
               <n-space>
                 <n-button :loading="runningTab" @click="runCurrentTab"
                   ><n-icon :component="PlayCircleOutlined" />运行当前 Tab</n-button
@@ -496,7 +510,11 @@
                   v-if="isPlaywright && needsElement(step.action)"
                   v-model:value="step.target"
                   :placeholder="
-                    step.manual_fallback ? '输入定位表达式' : '输入页面元素描述，如：密码、登录'
+                    step.manual_fallback
+                      ? '输入定位表达式'
+                      : step.action === 'click'
+                        ? '连续点击用 -- 分隔，如：IP管理--测试连接'
+                        : '输入页面元素描述，如：密码、登录'
                   "
                   class="table-input"
                 />
@@ -719,12 +737,14 @@
 
     <footer v-if="!isPlaywright" class="sticky-actions">
       <n-button size="large" @click="back">取消</n-button>
-      <n-button type="primary" size="large" :loading="saving" @click="save">保存用例</n-button>
+      <n-button type="primary" size="large" :loading="runningCase" @click="runCaseNow">立即执行</n-button>
     </footer>
   </div>
 </template>
 
 <script lang="ts" setup>
+import { asList } from '@/utils/list';
+
   // 路由开启 keepAlive 时，组件名必须与路由名一致，才能在平台多页签间保留编辑草稿。
   defineOptions({ name: 'case_ui_playwright_case_edit' });
 
@@ -744,6 +764,8 @@
     DesktopOutlined,
     DownloadOutlined,
     EditOutlined,
+    EyeInvisibleOutlined,
+    EyeOutlined,
     FormOutlined,
     FullscreenExitOutlined,
     FullscreenOutlined,
@@ -755,14 +777,14 @@
   } from '@vicons/antd';
   import {
     ElementAPI,
-    ElementModuleAPI,
     PlaywrightCaseAPI,
     PlaywrightStepAPI,
     UiCaseAPI,
     UiStepAPI,
     UiUploadedFileAPI,
   } from '@/api/case_ui/http';
-  import { ProjectAPI } from '@/api/project/http';
+  import { EnvironmentAPI, ModuleAPI, ProjectAPI } from '@/api/project/http';
+  import { environmentOptionsForProject } from '@/views/case_shared/catalog';
   import type { UiCaseTab, UiStep } from '@/api/case_ui/models';
 
   type RowCondition = { localKey: string; column: string; operator: string; value: string };
@@ -786,6 +808,7 @@
   const id = computed(() => Number(route.params.id) || 0);
   const formRef = ref<any>();
   const saving = ref(false);
+  const runningCase = ref(false);
   const runningTab = ref(false);
   const workbenchFullscreen = ref(false);
   const basicEditing = ref(!Number(route.params.id));
@@ -793,9 +816,11 @@
   const caseApi: any = isPlaywright ? new PlaywrightCaseAPI() : new UiCaseAPI();
   const stepApi: any = isPlaywright ? new PlaywrightStepAPI() : new UiStepAPI();
   const elementApi = new ElementAPI();
-  const elementModuleApi = new ElementModuleAPI();
+  const elementModuleApi = new ModuleAPI();
   const projectApi = new ProjectAPI();
+  const environmentApi = new EnvironmentAPI();
   const projectOptions = ref<any[]>([]);
+  const environments = ref<any[]>([]);
   const elementOptions = ref<any[]>([]);
   const elementRecords = ref<any[]>([]);
   const elementModules = ref<any[]>([]);
@@ -808,10 +833,12 @@
   const activeTabKey = ref('tab-1');
   const selectedStepKey = ref('');
   const editingTabKey = ref('');
+  const revealedStepKeys = ref(new Set<string>());
   const form = reactive<any>({
     project: null,
     name: '',
     description: '',
+    environment_name: '',
     browser: isPlaywright ? 'chromium' : 'chrome',
     run_mode: 'headless',
     enabled: true,
@@ -938,6 +965,12 @@
       form.project_name ||
       '未选择'
   );
+  const environmentNameOptions = computed(() =>
+    environmentOptionsForProject(environments.value, form.project).map((option) => ({
+      label: option.label,
+      value: option.label,
+    }))
+  );
   const browserLabel = computed(
     () =>
       browserOptions.find((item) => item.value === form.browser)?.label || form.browser || '未配置'
@@ -963,13 +996,7 @@
     });
   });
 
-  function asList(payload: any): any[] {
-    if (Array.isArray(payload)) return payload;
-    if (Array.isArray(payload?.list)) return payload.list;
-    if (Array.isArray(payload?.results)) return payload.results;
-    if (Array.isArray(payload?.data)) return payload.data;
-    return [];
-  }
+  
   function formatDate(value: any) {
     if (!value) return '—';
     const date = new Date(value);
@@ -1056,6 +1083,10 @@
     if (checked && !step.row_conditions?.length) step.row_conditions = [createRowCondition()];
   }
   function toggleManualFallback(step: EditorStep, checked: boolean) {
+    if (checked && isMultiTargetClick(step)) {
+      message.warning('连续点击不支持共用手动兜底，请分别创建点击步骤');
+      return;
+    }
     const wasEnabled = Boolean(step.manual_fallback);
     step.manual_fallback = checked;
     if (checked && !wasEnabled) step.fallback_type = 'xpath';
@@ -1131,6 +1162,9 @@
   function removeStep(index: number) {
     const removed = activeTab.value.steps[index];
     activeTab.value.steps.splice(index, 1);
+    if (removed?.localKey && revealedStepKeys.value.has(removed.localKey)) {
+      const next = new Set(revealedStepKeys.value); next.delete(removed.localKey); revealedStepKeys.value = next;
+    }
     if (removed?.localKey === selectedStepKey.value) {
       selectedStepKey.value =
         activeTab.value.steps[Math.min(index, activeTab.value.steps.length - 1)]?.localKey || '';
@@ -1200,18 +1234,31 @@
       const target = step.target || '未填写页面元素';
       if (step.action === 'input')
         return `${target}：${
-          step.value ? (isPasswordStep(step) ? '••••••••' : step.value) : '未填写内容'
+          step.value ? (isPasswordStep(step) && !isStepValueRevealed(step) ? '••••••••' : step.value) : '未填写内容'
         }`;
       if (needsValue(step.action)) return `${target} · ${step.value || '未填写操作值'}`;
       return target;
     }
     return step.value || '等待配置';
   }
+  function isStepValueRevealed(step: EditorStep) {
+    return revealedStepKeys.value.has(step.localKey);
+  }
+  function toggleStepValue(step: EditorStep) {
+    const next = new Set(revealedStepKeys.value);
+    if (next.has(step.localKey)) next.delete(step.localKey); else next.add(step.localKey);
+    revealedStepKeys.value = next;
+  }
   function applySelectedStep() {
     const step = selectedPlaywrightStep.value;
     if (!step) return;
     if (needsElement(step.action) && !String(step.target || '').trim()) {
       message.warning('请填写页面元素');
+      return;
+    }
+    const clickError = validateClickTargets(step);
+    if (clickError) {
+      message.warning(clickError);
       return;
     }
     if (needsValue(step.action) && !String(step.value || '').trim()) {
@@ -1230,6 +1277,17 @@
     if (action !== 'upload_file') delete step.options?.file_ids;
     if (action === 'input' && step.options.clear_before_input === undefined)
       step.options.clear_before_input = true;
+  }
+  function isMultiTargetClick(step: EditorStep) {
+    return isPlaywright && step.action === 'click' && String(step.target || '').includes('--');
+  }
+  function validateClickTargets(step: EditorStep): string {
+    if (!isMultiTargetClick(step)) return '';
+    if (!String(step.target).split('--').every((target) => target.trim())) {
+      return '连续点击的每个页面元素都不能为空，请用 -- 分隔';
+    }
+    if (step.manual_fallback) return '连续点击不支持共用手动兜底，请分别创建点击步骤';
+    return '';
   }
   function valuePlaceholder(action: string) {
     return (
@@ -1279,6 +1337,10 @@
       value: item.id,
     }));
     await loadUploadedFiles();
+  }
+  function projectChanged() {
+    form.environment_name = '';
+    void loadElements();
   }
   function selectedElementLabel(elementId: number | null | undefined) {
     const selected = elementRecords.value.find((item) => item.id === elementId);
@@ -1341,6 +1403,8 @@
           !(isPlaywright ? String(step.target || '').trim() : step.element)
         )
           throw new Error(`${prefix}未填写页面元素`);
+        const clickError = validateClickTargets(step);
+        if (clickError) throw new Error(`${prefix}：${clickError}`);
         if (needsValue(step.action) && !String(step.value || '').trim())
           throw new Error(`${prefix}未填写操作值`);
         if (step.action === 'upload_file' && !(step.options?.file_ids || []).length)
@@ -1358,9 +1422,14 @@
     if (!total) throw new Error('请至少添加一个操作步骤');
   }
   async function load() {
-    projectOptions.value = asList(await projectApi.getDataList({ pageSize: 1000 })).map(
+    const [projectResponse, environmentResponse] = await Promise.all([
+      projectApi.getDataList({ pageSize: 1000 }),
+      environmentApi.getDataList({ page: 1, pageSize: 1000 }),
+    ]);
+    projectOptions.value = asList(projectResponse).map(
       (item: any) => ({ label: item.name, value: item.id })
     );
+    environments.value = asList(environmentResponse);
     if (!id.value) return;
     const data: any = await caseApi.getDataByID(id.value);
     Object.assign(form, data);
@@ -1431,6 +1500,7 @@
       project: form.project,
       name: form.name,
       description: form.description,
+      environment_name: form.environment_name || '',
       browser: form.browser,
       run_mode: form.run_mode,
       enabled: form.enabled,
@@ -1492,6 +1562,23 @@
       message.error(error?.message || '保存失败，请检查配置');
     } finally {
       saving.value = false;
+    }
+  }
+  async function runCaseNow() {
+    if (isPlaywright) return;
+    if (!form.environment_name) {
+      message.warning('请先选择执行环境');
+      return;
+    }
+    try {
+      runningCase.value = true;
+      const saved = await persistCase();
+      await (caseApi as UiCaseAPI).run(saved.id);
+      message.success(`UI 用例「${saved.name}」执行通过`);
+    } catch (error: any) {
+      message.error(error?.message || 'UI 用例执行失败');
+    } finally {
+      runningCase.value = false;
     }
   }
   async function runCurrentTab() {
@@ -1683,7 +1770,7 @@
   }
   .basic-grid {
     display: grid;
-    grid-template-columns: 1.2fr 1fr 0.82fr 0.9fr 1.35fr 86px;
+    grid-template-columns: 1.2fr 1fr 0.9fr 0.82fr 0.9fr 1.35fr 86px;
     gap: 20px 32px;
     margin-top: 16px;
   }
@@ -2070,6 +2157,10 @@
     color: #7a8799;
     font-size: 12px;
   }
+  .step-summary-line { display: flex; min-width: 0; align-items: center; gap: 5px; }
+  .step-summary-line span { min-width: 0; flex: 1; }
+  .step-summary-eye { display: inline-grid; width: 22px; height: 22px; padding: 0; flex: none; place-items: center; border: 0; border-radius: 4px; color: #7a8799; background: transparent; cursor: pointer; }
+  .step-summary-eye:hover { color: #3f7ed8; background: rgba(63, 126, 216, .1); }
   .playwright-card-actions {
     display: flex;
     gap: 8px;
@@ -2337,7 +2428,10 @@
     border-top: 1px solid #e1e6ed;
     background: rgba(255, 255, 255, 0.96);
   }
-  .inspector-actions span {
+  /* 只命中左侧提示文案。写成 `.inspector-actions span` 会连按钮内部的
+     `<span class="n-button__content">` 一起染色 —— 它会给「应用配置」盖上
+     一层灰字，在蓝底上对比度只有 1.7，浅色深色都读不清。 */
+  .inspector-actions .inspector-hint {
     color: #8a96a8;
     font-size: 11px;
   }

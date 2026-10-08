@@ -15,8 +15,12 @@ from django_q.tasks import schedule
 import yaml
 
 from case_api.models import Scenario, ScenarioFlowNode
-from case_ui.models import PlaywrightCase, UiCase, playwright_step_display_name, ui_step_display_name
+from case_app.models import AppCase
+from case_ui.models import PlaywrightCase, PlaywrightScenarioFile, UiCase, playwright_step_display_name, ui_step_display_name
+from case_ui.scenario_text import parse_ui_scenarios, validate_runnable_scenarios
 from project.models import Environment, Project, ProjectVariable
+from account.models import get_default_tenant_id
+from account.tenant_runtime import ensure_tenant_storage_capacity, tenant_path
 from fullstack_framework.commons.ddt_util import ddt
 from suite.tasks import submit_run
 from suite.reporting import load_variable_resolution, recalculate_native_report, record_variable_resolution
@@ -61,6 +65,10 @@ class Suite(models.Model):
         MONTHLY = "monthly", "每月"
         CUSTOM = "custom", "自定义 Cron"
 
+    tenant = models.ForeignKey(
+        "account.Tenant", on_delete=models.PROTECT, related_name="suites",
+        default=get_default_tenant_id, editable=False,
+    )
     name = models.CharField("套件名称", max_length=32)
     environment = models.ForeignKey(
         Environment,
@@ -72,7 +80,12 @@ class Suite(models.Model):
     scenarios = models.ManyToManyField(Scenario, through="SuiteScenario", blank=True)
     ui_cases = models.ManyToManyField(UiCase, through="SuiteUiCase", blank=True)
     playwright_cases = models.ManyToManyField(PlaywrightCase, through="SuitePlaywrightCase", blank=True)
+    app_cases = models.ManyToManyField(AppCase, through="SuiteAppCase", blank=True)
     description = models.CharField("套件描述", max_length=250, blank=True)
+    # 保存创建人名称快照，理由同 RunResult.executor_name：避免用户改名或删除后
+    # 计划失去归属信息。迁移前的历史计划没有这个信息，留空由前端显示为「-」，
+    # 所以这里不能用 default="系统" 之类的占位值把「无数据」伪装成「有数据」。
+    creator_name = models.CharField("创建人", max_length=150, blank=True, default="")
     enabled = models.BooleanField("启用", default=True)
     run_type = models.CharField(
         "运行类型", choices=RunType.choices, default=RunType.ONCE, max_length=1
@@ -92,6 +105,7 @@ class Suite(models.Model):
 
     class Meta:
         ordering = ["-id"]
+        indexes = [models.Index(fields=["tenant", "enabled", "id"], name="suite_tenant_enabled_idx")]
 
     def save(self, *args, **kwargs):
         if self.run_type == self.RunType.WebHook:
@@ -114,7 +128,7 @@ class Suite(models.Model):
                 if timezone.is_naive(run_at):
                     run_at = timezone.make_aware(run_at, timezone.get_current_timezone())
                 self.schedule = schedule(
-                    "suite.tasks.run_by_cron", self.id,
+                    "suite.tasks.run_by_cron", self.id, str(self.tenant_id),
                     schedule_type=Schedule.ONCE, next_run=run_at,
                 )
             else:
@@ -122,7 +136,7 @@ class Suite(models.Model):
                 # 改为计算 Cron 的下一次匹配时间，确保只在用户设置的时间触发。
                 next_run = croniter(self.cron, timezone.now()).get_next(datetime)
                 self.schedule = schedule(
-                    "suite.tasks.run_by_cron", self.id, cron=self.cron,
+                    "suite.tasks.run_by_cron", self.id, str(self.tenant_id), cron=self.cron,
                     schedule_type=Schedule.CRON, next_run=next_run,
                 )
             super().save(update_fields=["schedule"])
@@ -146,11 +160,37 @@ class Suite(models.Model):
         return self.ordered_ui_case_links().filter(ui_case__enabled=True).count()
 
     def case_playwright_count(self):
-        return self.ordered_playwright_case_links().filter(playwright_case__enabled=True).count()
+        return (self.ordered_playwright_case_links().filter(playwright_case__enabled=True).count()
+                + self.execution_items.filter(item_type=SuiteExecutionItem.ItemType.YAML_UI).count())
+
+    def case_app_count(self):
+        return self.ordered_app_case_links().filter(app_case__enabled=True).count()
 
     def case_all_ui_count(self):
-        """列表展示使用的 UI 用例总数，包含传统 UI 与 Playwright 智能 UI。"""
+        """启用的 UI 用例总数，包含传统 UI 与 Playwright 智能 UI。"""
         return self.case_ui_count() + self.case_playwright_count()
+
+    def ui_step_count(self):
+        """测试范围：所选启用的传统 UI 与 Playwright 用例步骤总数。"""
+        ui_count = self.suiteuicase_set.filter(ui_case__enabled=True).aggregate(
+            total=models.Count("ui_case__steps")
+        )["total"]
+        playwright_count = self.suiteplaywrightcase_set.filter(
+            playwright_case__enabled=True
+        ).aggregate(total=models.Count("playwright_case__steps"))["total"]
+        yaml_count = 0
+        for item in self.execution_items.filter(item_type=SuiteExecutionItem.ItemType.YAML_UI).select_related("yaml_case"):
+            try:
+                yaml_count += sum(len(scene["steps"]) for scene in parse_ui_scenarios(item.yaml_case.content))
+            except ValueError:
+                pass
+        return ui_count + playwright_count + yaml_count
+
+    def app_step_count(self):
+        """测试范围：所选启用的 App 用例步骤总数。"""
+        return self.suiteappcase_set.filter(app_case__enabled=True).aggregate(
+            total=models.Count("app_case__steps")
+        )["total"]
 
     def ordered_scenario_links(self):
         """按套件中配置的顺序返回场景关联，避免退化为 Scenario 默认排序。"""
@@ -162,10 +202,17 @@ class Suite(models.Model):
     def ordered_playwright_case_links(self):
         return self.suiteplaywrightcase_set.select_related("playwright_case", "playwright_case__project").order_by("order", "id")
 
+    def ordered_app_case_links(self):
+        return self.suiteappcase_set.select_related(
+            "app_case", "app_case__project", "app_case__application", "app_case__default_device"
+        ).order_by("order", "id")
+
     def ordered_execution_items(self):
         """返回接口场景和 UI 用例的统一混合执行队列。"""
         items = list(self.execution_items.select_related(
-            "scenario", "scenario__project", "ui_case", "ui_case__project", "playwright_case", "playwright_case__project"
+            "scenario", "scenario__project", "ui_case", "ui_case__project", "playwright_case", "playwright_case__project",
+            "yaml_case", "yaml_case__project",
+            "app_case", "app_case__project", "app_case__application", "app_case__default_device",
         ).order_by("order", "id"))
         if items:
             return items
@@ -190,6 +237,12 @@ class Suite(models.Model):
                 playwright_case=link.playwright_case, order=order,
             ))
             order += 1
+        for link in self.ordered_app_case_links():
+            legacy_items.append(SuiteExecutionItem(
+                suite=self, item_type=SuiteExecutionItem.ItemType.APP,
+                app_case=link.app_case, order=order,
+            ))
+            order += 1
         return legacy_items
 
     def sync_execution_items(self, items):
@@ -198,6 +251,21 @@ class Suite(models.Model):
         scenario_ids = [item["id"] for item in items if item["type"] == SuiteExecutionItem.ItemType.API]
         ui_case_ids = [item["id"] for item in items if item["type"] == SuiteExecutionItem.ItemType.UI]
         playwright_case_ids = [item["id"] for item in items if item["type"] == SuiteExecutionItem.ItemType.PLAYWRIGHT_UI]
+        yaml_case_ids = [item["id"] for item in items if item["type"] == SuiteExecutionItem.ItemType.YAML_UI]
+        app_case_ids = [item["id"] for item in items if item["type"] == SuiteExecutionItem.ItemType.APP]
+        # 内部任务也可以直接调用此方法，因此租户边界不能只依赖 API 校验。
+        checks = (
+            (Scenario, scenario_ids, "接口场景"),
+            (UiCase, ui_case_ids, "UI 用例"),
+            (PlaywrightCase, playwright_case_ids, "Playwright 用例"),
+            (PlaywrightScenarioFile, yaml_case_ids, "YAML 用例"),
+            (AppCase, app_case_ids, "App 用例"),
+        )
+        for model, object_ids, label in checks:
+            if len(object_ids) != model.objects.filter(
+                pk__in=object_ids, tenant_id=self.tenant_id,
+            ).count():
+                raise ValueError(f"{label}不存在或不属于当前租户。")
         with transaction.atomic():
             Suite.objects.select_for_update().get(pk=self.pk)
             previous_continue = dict(
@@ -207,6 +275,7 @@ class Suite(models.Model):
             SuiteScenario.objects.filter(suite=self).delete()
             SuiteUiCase.objects.filter(suite=self).delete()
             SuitePlaywrightCase.objects.filter(suite=self).delete()
+            SuiteAppCase.objects.filter(suite=self).delete()
             SuiteScenario.objects.bulk_create([
                 SuiteScenario(
                     suite=self, scenario_id=scenario_id, order=order,
@@ -222,6 +291,10 @@ class Suite(models.Model):
                 SuitePlaywrightCase(suite=self, playwright_case_id=case_id, order=order)
                 for order, case_id in enumerate(playwright_case_ids, start=1)
             ])
+            SuiteAppCase.objects.bulk_create([
+                SuiteAppCase(suite=self, app_case_id=case_id, order=order)
+                for order, case_id in enumerate(app_case_ids, start=1)
+            ])
             SuiteExecutionItem.objects.bulk_create([
                 SuiteExecutionItem(
                     suite=self,
@@ -229,6 +302,8 @@ class Suite(models.Model):
                     scenario_id=item["id"] if item["type"] == SuiteExecutionItem.ItemType.API else None,
                     ui_case_id=item["id"] if item["type"] == SuiteExecutionItem.ItemType.UI else None,
                     playwright_case_id=item["id"] if item["type"] == SuiteExecutionItem.ItemType.PLAYWRIGHT_UI else None,
+                    yaml_case_id=item["id"] if item["type"] == SuiteExecutionItem.ItemType.YAML_UI else None,
+                    app_case_id=item["id"] if item["type"] == SuiteExecutionItem.ItemType.APP else None,
                     order=order,
                 )
                 for order, item in enumerate(items, start=1)
@@ -238,20 +313,28 @@ class Suite(models.Model):
         """兼容旧接口：接口场景在前，保留当前 UI 用例顺序。"""
         current_ui_ids = list(self.ordered_ui_case_links().values_list("ui_case_id", flat=True))
         current_playwright_ids = list(self.ordered_playwright_case_links().values_list("playwright_case_id", flat=True))
+        current_yaml_ids = list(self.execution_items.filter(item_type=SuiteExecutionItem.ItemType.YAML_UI).values_list("yaml_case_id", flat=True))
+        current_app_ids = list(self.ordered_app_case_links().values_list("app_case_id", flat=True))
         self.sync_execution_items(
             [{"type": SuiteExecutionItem.ItemType.API, "id": item_id} for item_id in scenario_ids]
             + [{"type": SuiteExecutionItem.ItemType.UI, "id": item_id} for item_id in current_ui_ids]
             + [{"type": SuiteExecutionItem.ItemType.PLAYWRIGHT_UI, "id": item_id} for item_id in current_playwright_ids]
+            + [{"type": SuiteExecutionItem.ItemType.YAML_UI, "id": item_id} for item_id in current_yaml_ids]
+            + [{"type": SuiteExecutionItem.ItemType.APP, "id": item_id} for item_id in current_app_ids]
         )
 
     def sync_ui_cases(self, ui_case_ids):
         """兼容旧接口：保留当前接口场景顺序，UI 用例排在其后。"""
         current_scenario_ids = list(self.ordered_scenario_links().values_list("scenario_id", flat=True))
         current_playwright_ids = list(self.ordered_playwright_case_links().values_list("playwright_case_id", flat=True))
+        current_yaml_ids = list(self.execution_items.filter(item_type=SuiteExecutionItem.ItemType.YAML_UI).values_list("yaml_case_id", flat=True))
+        current_app_ids = list(self.ordered_app_case_links().values_list("app_case_id", flat=True))
         self.sync_execution_items(
             [{"type": SuiteExecutionItem.ItemType.API, "id": item_id} for item_id in current_scenario_ids]
             + [{"type": SuiteExecutionItem.ItemType.UI, "id": item_id} for item_id in ui_case_ids]
             + [{"type": SuiteExecutionItem.ItemType.PLAYWRIGHT_UI, "id": item_id} for item_id in current_playwright_ids]
+            + [{"type": SuiteExecutionItem.ItemType.YAML_UI, "id": item_id} for item_id in current_yaml_ids]
+            + [{"type": SuiteExecutionItem.ItemType.APP, "id": item_id} for item_id in current_app_ids]
         )
 
     def _preflight_execution_environments(self, environment):
@@ -266,8 +349,13 @@ class Suite(models.Model):
                     if step.endpoint_id and step.endpoint.project_id:
                         required_projects[step.endpoint.project_id] = step.endpoint.project.name
                 continue
+            if execution_item.item_type == SuiteExecutionItem.ItemType.APP:
+                # Appium 直接使用用例默认设备与应用配置，不依赖 Web/API 环境地址。
+                continue
             if execution_item.item_type == SuiteExecutionItem.ItemType.PLAYWRIGHT_UI:
                 case = execution_item.playwright_case
+            elif execution_item.item_type == SuiteExecutionItem.ItemType.YAML_UI:
+                case = execution_item.yaml_case
             else:
                 case = execution_item.ui_case
             if case and case.project_id:
@@ -321,6 +409,9 @@ class Suite(models.Model):
         previous_path = None
         with transaction.atomic():
             locked_suite = Suite.objects.select_for_update().get(pk=self.pk)
+            from account.models import Tenant
+            locked_tenant = Tenant.objects.select_for_update().get(pk=locked_suite.tenant_id)
+            ensure_tenant_storage_capacity(locked_tenant)
             active_result = RunResult.objects.filter(
                 suite=locked_suite,
                 status__in=[RunResult.RunStatus.Ready, RunResult.RunStatus.Running, RunResult.RunStatus.Reporting, RunResult.RunStatus.Paused],
@@ -332,10 +423,13 @@ class Suite(models.Model):
                 result = RunResult.objects.select_for_update().get(pk=reuse_result.pk)
                 if result.suite_id != locked_suite.id:
                     raise ValueError("执行记录不属于当前套件，无法重新执行。")
+                if result.tenant_id != locked_suite.tenant_id:
+                    raise ValueError("执行记录不属于当前租户，无法重新执行。")
                 if result.status in [RunResult.RunStatus.Ready, RunResult.RunStatus.Running, RunResult.RunStatus.Reporting, RunResult.RunStatus.Paused]:
                     raise ValueError("该执行记录正在执行中，请等待完成或先取消任务。")
                 previous_path = str(result.path or "")
                 result.project = environment.project
+                result.tenant = environment.project.tenant
                 result.path = "todo"
                 result.environment_name = execution_environment_name
                 result.executor_name = execution_executor_name
@@ -347,7 +441,7 @@ class Suite(models.Model):
                 result.started_at = None
                 result.finished_at = None
                 result.save(update_fields=[
-                    "project", "path", "environment_name", "executor_name", "status", "is_pass",
+                    "tenant", "project", "path", "environment_name", "executor_name", "status", "is_pass",
                     "native_report", "cancel_requested", "timeout_seconds", "started_at", "finished_at",
                     "update_datetime",
                 ])
@@ -356,7 +450,7 @@ class Suite(models.Model):
             else:
                 # 先进入队列，实际 pytest 执行由全局受控线程池调度。
                 result = RunResult.objects.create(
-                    suite=locked_suite, project=environment.project, path="todo",
+                    tenant=locked_suite.tenant, suite=locked_suite, project=environment.project, path="todo",
                     environment_name=execution_environment_name,
                     executor_name=execution_executor_name,
                     status=RunResult.RunStatus.Ready, timeout_seconds=locked_suite.execution_timeout,
@@ -372,7 +466,11 @@ class Suite(models.Model):
                 # 历史执行文件清理失败不应阻塞本次重跑；新运行目录仍使用新的时间戳。
                 pass
 
-        path = Path("upload_yaml") / f"result_{result.id}_{time.time()}"  # 创建绝不重名的目录名
+        path = tenant_path(
+            Path("upload_yaml"),
+            locked_suite.tenant_id,
+            f"result_{result.id}_{time.time()}",
+        )
         path.mkdir(parents=True, exist_ok=True)  # 创建目录
 
         result.path = path
@@ -409,6 +507,10 @@ class Suite(models.Model):
                 project_ids.append(execution_item.ui_case.project_id)
             elif execution_item.playwright_case:
                 project_ids.append(execution_item.playwright_case.project_id)
+            elif execution_item.yaml_case:
+                project_ids.append(execution_item.yaml_case.project_id)
+            elif execution_item.app_case:
+                project_ids.append(execution_item.app_case.project_id)
         project_ids = [project_id for project_id in project_ids if project_id and project_id != environment.project_id]
         project_ids.append(environment.project_id)
         project_variables = ProjectVariable.values_for_projects(project_ids)
@@ -461,7 +563,7 @@ class Suite(models.Model):
                         payload = []
                         for node in nodes:
                             item = {"id": node.id, "node_type": node.node_type, "name": node.name,
-                                    "order": node.order, "condition_logic": node.condition_logic}
+                                    "order": node.order, "condition_logic": node.condition_logic, "enabled": node.enabled}
                             if node.node_type == ScenarioFlowNode.NodeType.ENDPOINT:
                                 item["case"] = serialize_step(node.step)
                             else:
@@ -539,6 +641,93 @@ class Suite(models.Model):
                         "execution_order": execution_item.order, "steps": planned_steps,
                         "flow_nodes": report_flow_from(flow_nodes),
                     })
+                    continue
+
+                if execution_item.item_type == SuiteExecutionItem.ItemType.APP:
+                    app_case = execution_item.app_case
+                    if not app_case.enabled:
+                        raise ValueError(f"App 用例「{app_case.name}」已停用。")
+                    app_steps = list(app_case.steps.select_related("element").order_by("order", "id"))
+                    if not app_steps:
+                        raise ValueError(f"App 用例「{app_case.name}」没有可执行步骤。")
+                    device = app_case.default_device
+                    if not device or not device.enabled or device.project_id != app_case.project_id:
+                        raise ValueError(f"App 用例「{app_case.name}」未配置当前项目的可用默认设备。")
+                    app_data = {
+                        "id": app_case.id, "name": app_case.name,
+                        "project_id": app_case.project_id,
+                        "application_id": app_case.application_id,
+                        "device_id": device.id, "device_name": device.name,
+                        "environment_name": execution_environment_name, "epic": self.name,
+                    }
+                    execution_plan.append({"type": "app", "case": app_data})
+                    with open(path / f"app_case_{execution_item.order:06d}_{app_case.id}.yaml", "w", encoding="utf-8") as file:
+                        yaml.safe_dump(app_data, file, allow_unicode=True, sort_keys=False)
+                    planned_scenarios.append({
+                        "id": f"app-{app_case.id}", "name": app_case.name, "type": "app",
+                        "device": device.name, "platform": device.platform,
+                        "execution_order": execution_item.order,
+                        "steps": [
+                            {
+                                "source_step_id": step.id,
+                                "name": f"{step.get_action_display()} · {step.element.name if step.element_id else step.value or ''}"[:160],
+                                "action": step.get_action_display(), "action_key": step.action,
+                                "status": "pending", "passed": None,
+                            }
+                            for step in app_steps
+                        ],
+                    })
+                    continue
+
+                if execution_item.item_type == SuiteExecutionItem.ItemType.YAML_UI:
+                    yaml_case = execution_item.yaml_case
+                    parsed_scenarios = parse_ui_scenarios(yaml_case.content)
+                    validate_runnable_scenarios(parsed_scenarios)
+                    yaml_environment = execution_environments[yaml_case.project_id]
+                    yaml_group_cases = []
+                    for scene_index, scene in enumerate(parsed_scenarios, start=1):
+                        runtime_id = f"yaml-{yaml_case.id}-{scene_index}"
+                        runtime_steps = [
+                            {
+                                "id": f"{yaml_case.id}-{scene_index}-{step_index}",
+                                "name": playwright_step_display_name(step["action"], step["target"], step["value"]),
+                                "action": step["action"], "tab_key": "tab-1",
+                                "target": step["target"], "value": step["value"],
+                                "options": {**step.get("options", {}), "source_format": "scenario_text"},
+                            }
+                            for step_index, step in enumerate(scene["steps"], start=1)
+                        ]
+                        yaml_data = {
+                            "id": runtime_id, "name": scene["name"],
+                            "browser": yaml_case.browser, "run_mode": yaml_case.run_mode,
+                            "default_timeout": 10000, "base_url": yaml_environment.base_url,
+                            "project_id": yaml_case.project_id,
+                            "environment_name": execution_environment_name, "epic": self.name,
+                            "steps": runtime_steps,
+                        }
+                        yaml_group_cases.append(yaml_data)
+                        with open(
+                            path / f"yaml_case_{execution_item.order:06d}_{yaml_case.id}_{scene_index}.yaml",
+                            "w", encoding="utf-8",
+                        ) as file:
+                            yaml.safe_dump(yaml_data, file, allow_unicode=True, sort_keys=False)
+                        planned_scenarios.append({
+                            "id": f"playwright-ui-{runtime_id}", "name": scene["name"],
+                            "type": "playwright_ui", "source_type": "yaml_ui",
+                            "source_file_id": yaml_case.id, "source_filename": yaml_case.filename,
+                            "browser": yaml_case.browser, "run_mode": yaml_case.run_mode,
+                            "execution_order": execution_item.order,
+                            "steps": [
+                                {
+                                    "source_step_id": step["id"], "name": step["name"],
+                                    "action": step["action"], "action_key": step["action"],
+                                    "target": step["target"], "tab_key": "tab-1",
+                                    "status": "pending", "passed": None,
+                                }
+                                for step in runtime_steps
+                            ],
+                        })
+                    execution_plan.append({"type": "yaml_ui_group", "cases": yaml_group_cases})
                     continue
 
                 if execution_item.item_type == SuiteExecutionItem.ItemType.PLAYWRIGHT_UI:
@@ -663,7 +852,7 @@ class Suite(models.Model):
                 })
 
             if not execution_plan:
-                raise ValueError("套件没有可执行的接口场景或 UI 用例。")
+                raise ValueError("套件没有可执行的接口场景、UI 或 App 用例。")
             with open(path / "execution_plan.yaml", "w", encoding="utf-8") as file:
                 yaml.safe_dump(execution_plan, file, allow_unicode=True, sort_keys=False)
             result.native_report = {
@@ -697,7 +886,10 @@ class Suite(models.Model):
             _merge_initial_variables(path, run_variables)
 
         # 4. 全局受控队列：超过并发上限的任务保持“准备开始”，等待空闲工作线程。
-        submit_run(path, result.id, self.case_api_count(), self.case_ui_count() + self.case_playwright_count())
+        submit_run(
+            path, result.id, self.case_api_count(),
+            self.case_ui_count() + self.case_playwright_count() + self.case_app_count(),
+        )
 
         return result
 
@@ -753,19 +945,36 @@ class SuitePlaywrightCase(models.Model):
         ]
 
 
+class SuiteAppCase(models.Model):
+    suite = models.ForeignKey(Suite, on_delete=models.CASCADE)
+    app_case = models.ForeignKey(AppCase, on_delete=models.CASCADE)
+    order = models.PositiveIntegerField("执行顺序", default=1)
+
+    class Meta:
+        ordering = ["order", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["suite", "app_case"], name="unique_suite_app_case"),
+            models.UniqueConstraint(fields=["suite", "order"], name="unique_suite_app_case_order"),
+        ]
+
+
 class SuiteExecutionItem(models.Model):
-    """套件的统一执行队列，允许接口场景和 UI 用例交错编排。"""
+    """套件的统一执行队列，允许接口、Web UI 和 App 用例交错编排。"""
 
     class ItemType(models.TextChoices):
         API = "api", "接口场景"
         UI = "ui", "UI 用例"
         PLAYWRIGHT_UI = "playwright_ui", "Playwright 智能 UI"
+        YAML_UI = "yaml_ui", "YAML 智能 UI"
+        APP = "app", "App 用例"
 
     suite = models.ForeignKey(Suite, on_delete=models.CASCADE, related_name="execution_items")
     item_type = models.CharField("类型", max_length=16, choices=ItemType.choices)
     scenario = models.ForeignKey(Scenario, null=True, blank=True, on_delete=models.CASCADE)
     ui_case = models.ForeignKey(UiCase, null=True, blank=True, on_delete=models.CASCADE)
     playwright_case = models.ForeignKey(PlaywrightCase, null=True, blank=True, on_delete=models.CASCADE)
+    yaml_case = models.ForeignKey(PlaywrightScenarioFile, null=True, blank=True, on_delete=models.CASCADE)
+    app_case = models.ForeignKey(AppCase, null=True, blank=True, on_delete=models.CASCADE)
     order = models.PositiveIntegerField("执行顺序")
 
     class Meta:
@@ -784,11 +993,21 @@ class SuiteExecutionItem(models.Model):
                 fields=["suite", "playwright_case"], condition=models.Q(playwright_case__isnull=False),
                 name="unique_suite_execution_playwright_case",
             ),
+            models.UniqueConstraint(
+                fields=["suite", "yaml_case"], condition=models.Q(yaml_case__isnull=False),
+                name="unique_suite_execution_yaml_case",
+            ),
+            models.UniqueConstraint(
+                fields=["suite", "app_case"], condition=models.Q(app_case__isnull=False),
+                name="unique_suite_execution_app_case",
+            ),
             models.CheckConstraint(
                 check=(
-                    models.Q(item_type="api", scenario__isnull=False, ui_case__isnull=True, playwright_case__isnull=True)
-                    | models.Q(item_type="ui", scenario__isnull=True, ui_case__isnull=False, playwright_case__isnull=True)
-                    | models.Q(item_type="playwright_ui", scenario__isnull=True, ui_case__isnull=True, playwright_case__isnull=False)
+                    models.Q(item_type="api", scenario__isnull=False, ui_case__isnull=True, playwright_case__isnull=True, yaml_case__isnull=True, app_case__isnull=True)
+                    | models.Q(item_type="ui", scenario__isnull=True, ui_case__isnull=False, playwright_case__isnull=True, yaml_case__isnull=True, app_case__isnull=True)
+                    | models.Q(item_type="playwright_ui", scenario__isnull=True, ui_case__isnull=True, playwright_case__isnull=False, yaml_case__isnull=True, app_case__isnull=True)
+                    | models.Q(item_type="yaml_ui", scenario__isnull=True, ui_case__isnull=True, playwright_case__isnull=True, yaml_case__isnull=False, app_case__isnull=True)
+                    | models.Q(item_type="app", scenario__isnull=True, ui_case__isnull=True, playwright_case__isnull=True, yaml_case__isnull=True, app_case__isnull=False)
                 ),
                 name="suite_execution_item_matches_type",
             ),
@@ -812,6 +1031,10 @@ class RunResult(models.Model):
         Canceled = -2, "已取消"
         Paused = -3, "已暂停"
 
+    tenant = models.ForeignKey(
+        "account.Tenant", on_delete=models.PROTECT, related_name="run_results",
+        default=get_default_tenant_id, editable=False,
+    )
     suite = models.ForeignKey(Suite, on_delete=models.CASCADE)
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
     # 保存本次运行的环境快照，避免套件后续切换环境后历史记录跟着变化。
@@ -838,6 +1061,10 @@ class RunResult(models.Model):
 
     create_datetime = models.DateTimeField("创建时间", auto_now_add=True)
     update_datetime = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-create_datetime", "-id"]
+        indexes = [models.Index(fields=["tenant", "status", "create_datetime"], name="run_result_tenant_status_idx")]
 
 
 class NotificationChannel(models.Model):

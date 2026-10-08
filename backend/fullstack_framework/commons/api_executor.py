@@ -56,16 +56,17 @@ def run_dynamic_function(name, variables, arguments="", project_id=None):
     """执行启用的动态函数，供两种执行入口统一调用。"""
     try:
         from project.models import DynamicFunction
-        from project.dynamic_functions import execute_dynamic_function, parse_dynamic_arguments
+        from project.dynamic_functions import execute_dynamic_function, function_names, parse_dynamic_arguments
 
-        queryset = DynamicFunction.objects.filter(enabled=True)
+        queryset = DynamicFunction.objects.filter(enabled=True, approval_status=DynamicFunction.ApprovalStatus.APPROVED)
         if project_id:
             queryset = queryset.filter(projects__id=project_id)
-        codes = list(queryset.distinct().order_by("id").values_list("code", flat=True))
-        if not codes:
+        items = list(queryset.distinct().order_by("id"))
+        item = next((candidate for candidate in items if name in function_names(candidate.code)), None)
+        if not item:
             raise ValueError("未配置可用的动态函数")
         args, kwargs = parse_dynamic_arguments(arguments)
-        return execute_dynamic_function(codes, name, variables, args=args, kwargs=kwargs)
+        return execute_dynamic_function([item.code], name, variables, args=args, kwargs=kwargs, timeout_seconds=item.timeout_seconds, memory_mb=item.memory_mb)
     except Exception as exc:
         raise ValueError(f"动态函数「{name}」执行失败：{exc}") from exc
 
@@ -228,6 +229,10 @@ def apply_extract_processor(value, processor):
     if not isinstance(processor, dict):
         raise ValueError("处理器配置必须为对象")
     processor_type = str(processor.get("type") or "").strip()
+    if processor_type == "required":
+        if _is_empty_extracted_value(value):
+            raise ValueError("必需的响应值不存在或为空")
+        return value
     if processor_type == "default":
         return processor.get("value") if _is_empty_extracted_value(value) else value
     if processor_type == "trim":
@@ -488,9 +493,6 @@ def execute_api_step(
     assertion_details = []
     candidate_values = {}
 
-    if config["enabled"] and not validate:
-        error = ValueError("启用轮询时至少需要配置一条断言作为成功条件。")
-        return StepExecutionResult(False, errors=[str(error)], exception=error)
     if config["enabled"] and config["initial_delay"]:
         time.sleep(min(config["initial_delay"], config["timeout"]))
 

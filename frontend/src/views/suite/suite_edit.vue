@@ -5,7 +5,7 @@
         <div class="breadcrumb"><span>套件管理</span><i>/</i><strong>{{ id ? '编辑套件' : '新增套件' }}</strong></div>
         <div class="title-line">
           <h1>{{ id ? '编辑测试套件' : '新增测试套件' }}</h1>
-          <p>统一编排接口场景与 UI 用例，严格按照列表顺序执行</p>
+          <p>统一编排接口、Web UI 与 App 用例，严格按照列表顺序执行</p>
         </div>
       </div>
       <n-space>
@@ -16,8 +16,26 @@
 
     <n-form ref="formRef" :model="formValue" :rules="rules" label-placement="top" class="editor-form">
       <section class="basic-section">
-        <h2>基本信息</h2>
-        <div class="basic-grid">
+        <div class="basic-section-head">
+          <div>
+            <h2>基本信息</h2>
+            <p>设置套件名称、执行环境与运行方式</p>
+          </div>
+          <n-button v-if="id" text type="primary" @click="basicInfoEditing = !basicInfoEditing">
+            {{ basicInfoEditing ? '完成编辑' : '编辑' }}
+          </n-button>
+        </div>
+        <div v-if="id && !basicInfoEditing" class="basic-summary-grid" :class="{ 'has-webhook': formValue.run_type === 'W', 'has-schedule': formValue.run_type === 'C' }">
+          <div class="summary-item"><span>套件名称</span><strong>{{ formValue.name || '—' }}</strong></div>
+          <div class="summary-item"><span>执行环境</span><strong>{{ selectedEnvironmentName }}</strong></div>
+          <div class="summary-item"><span>执行方式</span><strong>{{ selectedRunTypeName }}</strong></div>
+          <div class="summary-item"><span>执行超时</span><strong>{{ formValue.execution_timeout }} 秒</strong></div>
+          <div class="summary-item description-summary"><span>套件描述</span><strong :title="formValue.description">{{ formValue.description || '未填写' }}</strong></div>
+          <div v-if="formValue.run_type === 'W'" class="summary-item"><span>Webhook 密钥</span><strong>{{ formValue.hook_key || '保存后自动生成' }}</strong></div>
+          <div v-if="formValue.run_type === 'C'" class="summary-item"><span>执行安排</span><strong>{{ scheduleSummary }}</strong></div>
+          <div class="summary-item status-summary"><span>状态</span><strong :class="formValue.enabled ? 'enabled' : 'disabled'"><i></i>{{ formValue.enabled ? '已启用' : '已停用' }}</strong></div>
+        </div>
+        <div v-else class="basic-grid" :class="{ 'has-webhook': formValue.run_type === 'W' }">
           <n-form-item label="套件名称" path="name">
             <n-input v-model:value="formValue.name" maxlength="32" placeholder="例如：充值回归测试" />
           </n-form-item>
@@ -27,24 +45,22 @@
           <n-form-item label="执行方式" path="run_type">
             <n-select v-model:value="formValue.run_type" :options="runTypeOptions" />
           </n-form-item>
+          <n-form-item label="执行超时（秒）">
+            <n-input-number v-model:value="formValue.execution_timeout" :min="30" :max="86400" />
+          </n-form-item>
           <n-form-item label="套件描述">
-            <n-input v-model:value="formValue.description" maxlength="250" show-count placeholder="请输入套件描述（选填）" />
+            <n-input v-model:value="formValue.description" maxlength="250" placeholder="请输入描述（选填）" />
+          </n-form-item>
+          <n-form-item v-if="formValue.run_type === 'W'" label="Webhook 密钥" path="hook_key">
+            <n-input v-model:value="formValue.hook_key" placeholder="保存后可自动生成" />
           </n-form-item>
           <n-form-item label="启用" class="enabled-field">
             <n-switch v-model:value="formValue.enabled" />
           </n-form-item>
         </div>
-        <div class="secondary-grid">
-          <n-form-item label="执行超时（秒）">
-            <n-input-number v-model:value="formValue.execution_timeout" :min="30" :max="86400" />
-          </n-form-item>
-          <n-form-item v-if="formValue.run_type === 'W'" label="Webhook 密钥" path="hook_key">
-            <n-input v-model:value="formValue.hook_key" placeholder="保存后可自动生成" />
-          </n-form-item>
-        </div>
-        <section v-if="formValue.run_type === 'C'" class="schedule-config-card">
+        <section v-if="formValue.run_type === 'C' && (!id || basicInfoEditing)" class="schedule-config-card">
           <div class="schedule-heading">
-            <div><h3>定时设置</h3><p>选择触发规则，系统会自动生成可执行的 Cron 表达式</p></div>
+            <div><h3>定时设置</h3><p>选择触发规则，系统会自动生成可执行的定时表达式</p></div>
             <n-switch v-model:value="formValue.enabled"><template #checked>已启用</template><template #unchecked>已停用</template></n-switch>
           </div>
           <div class="schedule-kind-row">
@@ -96,8 +112,8 @@
               <p class="schedule-tip">不存在的日期会在当月自动跳过。</p>
             </template>
             <template v-else>
-              <label class="cron-input"><span>Cron 表达式</span><n-input v-model:value="formValue.cron" placeholder="例如：0 9 * * *" /></label>
-              <p class="schedule-tip">使用标准五段 Cron：分 时 日 月 周。</p>
+              <label class="cron-input"><span>定时表达式</span><n-input v-model:value="formValue.cron" placeholder="例如：0 9 * * *" /></label>
+              <p class="schedule-tip">使用标准五段格式：分 时 日 月 周。</p>
             </template>
             <label class="timezone-field"><span>时区</span><n-select v-model:value="formValue.schedule_timezone" :options="timezoneOptions" /></label>
           </div>
@@ -109,12 +125,13 @@
         <div class="section-heading">
           <div class="heading-copy">
             <h2>执行编排</h2>
-            <p>从左侧选择接口场景、UI 用例或 Playwright 智能 UI，添加后可拖拽调整执行顺序</p>
+            <p>从左侧选择测试内容，添加后可拖拽调整执行顺序</p>
           </div>
           <div class="count-badges">
             <span class="count-badge api"><n-icon><CodeOutlined /></n-icon>接口场景 <b>{{ apiCount }}</b></span>
             <span class="count-badge ui"><n-icon><DesktopOutlined /></n-icon>UI 用例 <b>{{ uiCount }}</b></span>
             <span class="count-badge playwright"><n-icon><DesktopOutlined /></n-icon>智能 UI <b>{{ playwrightCount }}</b></span>
+            <span class="count-badge app"><n-icon><MobileOutlined /></n-icon>App 用例 <b>{{ appCount }}</b></span>
           </div>
         </div>
 
@@ -130,6 +147,9 @@
               </button>
               <button type="button" :class="{ active: activeType === 'playwright_ui' }" @click="changeType('playwright_ui')">
                 <n-icon><DesktopOutlined /></n-icon>智能 UI
+              </button>
+              <button type="button" :class="{ active: activeType === 'app' }" @click="changeType('app')">
+                <n-icon><MobileOutlined /></n-icon>App 用例
               </button>
             </div>
             <div class="source-filters">
@@ -148,8 +168,8 @@
                   :disabled="queuedKeys.has(item.key)"
                   @update:checked="(checked) => toggleSource(item.key, checked)"
                 />
-                <span class="mini-type" :class="item.type"><n-icon><component :is="item.type === 'api' ? CodeOutlined : DesktopOutlined" /></n-icon></span>
-                <span class="source-name" :title="item.name">{{ item.name }}</span>
+                <span class="mini-type" :class="item.type"><n-icon><component :is="item.type === 'api' ? CodeOutlined : item.type === 'app' ? MobileOutlined : DesktopOutlined" /></n-icon></span>
+                <span class="source-name" :title="item.name">{{ item.type === 'yaml_ui' ? 'YAML · ' : '' }}{{ item.name }}</span>
                 <span class="source-project" :title="item.projectName">{{ item.projectName || '-' }}</span>
                 <span class="source-count">{{ item.stepCount }}</span>
               </label>
@@ -171,8 +191,8 @@
                   <button type="button" class="drag-handle" title="拖拽排序"><n-icon><MenuOutlined /></n-icon></button>
                   <span class="sequence">{{ String(index + 1).padStart(2, '0') }}</span>
                   <span class="type-badge" :class="item.type">
-                    <n-icon><component :is="item.type === 'api' ? CodeOutlined : DesktopOutlined" /></n-icon>
-                    {{ item.type === 'api' ? '接口' : item.type === 'playwright_ui' ? '智能 UI' : 'UI' }}
+                    <n-icon><component :is="item.type === 'api' ? CodeOutlined : item.type === 'app' ? MobileOutlined : DesktopOutlined" /></n-icon>
+                    {{ item.type === 'api' ? '接口' : item.type === 'yaml_ui' ? 'YAML · 智能 UI' : item.type === 'playwright_ui' ? '智能 UI' : item.type === 'app' ? 'App' : 'UI' }}
                   </span>
                   <div class="queue-copy">
                     <strong>{{ item.name }}</strong>
@@ -186,7 +206,7 @@
                 </article>
               </template>
             </draggable>
-            <n-empty v-if="!executionItems.length" class="queue-empty" description="请从左侧添加接口场景或 UI 用例" />
+            <n-empty v-if="!executionItems.length" class="queue-empty" description="请从左侧添加接口、UI 或 App 用例" />
             <div class="execution-rule">
               <n-icon><PlayCircleOutlined /></n-icon>
               <span><strong>执行规则：</strong>系统将从 01 开始串行执行；前一步失败时按用例配置决定继续或终止。</span>
@@ -206,22 +226,26 @@
 </template>
 
 <script lang="ts" setup>
+import { asList } from '@/utils/list';
+import { formatDateTime } from '@/utils/time';
+
   import { computed, onMounted, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
   import { useRoute, useRouter } from 'vue-router';
   import draggable from 'vuedraggable';
   import {
-    CodeOutlined, DeleteOutlined, DesktopOutlined, MenuOutlined,
+    CodeOutlined, DeleteOutlined, DesktopOutlined, MenuOutlined, MobileOutlined,
     PlayCircleOutlined, PlusOutlined, SearchOutlined,
   } from '@vicons/antd';
   import { EnvironmentAPI } from '@/api/project/http';
   import { ScenarioAPI } from '@/api/case_api/http';
-  import { UiCaseAPI } from '@/api/case_ui/http';
+  import { PlaywrightScenarioFileAPI, UiCaseAPI } from '@/api/case_ui/http';
+  import { AppTestAPI } from '@/api/case_app/http';
   import { SuiteAPI } from '@/api/suite/http';
   import type { SuiteExecutionItem } from '@/api/suite/models';
   import { useSubmitRedirect } from '@/hooks/web/useSubmitRedirect';
 
-  type ItemType = 'api' | 'ui' | 'playwright_ui';
+  type ItemType = 'api' | 'ui' | 'playwright_ui' | 'yaml_ui' | 'app';
   interface SourceItem {
     key: string;
     type: ItemType;
@@ -231,6 +255,7 @@
     stepCount: number;
     browser?: string;
     runMode?: string;
+    deviceName?: string;
   }
 
   const route = useRoute();
@@ -238,6 +263,7 @@
   const message = useMessage();
   const { redirectAfterSubmit } = useSubmitRedirect();
   const id = Number(route.params.id);
+  const basicInfoEditing = ref(!id);
   const formRef = ref<any>();
   const saving = ref(false);
   const savingAndRunning = ref(false);
@@ -246,6 +272,7 @@
   const uiCaseApi = new UiCaseAPI();
   const playwrightCaseApi = new UiCaseAPI();
   playwrightCaseApi.base_url = '/case_ui/playwright-case/';
+  const yamlCaseApi = new PlaywrightScenarioFileAPI();
   const environmentApi = new EnvironmentAPI();
 
   const formValue = reactive<any>({
@@ -278,7 +305,7 @@
     { label: '每日', value: 'daily' },
     { label: '每周', value: 'weekly' },
     { label: '每月', value: 'monthly' },
-    { label: '自定义 Cron', value: 'custom' },
+    { label: '自定义定时', value: 'custom' },
   ];
   const timezoneOptions = [
     { label: '中国标准时间（Asia/Shanghai）', value: 'Asia/Shanghai' },
@@ -290,25 +317,40 @@
   const apiSources = ref<SourceItem[]>([]);
   const uiSources = ref<SourceItem[]>([]);
   const playwrightSources = ref<SourceItem[]>([]);
+  const yamlSources = ref<SourceItem[]>([]);
+  const appSources = ref<SourceItem[]>([]);
   const executionItems = ref<SourceItem[]>([]);
   const activeType = ref<ItemType>('api');
   const projectFilter = ref<string | null>(null);
   const keyword = ref('');
   const selectedSourceKeys = ref<string[]>([]);
 
-  const allSources = computed(() => [...apiSources.value, ...uiSources.value, ...playwrightSources.value]);
+  const allSources = computed(() => [...apiSources.value, ...uiSources.value, ...playwrightSources.value, ...yamlSources.value, ...appSources.value]);
   const sourceMap = computed(() => new Map(allSources.value.map((item) => [item.key, item])));
   const queuedKeys = computed(() => new Set(executionItems.value.map((item) => item.key)));
   const apiCount = computed(() => executionItems.value.filter((item) => item.type === 'api').length);
   const uiCount = computed(() => executionItems.value.filter((item) => item.type === 'ui').length);
-  const playwrightCount = computed(() => executionItems.value.filter((item) => item.type === 'playwright_ui').length);
+  const playwrightCount = computed(() => executionItems.value.filter((item) => item.type === 'playwright_ui' || item.type === 'yaml_ui').length);
+  const appCount = computed(() => executionItems.value.filter((item) => item.type === 'app').length);
+  const selectedEnvironmentName = computed(() => (
+    environmentOptions.value.find((item) => Number(item.value) === Number(formValue.environment))?.label || '—'
+  ));
+  const selectedRunTypeName = computed(() => (
+    runTypeOptions.find((item) => item.value === formValue.run_type)?.label || '—'
+  ));
   const projectOptions = computed(() => {
     const names = new Set(allSources.value.map((item) => item.projectName).filter(Boolean));
     return Array.from(names).sort().map((name) => ({ label: name, value: name }));
   });
   const filteredSources = computed(() => {
     const normalizedKeyword = keyword.value.trim().toLowerCase();
-    const source = activeType.value === 'api' ? apiSources.value : activeType.value === 'ui' ? uiSources.value : playwrightSources.value;
+    const source = activeType.value === 'api'
+      ? apiSources.value
+      : activeType.value === 'ui'
+      ? uiSources.value
+      : activeType.value === 'playwright_ui'
+      ? [...playwrightSources.value, ...yamlSources.value]
+      : appSources.value;
     return source.filter((item) => {
       if (projectFilter.value && item.projectName !== projectFilter.value) return false;
       return !normalizedKeyword || `${item.name} ${item.projectName}`.toLowerCase().includes(normalizedKeyword);
@@ -331,7 +373,7 @@
     if (formValue.schedule_kind === 'daily') return `每日 ${time}`;
     if (formValue.schedule_kind === 'weekly') return `每周 ${(config.weekdays || []).map((value: number) => weekdayOptions.find((item) => item.value === value)?.label).filter(Boolean).join('、') || '未选择'} ${time}`;
     if (formValue.schedule_kind === 'monthly') return `每月 ${(config.days || []).join('、') || '未选择'} 日 ${time}`;
-    return '自定义 Cron';
+    return '自定义定时';
   });
   const scheduleKindDescription = computed(() => {
     const descriptions: Record<string, string> = {
@@ -339,26 +381,12 @@
       daily: '每天在指定时间执行',
       weekly: '选择星期和执行时间',
       monthly: '选择每月日期和执行时间',
-      custom: '使用标准五段 Cron 表达式',
+      custom: '使用标准五段定时表达式',
     };
     return descriptions[formValue.schedule_kind] || '';
   });
 
-  const asList = (payload: any): any[] => {
-    if (Array.isArray(payload)) return payload;
-    if (Array.isArray(payload?.list)) return payload.list;
-    if (Array.isArray(payload?.results)) return payload.results;
-    if (Array.isArray(payload?.data)) return payload.data;
-    return [];
-  };
-  function formatDateTime(value: string) {
-    if (!value) return '—';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return new Intl.DateTimeFormat('zh-CN', {
-      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
-    }).format(date);
-  }
+  
   function changeScheduleKind() {
     formValue.next_run = null;
     const config = formValue.schedule_config || (formValue.schedule_config = {});
@@ -398,6 +426,21 @@
       browser: item.browser || 'chromium', runMode: item.run_mode || 'headless',
     };
   }
+  function yamlCaseToSource(item: any): SourceItem {
+    return {
+      key: `yaml_ui-${item.id}`, type: 'yaml_ui', id: item.id,
+      name: item.filename, projectName: item.project_name || '-',
+      stepCount: Number(item.step_count || 0),
+      browser: item.browser || 'chromium', runMode: item.run_mode || 'headless',
+    };
+  }
+  function appCaseToSource(item: any): SourceItem {
+    return {
+      key: `app-${item.id}`, type: 'app', id: item.id, name: item.name,
+      projectName: item.project_name || '-', stepCount: Number(item.step_count || 0),
+      deviceName: item.default_device_name || '未配置默认设备',
+    };
+  }
   function changeType(type: ItemType) {
     activeType.value = type;
     projectFilter.value = null;
@@ -426,6 +469,7 @@
   }
   function itemMeta(item: SourceItem) {
     if (item.type === 'api') return `${item.projectName} · ${item.stepCount} 个步骤`;
+    if (item.type === 'app') return `${item.projectName} · ${item.deviceName} · ${item.stepCount} 个步骤`;
     const mode = item.runMode === 'headed' ? '有界面' : '无头';
     return `${item.projectName} · ${item.browser || 'Chrome'} ${mode} · ${item.stepCount} 个步骤`;
   }
@@ -433,16 +477,20 @@
 
   async function load() {
     try {
-      const [environments, scenarios, uiCases, playwrightCases] = await Promise.all([
+      const [environments, scenarios, uiCases, playwrightCases, yamlCases, appCases] = await Promise.all([
         environmentApi.getDataList({ pageSize: 1000 }),
         scenarioApi.getDataList({ pageSize: 1000 }),
         uiCaseApi.getDataList({ enabled: true, pageSize: 1000 }),
         playwrightCaseApi.getDataList({ enabled: true, pageSize: 1000 }),
+        yamlCaseApi.getDataList({ pageSize: 1000 }),
+        AppTestAPI.cases({ enabled: true, pageSize: 1000 }),
       ]);
       environmentOptions.value = toUniqueEnvironmentOptions(environments);
       apiSources.value = asList(scenarios).map(scenarioToSource);
       uiSources.value = asList(uiCases).map(uiCaseToSource);
       playwrightSources.value = asList(playwrightCases).map(playwrightCaseToSource);
+      yamlSources.value = asList(yamlCases).map(yamlCaseToSource);
+      appSources.value = asList(appCases).filter((item) => item.enabled).map(appCaseToSource);
       if (!id) return;
       const data: any = await api.getDataByID(id);
       Object.assign(formValue, data);
@@ -458,6 +506,7 @@
         : [
             ...(data.scenarios || []).map((itemId: number) => ({ type: 'api' as const, id: itemId })),
             ...(data.ui_cases || []).map((itemId: number) => ({ type: 'ui' as const, id: itemId })),
+            ...(data.app_cases || []).map((itemId: number) => ({ type: 'app' as const, id: itemId })),
           ];
       executionItems.value = plan
         .map((item) => sourceMap.value.get(`${item.type}-${item.id}`))
@@ -471,14 +520,27 @@
   async function save(shouldRun: boolean) {
     const loading = shouldRun ? savingAndRunning : saving;
     try {
-      await formRef.value?.validate();
-      if (!executionItems.value.length) throw new Error('请至少添加一个接口场景或 UI 用例');
-      if (shouldRun && formValue.run_type !== 'O') throw new Error('仅“手动执行”套件可使用保存并执行');
+      try {
+        await formRef.value?.validate();
+      } catch (validationError) {
+        basicInfoEditing.value = true;
+        throw validationError;
+      }
+      if (!executionItems.value.length) throw new Error('请至少添加一个接口、UI 或 App 用例');
       if (shouldRun && !formValue.enabled) throw new Error('请先启用套件再执行');
       if (formValue.run_type === 'C') {
-        if (formValue.schedule_kind === 'once' && !onceAt.value) throw new Error('请选择一次性执行时间');
-        if (formValue.schedule_kind === 'weekly' && !formValue.schedule_config?.weekdays?.length) throw new Error('请至少选择一个执行星期');
-        if (formValue.schedule_kind === 'monthly' && !formValue.schedule_config?.days?.length) throw new Error('请至少选择一个执行日期');
+        if (formValue.schedule_kind === 'once' && !onceAt.value) {
+          basicInfoEditing.value = true;
+          throw new Error('请选择一次性执行时间');
+        }
+        if (formValue.schedule_kind === 'weekly' && !formValue.schedule_config?.weekdays?.length) {
+          basicInfoEditing.value = true;
+          throw new Error('请至少选择一个执行星期');
+        }
+        if (formValue.schedule_kind === 'monthly' && !formValue.schedule_config?.days?.length) {
+          basicInfoEditing.value = true;
+          throw new Error('请至少选择一个执行日期');
+        }
       }
       loading.value = true;
       const payload = {
@@ -500,7 +562,7 @@
       if (shouldRun) {
         const result: any = await api.runById(saved.id);
         message.success(`套件已保存，执行任务 ${result.result_id} 已提交`);
-        router.push({ name: 'suite_report', params: { id: result.result_id } });
+        router.push({ name: 'execution_report', params: { sourceType: 'suite', id: result.result_id } });
         return;
       }
       message.success('套件保存成功');
@@ -524,40 +586,56 @@
   .title-line p { margin: 0; color: #6f7d90; font-size: 14px; }
   .editor-form { max-width: 1540px; margin: 0 auto; }
   .basic-section, .orchestration-section { border: 1px solid #dfe5ed; border-radius: 11px; background: #fff; box-shadow: 0 2px 8px rgba(20, 38, 63, .025); }
-  .basic-section { margin-bottom: 14px; padding: 18px 20px 8px; }.basic-section h2, .section-heading h2 { margin: 0; color: #1d2738; font-size: 18px; font-weight: 720; }
-  .basic-grid { display: grid; grid-template-columns: 1.25fr 1.05fr .9fr 1.75fr 90px; gap: 16px 28px; margin-top: 15px; }
-  .secondary-grid { display: flex; gap: 20px; align-items: flex-start; }.secondary-grid :deep(.n-form-item) { width: 260px; }
+  .basic-section { margin-bottom: 14px; padding: 16px 20px 8px; }
+  .basic-section h2, .section-heading h2 { margin: 0; color: #1d2738; font-size: 18px; font-weight: 720; }
+  .basic-section-head { display: flex; align-items: center; justify-content: space-between; }
+  .basic-section-head p { margin: 4px 0 0; color: #7a8798; font-size: 12px; }
+  .basic-summary-grid { display: grid; grid-template-columns: minmax(180px, 1.25fr) minmax(130px, .8fr) minmax(130px, .72fr) minmax(118px, .62fr) minmax(210px, 1.35fr) 88px; gap: 24px; margin-top: 14px; padding: 13px 0 10px; }
+  .basic-summary-grid.has-webhook, .basic-summary-grid.has-schedule { grid-template-columns: minmax(165px, 1.05fr) minmax(120px, .7fr) minmax(120px, .68fr) minmax(105px, .58fr) minmax(170px, 1fr) minmax(180px, 1fr) 82px; }
+  .summary-item { min-width: 0; }
+  .summary-item > span { display: block; margin-bottom: 6px; color: #8a96a8; font-size: 12px; }
+  .summary-item > strong { display: block; overflow: hidden; color: #273245; font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+  .status-summary strong { display: inline-flex; align-items: center; gap: 7px; }
+  .status-summary i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .status-summary .enabled { color: #16845b; }.status-summary .disabled { color: #8a96a8; }
+  .basic-grid { display: grid; grid-template-columns: minmax(180px, 1.25fr) minmax(130px, .8fr) minmax(130px, .72fr) minmax(118px, .62fr) minmax(210px, 1.35fr) 70px; gap: 16px 18px; align-items: start; margin-top: 14px; }
+  .basic-grid.has-webhook { grid-template-columns: minmax(170px, 1.05fr) minmax(125px, .72fr) minmax(125px, .68fr) minmax(112px, .58fr) minmax(180px, 1fr) minmax(180px, 1fr) 64px; gap: 14px; }
+  .basic-grid :deep(.n-form-item) { min-width: 0; }
+  .basic-grid :deep(.n-input-number) { width: 100%; }
   .enabled-field :deep(.n-form-item-blank) { align-items: center; }.basic-section :deep(.n-form-item-label) { color: #3f4a5c; font-weight: 600; }
   .basic-section :deep(.n-input), .basic-section :deep(.n-base-selection), .basic-section :deep(.n-input-number) { min-height: 42px; }
-  .schedule-config-card { margin: 12px 0 10px; border: 1px solid #dce5f1; border-radius: 9px; overflow: hidden; background: #fbfdff; }
-  .schedule-heading { display: flex; align-items: center; justify-content: space-between; min-height: 66px; padding: 0 16px; border-bottom: 1px solid #e4ebf4; background: #fff; }
+  .schedule-config-card { margin: 16px 0 12px; border: 1px solid #dce5f1; border-radius: 10px; overflow: hidden; background: #fbfdff; }
+  .schedule-heading { display: flex; align-items: center; justify-content: space-between; min-height: 70px; padding: 0 18px; border-bottom: 1px solid #e4ebf4; background: #f8fafc; }
   .schedule-heading h3 { margin: 0 0 5px; color: #26344a; font-size: 15px; }.schedule-heading p { margin: 0; color: #8190a5; font-size: 12px; }
-  .schedule-kind-row { display: flex; gap: 12px; align-items: center; padding: 16px; border-bottom: 1px solid #e8eef6; }.schedule-kind-row > span, .schedule-fields > label > span, .schedule-check-field > span { flex: none; color: #4e5e73; font-size: 13px; font-weight: 650; }.schedule-kind-select { width: 190px; }.schedule-kind-row p { margin: 0; color: #8190a5; font-size: 12px; }
-  .schedule-fields { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-start; padding: 16px; }.schedule-fields > label { display: flex; gap: 10px; align-items: center; }.schedule-fields > label :deep(.n-input), .schedule-fields > label :deep(.n-base-selection), .schedule-fields > label :deep(.n-date-picker) { width: 220px; }
+  .schedule-kind-row { display: flex; gap: 12px; align-items: center; padding: 16px 18px 12px; }.schedule-kind-row > span, .schedule-fields > label > span, .schedule-check-field > span { flex: none; color: #4e5e73; font-size: 13px; font-weight: 650; }.schedule-kind-select { width: 190px; }.schedule-kind-row p { margin: 0; color: #8190a5; font-size: 12px; }
+  .schedule-fields { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-start; padding: 12px 18px 18px; }.schedule-fields > label { display: flex; gap: 10px; align-items: center; }.schedule-fields > label :deep(.n-input), .schedule-fields > label :deep(.n-base-selection), .schedule-fields > label :deep(.n-date-picker) { width: 220px; }
   .schedule-fields .cron-input { min-width: 480px; }.schedule-fields .cron-input :deep(.n-input) { width: 360px; }.timezone-field { margin-left: auto; }.schedule-multi-field :deep(.n-base-selection) { width: 360px !important; }
   .schedule-tip { align-self: center; margin: 0; color: #8190a5; font-size: 12px; }.schedule-preview { display: flex; flex-wrap: wrap; gap: 8px 26px; align-items: center; min-height: 47px; padding: 0 16px; border-top: 1px solid #e4ebf4; color: #718097; font-size: 12px; background: #f4f8ff; }.schedule-preview strong { color: #455772; font-weight: 650; }.schedule-preview code { padding: 3px 6px; border-radius: 3px; color: #246ee1; background: #e6f0ff; }
   .orchestration-section { padding: 18px 20px 20px; }.section-heading { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 14px; }
   .heading-copy { display: flex; gap: 18px; align-items: baseline; }.heading-copy p { margin: 0; color: #7a8798; font-size: 13px; }
   .count-badges { display: flex; gap: 10px; }.count-badge { display: inline-flex; gap: 8px; align-items: center; height: 34px; padding: 0 13px; border: 1px solid; border-radius: 6px; font-size: 13px; font-weight: 650; }
-  .count-badge b { min-width: 18px; text-align: center; }.count-badge.api { border-color: #bdd6ff; color: #1769e8; background: #f5f9ff; }.count-badge.ui { border-color: #dec8ff; color: #7638db; background: #fbf8ff; }.count-badge.playwright { border-color: #bce6d5; color: #0b8a58; background: #f2fcf7; }
+  .count-badge b { min-width: 18px; text-align: center; }.count-badge.api { border-color: #bdd6ff; color: #1769e8; background: #f5f9ff; }.count-badge.ui { border-color: #dec8ff; color: #7638db; background: #fbf8ff; }.count-badge.playwright { border-color: #bce6d5; color: #0b8a58; background: #f2fcf7; }.count-badge.app { border-color: #fed7aa; color: #c2410c; background: #fff7ed; }
   .orchestration-grid { display: grid; grid-template-columns: minmax(390px, 37%) minmax(0, 1fr); min-height: 475px; border: 1px solid #dde4ed; border-radius: 9px; overflow: hidden; }
   .source-panel { display: flex; min-width: 0; flex-direction: column; border-right: 1px solid #dde4ed; background: #fff; }.source-panel h3, .queue-head h3 { margin: 0; color: #273245; font-size: 16px; font-weight: 700; }
-  .source-panel > h3 { padding: 17px 16px 9px; }.source-tabs { display: grid; grid-template-columns: repeat(3, 1fr); padding: 0 14px; border-bottom: 1px solid #e5e9f0; }
+  .source-panel > h3 { padding: 17px 16px 9px; }.source-tabs { display: grid; grid-template-columns: repeat(4, 1fr); padding: 0 14px; border-bottom: 1px solid #e5e9f0; }
   .source-tabs button { display: flex; gap: 8px; align-items: center; justify-content: center; height: 46px; border: 0; border-bottom: 2px solid transparent; color: #344054; font-size: 14px; font-weight: 650; background: transparent; cursor: pointer; }
   .source-tabs button.active { border-bottom-color: #2475ef; color: #1769e8; }.source-filters { display: grid; grid-template-columns: .85fr 1.15fr; gap: 10px; padding: 13px 14px; }
   .source-table-head { display: grid; grid-template-columns: minmax(0, 1fr) 110px 52px; padding: 0 16px 8px 77px; color: #7d8999; font-size: 12px; }
   .source-list { min-height: 270px; max-height: 345px; overflow: auto; border-top: 1px solid #edf0f4; }.source-list :deep(.n-empty) { padding: 70px 0; }
   .source-row { display: grid; grid-template-columns: 22px 28px minmax(0, 1fr) 110px 38px; gap: 8px; align-items: center; min-height: 49px; padding: 0 14px; border-bottom: 1px solid #edf0f4; cursor: pointer; }
   .source-row:hover { background: #f8faff; }.source-row.added { color: #9ba5b3; background: #fafbfc; cursor: default; }.mini-type { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 5px; }
-  .mini-type.api { color: #1769e8; background: #edf5ff; }.mini-type.ui { color: #7638db; background: #f5edff; }.source-name, .source-project { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mini-type.api { color: #1769e8; background: #edf5ff; }.mini-type.ui { color: #7638db; background: #f5edff; }.mini-type.playwright_ui { color: #0b8a58; background: #f2fcf7; }.mini-type.app { color: #c2410c; background: #fff7ed; }.source-name, .source-project { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mini-type.yaml_ui { color: #0b8a58; background: #e9faf1; }
   .source-name { color: #263246; font-size: 13px; font-weight: 600; }.source-row.added .source-name { color: #8e99a8; }.source-project { color: #66758a; font-size: 12px; }.source-count { color: #344054; font-size: 13px; text-align: center; }
   .add-button { height: 42px; margin: auto 14px 14px; }.queue-panel { display: flex; min-width: 0; flex-direction: column; padding: 12px 14px; background: #fbfcfe; }.queue-head { display: flex; align-items: center; justify-content: space-between; min-height: 40px; }
   .queue-list { display: flex; min-height: 0; flex-direction: column; gap: 8px; }.queue-item { display: grid; grid-template-columns: 30px 40px auto minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 58px; padding: 0 13px 0 8px; border: 1px solid #dce3ec; border-radius: 7px; background: #fff; transition: border-color .15s, box-shadow .15s; }
   .queue-item:hover { border-color: #a9c9fb; box-shadow: 0 3px 10px rgba(40, 104, 205, .07); }.queue-ghost { border: 1px dashed #2475ef; background: #edf5ff; opacity: .7; }.drag-handle { display: grid; width: 30px; height: 40px; place-items: center; border: 0; color: #909cac; font-size: 18px; background: transparent; cursor: grab; }.drag-handle:active { cursor: grabbing; }
-  .sequence { color: #253044; font-size: 16px; font-weight: 720; }.type-badge { display: inline-flex; gap: 6px; align-items: center; height: 30px; padding: 0 10px; border: 1px solid; border-radius: 6px; font-size: 13px; font-weight: 650; }.type-badge.api { border-color: #bfd6ff; color: #1769e8; background: #f4f8ff; }.type-badge.ui { border-color: #dec8ff; color: #7638db; background: #fbf8ff; }
+  .sequence { color: #253044; font-size: 16px; font-weight: 720; }.type-badge { display: inline-flex; gap: 6px; align-items: center; height: 30px; padding: 0 10px; border: 1px solid; border-radius: 6px; font-size: 13px; font-weight: 650; }.type-badge.api { border-color: #bfd6ff; color: #1769e8; background: #f4f8ff; }.type-badge.ui { border-color: #dec8ff; color: #7638db; background: #fbf8ff; }.type-badge.playwright_ui { border-color: #bce6d5; color: #0b8a58; background: #f2fcf7; }.type-badge.app { border-color: #fed7aa; color: #c2410c; background: #fff7ed; }
+  .type-badge.yaml_ui { border-color: #bce6d5; color: #0b8a58; background: #e9faf1; }
   .queue-copy { display: flex; min-width: 0; gap: 18px; align-items: baseline; }.queue-copy strong { overflow: hidden; color: #202b3d; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }.queue-copy span { overflow: hidden; color: #738096; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.queue-actions { display: flex; gap: 8px; align-items: center; white-space: nowrap; }.queue-empty { padding: 100px 0; }
   .execution-rule { display: flex; gap: 10px; align-items: center; min-height: 48px; margin-top: auto; padding: 0 14px; border: 1px solid #d8e8ff; border-radius: 7px; color: #3672c8; font-size: 12px; background: #eff6ff; }.execution-rule > .n-icon { flex: none; color: #1769e8; font-size: 22px; }
   .sticky-actions { position: fixed; z-index: 12; right: 0; bottom: 0; left: 0; display: flex; gap: 12px; align-items: center; justify-content: flex-end; padding: 12px 34px; border-top: 1px solid #dfe5ed; background: rgba(255, 255, 255, .96); box-shadow: 0 -4px 18px rgba(31, 48, 73, .05); backdrop-filter: blur(8px); }.sticky-actions .n-button { min-width: 140px; }
-  @media (max-width: 1180px) { .basic-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.enabled-field { grid-column: span 2; }.orchestration-grid { grid-template-columns: 1fr; }.source-panel { border-right: 0; border-bottom: 1px solid #dde4ed; }.source-list { max-height: 260px; }.queue-panel { min-height: 440px; } }
-  @media (max-width: 720px) { .suite-editor-page { padding: 14px 14px 90px; }.page-header, .title-line, .section-heading, .heading-copy { align-items: flex-start; flex-direction: column; }.page-header { gap: 14px; }.basic-grid { grid-template-columns: 1fr; }.enabled-field { grid-column: auto; }.secondary-grid { flex-direction: column; }.secondary-grid :deep(.n-form-item) { width: 100%; }.schedule-kind-row, .schedule-fields, .schedule-fields > label { align-items: flex-start; flex-direction: column; }.schedule-kind-row { gap: 10px; }.schedule-kind-select { width: 100%; }.schedule-fields .cron-input, .schedule-fields .cron-input :deep(.n-input), .schedule-fields > label :deep(.n-input), .schedule-fields > label :deep(.n-base-selection), .schedule-fields > label :deep(.n-date-picker), .schedule-multi-field :deep(.n-base-selection) { width: 100% !important; min-width: 0; }.timezone-field { margin-left: 0; }.orchestration-grid { grid-template-columns: minmax(0, 1fr); }.queue-item { grid-template-columns: 28px 34px auto minmax(0, 1fr); }.queue-actions { grid-column: 4; }.queue-copy { flex-direction: column; gap: 2px; }.sticky-actions { padding: 10px 14px; } }
+  @media (max-width: 1180px) { .basic-grid, .basic-grid.has-webhook, .basic-summary-grid, .basic-summary-grid.has-webhook, .basic-summary-grid.has-schedule { grid-template-columns: repeat(2, minmax(0, 1fr)); }.summary-item { padding: 10px 0; }.enabled-field { grid-column: span 2; }.orchestration-grid { grid-template-columns: 1fr; }.source-panel { border-right: 0; border-bottom: 1px solid #dde4ed; }.source-list { max-height: 260px; }.queue-panel { min-height: 440px; } }
+  @media (max-width: 720px) { .suite-editor-page { padding: 14px 14px 90px; }.page-header, .title-line, .section-heading, .heading-copy { align-items: flex-start; flex-direction: column; }.page-header { gap: 14px; }.basic-section-head { align-items: flex-start; gap: 8px; }.basic-grid, .basic-grid.has-webhook, .basic-summary-grid, .basic-summary-grid.has-webhook, .basic-summary-grid.has-schedule { grid-template-columns: 1fr; }.enabled-field { grid-column: auto; }.schedule-kind-row, .schedule-fields, .schedule-fields > label { align-items: flex-start; flex-direction: column; }.schedule-kind-row { gap: 10px; }.schedule-kind-select { width: 100%; }.schedule-fields .cron-input, .schedule-fields .cron-input :deep(.n-input), .schedule-fields > label :deep(.n-input), .schedule-fields > label :deep(.n-base-selection), .schedule-fields > label :deep(.n-date-picker), .schedule-multi-field :deep(.n-base-selection) { width: 100% !important; min-width: 0; }.timezone-field { margin-left: 0; }.orchestration-grid { grid-template-columns: minmax(0, 1fr); }.queue-item { grid-template-columns: 28px 34px auto minmax(0, 1fr); }.queue-actions { grid-column: 4; }.queue-copy { flex-direction: column; gap: 2px; }.sticky-actions { padding: 10px 14px; } }
+
 </style>

@@ -197,7 +197,10 @@
                 <div class="security-title"
                   ><strong>允许执行 UPDATE</strong><n-switch v-model:value="formValue.allow_write"
                 /></div>
-                <p>仅允许包含 WHERE 条件的 UPDATE，不支持 DELETE、INSERT</p>
+                <div class="security-title"
+                  ><strong>允许执行 DELETE</strong><n-switch v-model:value="formValue.allow_delete"
+                /></div>
+                <p>UPDATE 和 DELETE 均必须包含 WHERE 条件，不支持 INSERT</p>
                 <div class="security-tags"
                   ><span>WHERE 必填</span><span>二次确认</span><span>记录审计</span></div
                 >
@@ -225,6 +228,12 @@
               @click="changeSqlMode('update')"
               >UPDATE 更新</button
             >
+            <button
+              type="button"
+              :class="{ active: sqlMode === 'delete' }"
+              @click="changeSqlMode('delete')"
+              >DELETE 删除</button
+            >
           </div>
         </div>
         <n-button type="primary" :loading="sqlTesting" @click="testSql"
@@ -249,9 +258,9 @@
               >返回 <strong>{{ resultRowCount }}</strong> 行 · {{ sqlResult.elapsed_ms }} ms</span
             ><span v-else>等待执行结果</span></div
           >
-          <div v-if="sqlResult?.operation === 'update'" class="update-result"
+          <div v-if="['update', 'delete'].includes(sqlResult?.operation)" class="update-result"
             ><strong>{{ sqlResult.affected_rows || 0 }}</strong
-            ><span>行数据已更新</span></div
+            ><span>行数据已{{ sqlResult.operation === 'delete' ? '删除' : '更新' }}</span></div
           >
           <div v-else-if="sqlRows.length" class="result-table-wrap">
             <table>
@@ -327,8 +336,9 @@
   import { DatabaseConnectionAPI, ProjectAPI } from '@/api/project/http';
   import type { DatabaseConnection } from '@/api/project/models';
   import { useSubmitRedirect } from '@/hooks/web/useSubmitRedirect';
+  import { formatDateTime } from '@/utils/time';
 
-  type SqlMode = 'select' | 'update';
+  type SqlMode = 'select' | 'update' | 'delete';
   type ConnectionState = { connected: boolean; text: string; elapsed_ms?: number };
   const route = useRoute();
   const router = useRouter();
@@ -369,6 +379,7 @@
     ssl_mode: 'preferred',
     connect_timeout: 10,
     allow_write: false,
+    allow_delete: false,
     enabled: true,
   });
   const formValue = reactive<DatabaseConnection>(initial());
@@ -493,16 +504,14 @@
   function changeSqlMode(mode: SqlMode) {
     sqlMode.value = mode;
     sqlResult.value = null;
-    testSqlText.value =
-      mode === 'update'
-        ? "UPDATE orders SET status = 'PAID' WHERE order_id = 1001;"
-        : 'SELECT id, amount, status\nFROM orders\nWHERE user_id = 1001\nLIMIT 10;';
-  }
-  function formatDateTime(date: Date) {
-    const pad = (value: number) => String(value).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
-      date.getHours()
-    )}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    if (mode === 'update') {
+      testSqlText.value = "UPDATE orders SET status = 'PAID' WHERE order_id = 1001;";
+    } else if (mode === 'delete') {
+      testSqlText.value = 'DELETE FROM orders WHERE order_id = 1001;';
+    } else {
+      testSqlText.value =
+        'SELECT id, amount, status\nFROM orders\nWHERE user_id = 1001\nLIMIT 10;';
+    }
   }
   function formatCell(value: unknown) {
     if (value === null) return 'null';
@@ -542,15 +551,19 @@
       await validate();
       if (!testSqlText.value.trim()) return message.warning('请输入 SQL');
       const isUpdate = /^\s*update\b/i.test(testSqlText.value);
+      const isDelete = /^\s*delete\b/i.test(testSqlText.value);
       if (isUpdate && !formValue.allow_write)
         return message.warning('请先开启“允许执行 UPDATE”并保存连接配置');
-      if (isUpdate && !window.confirm('将对目标数据库执行 UPDATE，确认继续吗？')) return;
+      if (isDelete && !formValue.allow_delete)
+        return message.warning('请先开启“允许执行 DELETE”并保存连接配置');
+      const writeOperation = isUpdate ? 'UPDATE' : isDelete ? 'DELETE' : '';
+      if (writeOperation && !window.confirm(`将对目标数据库执行 ${writeOperation}，确认继续吗？`)) return;
       sqlTesting.value = true;
       sqlResult.value = await api.testSql({
         ...formValue,
         id,
         sql: testSqlText.value,
-        confirm_write: isUpdate,
+        confirm_write: Boolean(writeOperation),
       });
       message.success('SQL 校验成功');
     } catch (error: any) {
@@ -927,6 +940,11 @@
     justify-content: space-between;
     color: #8b4c08;
     font-size: 14px;
+  }
+  .security-title + .security-title {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #f3d39e;
   }
   .security-copy p {
     margin: 4px 0 9px;

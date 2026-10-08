@@ -25,6 +25,7 @@ from fullstack_framework.commons.api_executor import (
 from project.models import Environment, response_indicates_expired_token
 from project.runtime_token import RuntimeTokenState
 from suite.reporting import load_variable_resolution, recalculate_native_report, record_variable_resolution
+from suite.execution_log import format_log_payload, write_execution_log
 
 logger = logging.getLogger(__name__)
 NATIVE_RESPONSE_BODY_PREVIEW_BYTES = 100 * 1024
@@ -80,7 +81,7 @@ else:
     project_token_fallbacks = {}
 runtime_token_state = RuntimeTokenState(extrac_data, project_token_fallbacks)
 
-logger.info(f"{extrac_data=}")
+logger.info("运行变量已加载：%s 项（变量值已隐藏）", len(extrac_data))
 
 
 def substitute_variables(content: str, variables=None, project_id=None, environment_name=None) -> str:
@@ -158,7 +159,7 @@ def _persist_extracted(values, case_info=None):
         extrac_data[name] = value
         if case_info and getattr(case_info, "project_id", None):
             extrac_data[f"project_{case_info.project_id}.{name}"] = value
-        logger.info(f"提取到变量 {name} = {value}")
+        logger.info("提取到变量 %s（变量值已隐藏）", name)
         if name.startswith("session_"):
             params = session.params or {}
             params[name[8:]] = value
@@ -305,20 +306,36 @@ def _execute_case_info(case_info):
     global _last_api_step_finished_at
     _wait_for_api_step_interval(case_info.test_name)
     started_at_display = datetime.now().astimezone().isoformat()
+    request_template = case_info.request or {}
+    write_execution_log(
+        f"接口步骤开始：{case_info.test_name} · "
+        f"{str(request_template.get('method') or '').upper()} {request_template.get('url') or ''}"
+    )
     _mark_native_step_running(case_info, started_at_display)
 
     auth_refreshed = False
+    request_logged = False
+    environment = Environment.objects.filter(
+        project_id=case_info.project_id, name=case_info.environment_name
+    ).first()
 
     def request_func(request_data, timeout, attempt):
-        nonlocal auth_refreshed
+        nonlocal auth_refreshed, request_logged
         request_payload = dict(request_data)
         request_payload.setdefault("timeout", timeout)
         request_payload["interface_name"] = case_info.test_name
-        environment = Environment.objects.filter(
-            project_id=case_info.project_id, name=case_info.environment_name
-        ).first()
         if environment:
             runtime_token_state.apply(environment, request_payload)
+        if not request_logged:
+            request_method = str(request_payload.get("method") or "").upper()
+            request_url = str(request_payload.get("url") or "")
+            parameter_keys = ("headers", "params", "json", "data", "files")
+            write_execution_log(f"请求接口：{request_method} {request_url}")
+            for key in parameter_keys:
+                value = request_payload.get(key)
+                if value not in (None, "", {}, []):
+                    write_execution_log(f"请求 {key}：{format_log_payload(value)}")
+            request_logged = True
         response = session.request(**request_payload)
         if (
             environment
@@ -360,6 +377,36 @@ def _execute_case_info(case_info):
             assertions=execution.assertions, extracted=execution.extracted, attempts=len(execution.attempts),
             duration=execution.duration_seconds, exception=execution.exception, started_at=started_at_display,
         )
+        executed_request = execution.request or request_template
+        method = str(executed_request.get("method") or request_template.get("method") or "").upper()
+        url = executed_request.get("url") or request_template.get("url") or ""
+        status_code = getattr(execution.response, "status_code", None)
+        if execution.response is not None:
+            try:
+                response_result = execution.response.json()
+            except (TypeError, ValueError):
+                response_result = getattr(execution.response, "text", "")
+            write_execution_log(
+                f"响应状态：HTTP {status_code if status_code is not None else '-'}"
+            )
+            write_execution_log(f"响应结果：{format_log_payload(response_result)}")
+        assertion_total = len(execution.assertions or [])
+        assertion_passed = sum(1 for item in (execution.assertions or []) if item.get("passed"))
+        extracted_names = "、".join(str(name) for name in (execution.extracted or {}).keys())
+        summary = (
+            f"{method} {url} · HTTP {status_code if status_code is not None else '-'} · "
+            f"{round(float(execution.duration_seconds or 0) * 1000, 2)} ms · "
+            f"尝试 {len(execution.attempts or []) or 1} 次"
+        )
+        if assertion_total:
+            summary += f" · 断言 {assertion_passed}/{assertion_total}"
+        if extracted_names:
+            summary += f" · 提取变量：{extracted_names}"
+        if execution.passed:
+            write_execution_log(f"接口步骤通过：{case_info.test_name} · {summary}", "SUCCESS")
+        else:
+            errors = "；".join(str(error) for error in (execution.errors or [])) or str(execution.exception or "未知错误")
+            write_execution_log(f"接口步骤失败：{case_info.test_name} · {summary} · {errors}", "ERROR")
         return execution
     finally:
         # 无论请求、断言还是报告写入是否异常，后续接口都从此时开始计算间隔。

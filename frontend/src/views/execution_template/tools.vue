@@ -25,7 +25,8 @@
         </aside>
 
         <main class="tool-workspace">
-          <section v-if="activeTool === 'json'" class="tool-panel">
+          <ExcelToCsv v-if="activeTool === 'csv'" />
+          <section v-else-if="activeTool === 'json'" class="tool-panel">
             <div class="panel-heading"><div><h3>JSON 格式化</h3><p>格式化、校验或压缩 JSON 数据</p></div></div>
             <div class="editor-grid">
               <div class="editor-block"><label>原始数据</label><n-input v-model:value="jsonInput" type="textarea" :autosize="editorSize" placeholder="请输入 JSON" /></div>
@@ -103,10 +104,11 @@
 
 <script setup lang="ts">
   import { markRaw, ref } from 'vue';
+  import ExcelToCsv from './ExcelToCsv.vue';
   import { useMessage } from 'naive-ui';
   import { PhArrowsLeftRight, PhBracketsCurly, PhCaretRight, PhCheckCircle, PhClock, PhFingerprint, PhTextAa, PhWarningCircle } from '@phosphor-icons/vue';
 
-  type ToolKey = 'json' | 'jsonDiff' | 'uuid' | 'timestamp' | 'base64';
+  type ToolKey = 'json' | 'jsonDiff' | 'uuid' | 'timestamp' | 'base64' | 'csv';
   type DiffKind = 'added' | 'removed' | 'changed' | 'type';
   interface JsonDifference { path: string; kind: DiffKind; left?: unknown; right?: unknown }
 
@@ -114,6 +116,7 @@
   const activeTool = ref<ToolKey>('json');
   const editorSize = { minRows: 12, maxRows: 20 };
   const tools = [
+    { key: 'csv' as const, name: 'Excel 转 CSV', description: '工作表转换与下载', icon: markRaw(PhArrowsLeftRight) },
     { key: 'json' as const, name: 'JSON 格式化', description: '格式化、压缩与校验', icon: markRaw(PhBracketsCurly) },
     { key: 'jsonDiff' as const, name: 'JSON 对比', description: '对比两份 JSON 差异', icon: markRaw(PhArrowsLeftRight) },
     { key: 'uuid' as const, name: 'UUID 生成', description: '批量生成唯一标识', icon: markRaw(PhFingerprint) },

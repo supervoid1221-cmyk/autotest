@@ -1,6 +1,6 @@
 import { h, unref } from 'vue';
 import type { App, Plugin, Component } from 'vue';
-import { NIcon, NTag } from 'naive-ui';
+import { NBadge, NIcon, NTag } from 'naive-ui';
 import { PageEnum } from '@/enums/pageEnum';
 import { isObject } from './is/index';
 import { cloneDeep } from 'lodash-es';
@@ -8,8 +8,9 @@ import { cloneDeep } from 'lodash-es';
  * render 图标
  * */
 export function renderIcon(icon) {
-  // 菜单图标统一使用 Phosphor 实心填充（fill）风格，与文字同色更协调
-  return () => h(NIcon, null, { default: () => h(icon, { weight: 'fill' }) });
+  // 菜单图标统一使用 Phosphor 线性（regular）风格，与「左侧菜单优化原型」保持一致。
+  // 实心（fill）在 18px 下视觉过重、显大，与 13.5px 文字不协调。
+  return () => h(NIcon, null, { default: () => h(icon, { weight: 'regular' }) });
 }
 /**
  * font 图标(Font class)
@@ -53,19 +54,43 @@ export function renderNew(type = 'warning', text = 'New', color: object = newTag
 }
 
 /**
+ * 一级菜单分组顺序（对应路由 meta.group）
+ * 未声明 group、或 group 不在该列表中的菜单项，统一归入"其他"排在最后。
+ */
+export const MENU_GROUP_ORDER: string[] = ['工作区', '测试资产', '执行与报告', '系统'];
+
+/**
  * 递归组装菜单格式
  */
 export function generatorMenu(routerMap: Array<any>) {
   return filterRouter(routerMap).map((item) => {
     const isRoot = isRootRouter(item);
-    const info = isRoot ? item.children[0] : item;
-    const currentMenu = {
+    const info = isRoot
+      ? item.children.find((child) => !Boolean(child?.meta?.hidden))
+      : item;
+    const currentMenu: Recordable = {
       ...info,
       ...info.meta,
       label: info.meta?.title,
       key: info.name,
       icon: isRoot ? item.meta?.icon : info.meta?.icon,
+      // 分组信息挂在顶层 meta 上；isRoot 提升时 info 是子项，需要回退到 item.meta
+      group: item.meta?.group || info.meta?.group,
     };
+    // meta.badge：在菜单项右侧显示数字徽标（如待处理告警数）
+    if (info.meta?.badge) {
+      currentMenu.extra = () =>
+        h(
+          NBadge as any,
+          {
+            value: info.meta.badge,
+            type: info.meta.badgeType || 'error',
+            max: 99,
+            'show-zero': false,
+          },
+          null
+        );
+    }
     // 是否有子菜单，并递归处理
     if (info.children && info.children.length > 0) {
       // Recursion
@@ -73,6 +98,40 @@ export function generatorMenu(routerMap: Array<any>) {
     }
     return currentMenu;
   });
+}
+
+/**
+ * 按 meta.group 把一级菜单包装成 NMenu 的分组节点（带分组标题）。
+ * 分组内按 meta.sort 升序排列；没有任何分组声明时原样返回，保证 mixMenu 等既有用法不受影响。
+ */
+export function generatorMenuGroup(routerMap: Array<any>) {
+  const items = generatorMenu(routerMap);
+  const grouped = new Map<string, any[]>();
+  const rest: any[] = [];
+  items.forEach((item) => {
+    const name: string = item.group || '';
+    if (name && MENU_GROUP_ORDER.includes(name)) {
+      if (!grouped.has(name)) grouped.set(name, []);
+      (grouped.get(name) as any[]).push(item);
+    } else {
+      rest.push(item);
+    }
+  });
+  const result: any[] = [];
+  MENU_GROUP_ORDER.forEach((name) => {
+    const list = grouped.get(name);
+    if (!list || !list.length) return;
+    list.sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+    result.push({
+      type: 'group',
+      key: `__group_${name}`,
+      // NMenu 的分组节点读 title；同时给 label，兼容不同版本取值差异
+      title: name,
+      label: name,
+      children: list,
+    });
+  });
+  return result.concat(rest);
 }
 
 /**
@@ -85,7 +144,9 @@ export function generatorMenuMix(routerMap: Array<any>, routerName: string, loca
     const firstRouter: any[] = [];
     newRouter.forEach((item) => {
       const isRoot = isRootRouter(item);
-      const info = isRoot ? item.children[0] : item;
+      const info = isRoot
+        ? item.children.find((child) => !Boolean(child?.meta?.hidden))
+        : item;
       info.children = undefined;
       const currentMenu = {
         ...info,
@@ -107,7 +168,9 @@ export function generatorMenuMix(routerMap: Array<any>, routerName: string, loca
 export function getChildrenRouter(routerMap: Array<any>) {
   return filterRouter(routerMap).map((item) => {
     const isRoot = isRootRouter(item);
-    const info = isRoot ? item.children[0] : item;
+    const info = isRoot
+      ? item.children.find((child) => !Boolean(child?.meta?.hidden))
+      : item;
     const currentMenu = {
       ...info,
       ...info.meta,
@@ -159,32 +222,15 @@ export const withInstall = <T extends Component>(component: T, alias?: string) =
 /**
  *  找到对应的节点
  * */
-let result = null;
 export function getTreeItem(data: any[], key?: string | number): any {
-  data.map((item) => {
-    if (item.key === key) {
-      result = item;
-    } else {
-      if (item.children && item.children.length) {
-        getTreeItem(item.children, key);
-      }
+  for (const item of data) {
+    if (item.key === key) return item;
+    if (item.children?.length) {
+      const matched = getTreeItem(item.children, key);
+      if (matched) return matched;
     }
-  });
-  return result;
-}
-
-/**
- *  找到所有节点
- * */
-const treeAll: any[] = [];
-export function getTreeAll(data: any[]): any[] {
-  data.map((item) => {
-    treeAll.push(item.key);
-    if (item.children && item.children.length) {
-      getTreeAll(item.children);
-    }
-  });
-  return treeAll;
+  }
+  return null;
 }
 
 // dynamic use hook props

@@ -1,9 +1,16 @@
 <template>
-  <div class="logo">
-    <img :src="websiteConfig.logo" alt="" :class="{ 'mr-2': !collapsed }" />
+  <div class="logo" :class="{ 'logo-collapsed': collapsed }">
+    <img
+      v-if="websiteConfig.platformIcon"
+      class="logo-image"
+      :class="{ 'logo-image--contrast': websiteConfig.logoNeedsContrastPlate }"
+      :src="websiteConfig.platformIcon"
+      alt="平台图标"
+    />
+    <span v-else class="logo-mark" aria-hidden="true">TP</span>
     <div v-show="!collapsed" class="logo-text">
-      <span class="logo-en">{{ websiteConfig.enTitle }}</span>
       <span class="logo-cn">{{ websiteConfig.title }}</span>
+      <span class="logo-en">{{ websiteConfig.enTitle }}</span>
     </div>
   </div>
 </template>
@@ -31,39 +38,73 @@
     align-items: center;
     justify-content: flex-start;
     height: 60px;
-    padding: 0 20px;
+    gap: 11px;
+    padding: 0 16px;
     overflow: hidden;
     white-space: nowrap;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid #eef2f7;
 
-    img {
-      width: 42px;
-      height: 42px;
-      object-fit: contain;
+    .logo-mark {
+      display: inline-grid;
+      width: 32px;
+      height: 32px;
+      place-items: center;
       flex-shrink: 0;
+      border-radius: 9px;
+      color: #fff;
+      background: linear-gradient(135deg, #2563eb, #4f8ef7);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .logo-image {
+      width: 32px;
+      height: 32px;
+      box-sizing: border-box;
+      flex-shrink: 0;
+      border-radius: 8px;
+      object-fit: contain;
+    }
+
+    .logo-image--contrast {
+      padding: 4px;
+      border: 1px solid #cfd5dc;
+      background: #eef1f3;
     }
 
     .logo-text {
       display: flex;
       flex-direction: column;
-      margin-left: 12px;
-      line-height: 1.15;
+      min-width: 0;
+      line-height: 1.2;
     }
 
     .logo-en {
+      margin-top: 2px;
       font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.14em;
+      font-weight: 400;
+      letter-spacing: 0.1em;
       color: #94a3b8;
       text-transform: uppercase;
     }
 
     .logo-cn {
-      margin-top: 3px;
       color: #0f172a;
-      font-size: 15px;
-      font-weight: 500;
-      letter-spacing: -0.01em;
+      font-size: 14px;
+      font-weight: 600;
+    }
+  }
+
+  .logo-collapsed {
+    justify-content: center;
+    gap: 0;
+    padding-right: 0;
+    padding-left: 0;
+
+    .logo-image,
+    .logo-mark {
+      width: 34px;
+      height: 34px;
     }
   }
 </style>

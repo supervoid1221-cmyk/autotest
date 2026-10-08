@@ -25,18 +25,35 @@
       </div>
     </div>
 
-    <n-form ref="formRef" :model="form" :rules="rules" label-placement="left" label-width="90">
+    <n-form
+      ref="formRef"
+      :model="form"
+      :rules="rules"
+      label-placement="left"
+      label-width="90"
+      autocomplete="off"
+    >
       <div class="cols">
         <!-- 左列 -->
         <div class="col">
           <n-card class="card">
             <template #header><span class="ttl">基本资料</span></template>
             <n-form-item label="用户名" path="username">
-              <n-input v-model:value="form.username" :disabled="!!dataID" placeholder="请输入用户名" />
+              <n-input
+                v-model:value="form.username"
+                :disabled="!!dataID"
+                :input-props="{ name: 'new-user-username', autocomplete: 'off' }"
+                placeholder="请输入用户名"
+              />
             </n-form-item>
             <n-form-item label="登录密码" :path="dataID ? '' : 'password'">
-              <n-input v-model:value="form.password" type="password" show-password-on="click"
-                :placeholder="dataID ? '留空则不修改密码' : '至少 6 位'" />
+              <n-input
+                v-model:value="form.password"
+                type="password"
+                show-password-on="click"
+                :input-props="{ name: 'new-user-password', autocomplete: 'new-password' }"
+                :placeholder="dataID ? '留空则不修改密码' : '至少 6 位'"
+              />
             </n-form-item>
             <n-form-item v-if="isAdmin" label="账号状态">
               <n-switch v-model:value="form.is_active">

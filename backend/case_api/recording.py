@@ -11,6 +11,8 @@ SENSITIVE_NAME = re.compile(r"(?:authorization|token|secret|password|passwd|cook
 # HTTP/2 的 :authority、:method、:path、:scheme 是伪请求头，不能作为
 # requests 的普通 Header 发送；浏览器运行时信息也不应持久化为接口配置。
 DROP_HEADER = re.compile(r"^(?::|host|content-length|connection|accept-encoding|cookie|set-cookie|origin|referer|user-agent|proxy-connection|sec-)", re.I)
+# 这些头由客户端按当次请求生成，录制值在回放时已过期，并且会触发网关的防重放校验。
+VOLATILE_HEADER_NAMES = frozenset({"x-timestamp", "x-nonce", "x-signature"})
 
 
 def _as_object(value: Any) -> dict[str, Any]:
@@ -33,6 +35,21 @@ def _headers(value: Any) -> dict[str, str]:
     else:
         entries = []
     return {str(key): str(item) for key, item in entries if key and item is not None}
+
+
+def sanitize_recorded_headers(value: Any) -> dict[str, str]:
+    """只保留可安全回放的录制请求头。
+
+    解析 HAR 和导入落库都必须调用该函数，避免客户端绕过解析阶段后
+    把一次性签名、时间戳或认证信息重新写入接口配置。
+    """
+    return {
+        key: _redact(item, key)
+        for key, item in _headers(value).items()
+        if not DROP_HEADER.search(key)
+        and not SENSITIVE_NAME.search(key)
+        and key.strip().lower() not in VOLATILE_HEADER_NAMES
+    }
 
 
 def _redact(value: Any, key: str = "") -> Any:
@@ -83,11 +100,7 @@ def normalize_record(raw: dict[str, Any], index: int = 0) -> dict[str, Any]:
     body, body_type = _body_to_object(post_data, content_type)
     # 认证信息由项目的“环境与认证”统一注入；不能保存一次性的
     # Authorization/Token，否则会覆盖运行期认证并导致回放失败。
-    kept_headers = {
-        key: _redact(value, key)
-        for key, value in headers.items()
-        if not DROP_HEADER.search(key) and not SENSITIVE_NAME.search(key)
-    }
+    kept_headers = sanitize_recorded_headers(headers)
     status_code = int(response.get("status") or raw.get("status_code") or raw.get("status") or 0)
     response_content = response.get("content", {}) if isinstance(response.get("content"), dict) else {}
     response_body = raw.get("response_body") or raw.get("responseBody") or response_content.get("text", "")

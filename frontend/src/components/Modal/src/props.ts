@@ -12,8 +12,8 @@ export const basicProps = {
     default: false,
   },
   width: {
-    type: Number,
-    default: 446,
+    type: [Number, String],
+    default: 'min(1100px, calc(100vw - 48px))',
   },
   title: {
     type: String,

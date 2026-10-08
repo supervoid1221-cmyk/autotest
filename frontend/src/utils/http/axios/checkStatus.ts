@@ -2,13 +2,13 @@ export function checkStatus(status: number, msg: string): void {
   const $message = window['$message'];
   switch (status) {
     case 400:
-      $message.error(msg);
+      $message.error(msg || '请求参数有误，请检查填写内容');
       break;
     // 401: 未登录
     // 未登录则跳转登录页面，并携带当前页面的路径
     // 在登录成功后返回当前页面，这一步需要在登录页操作。
     case 401:
-      $message.error('用户没有权限（令牌、用户名、密码错误）!');
+      $message.warning(msg || '登录已过期，请重新登录激活');
       break;
     case 403:
       $message.error('用户得到授权，但是访问是被禁止的。!');
@@ -22,6 +22,11 @@ export function checkStatus(status: number, msg: string): void {
       break;
     case 408:
       $message.error('网络请求超时');
+      break;
+    // 409: 冲突。租户存储配额不足、套件停用、设备占用等都走这个码，
+    // 后端会把具体原因放在 detail 里，优先展示它而不是一句笼统的冲突提示。
+    case 409:
+      $message.error(msg || '当前操作存在冲突，请刷新页面后重试');
       break;
     case 500:
       $message.error('服务器错误,请联系管理员!');
@@ -42,6 +47,7 @@ export function checkStatus(status: number, msg: string): void {
       $message.error('http版本不支持该请求!');
       break;
     default:
-      $message.error(msg);
+      // 兜底：取不到后端文案时也要给一句可读的提示，否则会弹出一个空白 toast。
+      $message.error(msg || '请求失败，请稍后重试');
   }
 }

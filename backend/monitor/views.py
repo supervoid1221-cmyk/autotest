@@ -1,10 +1,12 @@
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from account.access import is_system_admin
+from account.tenancy import get_request_tenant, validate_tenant_relations
 from project.access import project_access_q, require_project_manager
 from .models import MonitorAlertEvent, MonitorCheckSettings, MonitorCluster, MonitorNotificationDelivery, MonitorNotificationRule, MonitorTarget, PrometheusInstance, ServiceMonitor, ServiceMonitorEvent
 from .serializers import MonitorAlertEventSerializer, MonitorCheckSettingsSerializer, MonitorClusterSerializer, MonitorNotificationDeliverySerializer, MonitorNotificationRuleSerializer, MonitorTargetSerializer, PrometheusInstanceSerializer, ServiceMonitorEventSerializer, ServiceMonitorSerializer
@@ -14,13 +16,30 @@ from .services import PrometheusRequestError, evaluate_alerts, record_service_st
 class MonitorClusterViewSet(viewsets.ModelViewSet):
     queryset = MonitorCluster.objects.select_related("project", "prometheus", "server").all(); serializer_class = MonitorClusterSerializer
     def get_queryset(self):
-        queryset = self.queryset.all()
+        queryset = self.queryset.filter(tenant=get_request_tenant(self.request))
         if not is_system_admin(self.request.user): queryset = queryset.filter(project__pm=self.request.user)
         project = self.request.query_params.get("project")
         return queryset.filter(project_id=project) if project else queryset
-    def perform_create(self, serializer): require_project_manager(self.request.user, serializer.validated_data["project"]); serializer.save(created_by=self.request.user)
+    def perform_create(self, serializer):
+        project = serializer.validated_data["project"]
+        validate_tenant_relations(
+            self.request, project=project,
+            prometheus=serializer.validated_data.get("prometheus"),
+            server=serializer.validated_data.get("server"),
+        )
+        require_project_manager(self.request.user, project)
+        serializer.save(tenant=get_request_tenant(self.request), created_by=self.request.user)
     def perform_update(self, serializer):
-        cluster = self.get_object(); require_project_manager(self.request.user, cluster.project); require_project_manager(self.request.user, serializer.validated_data.get("project", cluster.project)); serializer.save()
+        cluster = self.get_object()
+        require_project_manager(self.request.user, cluster.project)
+        target_project = serializer.validated_data.get("project", cluster.project)
+        validate_tenant_relations(
+            self.request, project=target_project,
+            prometheus=serializer.validated_data.get("prometheus", cluster.prometheus),
+            server=serializer.validated_data.get("server", cluster.server),
+        )
+        require_project_manager(self.request.user, target_project)
+        serializer.save()
     def perform_destroy(self, instance): require_project_manager(self.request.user, instance.project); instance.delete()
     @action(detail=True, methods=["post"], url_path="sync")
     def sync(self, request, pk=None):
@@ -35,7 +54,7 @@ class PrometheusInstanceViewSet(viewsets.ModelViewSet):
     serializer_class = PrometheusInstanceSerializer
 
     def get_queryset(self):
-        queryset = self.queryset.all()
+        queryset = self.queryset.filter(tenant=get_request_tenant(self.request))
         if not is_system_admin(self.request.user):
             queryset = queryset.filter(project__pm=self.request.user)
         project = self.request.query_params.get("project")
@@ -44,13 +63,17 @@ class PrometheusInstanceViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        require_project_manager(self.request.user, serializer.validated_data["project"])
-        serializer.save(created_by=self.request.user)
+        project = serializer.validated_data["project"]
+        validate_tenant_relations(self.request, project=project)
+        require_project_manager(self.request.user, project)
+        serializer.save(tenant=get_request_tenant(self.request), created_by=self.request.user)
 
     def perform_update(self, serializer):
         instance = self.get_object()
         require_project_manager(self.request.user, instance.project)
-        require_project_manager(self.request.user, serializer.validated_data.get("project", instance.project))
+        target_project = serializer.validated_data.get("project", instance.project)
+        validate_tenant_relations(self.request, project=target_project)
+        require_project_manager(self.request.user, target_project)
         serializer.save()
 
     def perform_destroy(self, instance):
@@ -75,7 +98,7 @@ class MonitorTargetViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # 不能直接返回类属性 QuerySet。列表被求值后会保留结果缓存，后续更新
         # 会出现详情已更新、列表仍返回旧项目的情况。
-        queryset = self.queryset.all()
+        queryset = self.queryset.filter(tenant=get_request_tenant(self.request))
         if not is_system_admin(self.request.user):
             queryset = queryset.filter(project_access_q(self.request.user, "project__")).distinct()
         project = self.request.query_params.get("project")
@@ -84,13 +107,27 @@ class MonitorTargetViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        require_project_manager(self.request.user, serializer.validated_data["project"])
-        serializer.save(created_by=self.request.user)
+        project = serializer.validated_data["project"]
+        validate_tenant_relations(
+            self.request, project=project,
+            prometheus=serializer.validated_data.get("prometheus"),
+            cluster=serializer.validated_data.get("cluster"),
+            server=serializer.validated_data.get("server"),
+        )
+        require_project_manager(self.request.user, project)
+        serializer.save(tenant=get_request_tenant(self.request), created_by=self.request.user)
 
     def perform_update(self, serializer):
         target = self.get_object()
         require_project_manager(self.request.user, target.project)
-        require_project_manager(self.request.user, serializer.validated_data.get("project", target.project))
+        target_project = serializer.validated_data.get("project", target.project)
+        validate_tenant_relations(
+            self.request, project=target_project,
+            prometheus=serializer.validated_data.get("prometheus", target.prometheus),
+            cluster=serializer.validated_data.get("cluster", target.cluster),
+            server=serializer.validated_data.get("server", target.server),
+        )
+        require_project_manager(self.request.user, target_project)
         serializer.save()
 
     def perform_destroy(self, instance):
@@ -101,11 +138,34 @@ class MonitorTargetViewSet(viewsets.ModelViewSet):
     def metrics(self, request, pk=None):
         target = self.get_object()
         try:
-            range_seconds = max(300, min(604800, int(request.query_params.get("range_seconds", 3600))))
-        except ValueError:
-            range_seconds = 3600
+            start_value = request.query_params.get("start_time")
+            end_value = request.query_params.get("end_time")
+            if bool(start_value) != bool(end_value):
+                raise ValueError("开始时间和结束时间必须同时提供。")
+            if start_value and end_value:
+                start_timestamp = float(start_value)
+                end_timestamp = float(end_value)
+                range_seconds = int(end_timestamp - start_timestamp)
+                if range_seconds <= 0:
+                    raise ValueError("结束时间必须晚于开始时间。")
+                if range_seconds > 2592000:
+                    raise ValueError("查询时间范围不能超过 30 天。")
+                if end_timestamp > timezone.now().timestamp() + 60:
+                    raise ValueError("结束时间不能晚于当前时间。")
+            else:
+                start_timestamp = end_timestamp = None
+                range_seconds = max(300, min(2592000, int(request.query_params.get("range_seconds", 3600))))
+        except (TypeError, ValueError, OverflowError) as exc:
+            message = str(exc) or "时间范围参数格式不正确。"
+            return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            data = snapshot(target, include_series=True, range_seconds=range_seconds)
+            data = snapshot(
+                target,
+                include_series=True,
+                range_seconds=range_seconds,
+                start_timestamp=start_timestamp,
+                end_timestamp=end_timestamp,
+            )
             evaluate_alerts(target, data["current"])
         except PrometheusRequestError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -128,7 +188,7 @@ class ServiceMonitorViewSet(viewsets.ModelViewSet):
     serializer_class = ServiceMonitorSerializer
 
     def get_queryset(self):
-        queryset = self.queryset.all()
+        queryset = self.queryset.filter(tenant=get_request_tenant(self.request))
         if not is_system_admin(self.request.user):
             queryset = queryset.filter(project_access_q(self.request.user, "project__")).distinct()
         project = self.request.query_params.get("project")
@@ -137,13 +197,22 @@ class ServiceMonitorViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        require_project_manager(self.request.user, serializer.validated_data["project"])
-        serializer.save(created_by=self.request.user)
+        project = serializer.validated_data["project"]
+        validate_tenant_relations(
+            self.request, project=project, server=serializer.validated_data.get("server"),
+        )
+        require_project_manager(self.request.user, project)
+        serializer.save(tenant=get_request_tenant(self.request), created_by=self.request.user)
 
     def perform_update(self, serializer):
         service = self.get_object()
         require_project_manager(self.request.user, service.project)
-        require_project_manager(self.request.user, serializer.validated_data.get("project", service.project))
+        target_project = serializer.validated_data.get("project", service.project)
+        validate_tenant_relations(
+            self.request, project=target_project,
+            server=serializer.validated_data.get("server", service.server),
+        )
+        require_project_manager(self.request.user, target_project)
         serializer.save()
 
     def perform_destroy(self, instance):
@@ -163,7 +232,9 @@ class ServiceMonitorEventViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ServiceMonitorEventSerializer
 
     def get_queryset(self):
-        queryset = ServiceMonitorEvent.objects.select_related("service", "service__project").all()
+        queryset = ServiceMonitorEvent.objects.select_related("service", "service__project").filter(
+            service__tenant=get_request_tenant(self.request),
+        )
         if not is_system_admin(self.request.user):
             queryset = queryset.filter(project_access_q(self.request.user, "service__project__")).distinct()
         project = self.request.query_params.get("project")
@@ -188,6 +259,12 @@ class MonitorNotificationRuleViewSet(viewsets.ModelViewSet):
         projects = self._scope_projects(target, services, all_services, channel)
         if not projects:
             raise PermissionDenied("通知规则未关联可管理的项目。")
+        validate_tenant_relations(
+            self.request,
+            target=target,
+            services=services,
+            channel_projects=list(channel.projects.all()) if channel else [],
+        )
         for project in projects:
             require_project_manager(self.request.user, project)
 
@@ -200,7 +277,12 @@ class MonitorNotificationRuleViewSet(viewsets.ModelViewSet):
         )
 
     def get_queryset(self):
-        queryset = self.queryset.all()
+        tenant = get_request_tenant(self.request)
+        queryset = self.queryset.filter(
+            Q(target__tenant=tenant)
+            | Q(services__tenant=tenant)
+            | Q(all_services=True, channel__projects__tenant=tenant)
+        ).distinct()
         if is_system_admin(self.request.user):
             return queryset
         managed_ids = set(self.request.user.project_pm_list.values_list("id", flat=True))
@@ -251,7 +333,10 @@ class MonitorNotificationDeliveryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = MonitorNotificationDeliverySerializer
 
     def get_queryset(self):
-        queryset = MonitorNotificationDelivery.objects.select_related("channel", "target", "target__project", "service", "service__project").all()
+        tenant = get_request_tenant(self.request)
+        queryset = MonitorNotificationDelivery.objects.select_related("channel", "target", "target__project", "service", "service__project").filter(
+            Q(target__tenant=tenant) | Q(service__tenant=tenant),
+        ).distinct()
         if is_system_admin(self.request.user):
             return queryset
         return queryset.filter(
@@ -294,7 +379,10 @@ class MonitorDashboardViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["get"], url_path="overview")
     def overview(self, request):
-        targets = MonitorTarget.objects.select_related("prometheus", "project").filter(enabled=True, prometheus__enabled=True)
+        tenant = get_request_tenant(request)
+        targets = MonitorTarget.objects.select_related("prometheus", "project").filter(
+            tenant=tenant, enabled=True, prometheus__enabled=True,
+        )
         if not is_system_admin(request.user):
             targets = targets.filter(project_access_q(request.user, "project__")).distinct()
         project = request.query_params.get("project")
@@ -307,12 +395,16 @@ class MonitorDashboardViewSet(viewsets.ViewSet):
                 items.append({"target": MonitorTargetSerializer(target).data, **data})
             except PrometheusRequestError as exc:
                 errors.append({"target_id": target.id, "target_name": target.name, "message": str(exc)})
-        events = MonitorAlertEvent.objects.select_related("target", "target__project").filter(status="active")
+        events = MonitorAlertEvent.objects.select_related("target", "target__project").filter(
+            target__tenant=tenant, status="active",
+        )
         if not is_system_admin(request.user):
             events = events.filter(project_access_q(request.user, "target__project__")).distinct()
         if project:
             events = events.filter(target__project_id=project)
-        services = ServiceMonitor.objects.select_related("project", "server").filter(enabled=True)
+        services = ServiceMonitor.objects.select_related("project", "server").filter(
+            tenant=tenant, enabled=True,
+        )
         if not is_system_admin(request.user):
             services = services.filter(project_access_q(request.user, "project__")).distinct()
         if project:
@@ -364,7 +456,9 @@ class MonitorAlertEventViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = MonitorAlertEventSerializer
 
     def get_queryset(self):
-        queryset = MonitorAlertEvent.objects.select_related("target", "target__project").all()
+        queryset = MonitorAlertEvent.objects.select_related("target", "target__project").filter(
+            target__tenant=get_request_tenant(self.request),
+        )
         if not is_system_admin(self.request.user):
             queryset = queryset.filter(project_access_q(self.request.user, "target__project__")).distinct()
         return queryset

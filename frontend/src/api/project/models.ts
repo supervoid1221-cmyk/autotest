@@ -2,6 +2,26 @@ import { components } from '../schema';
 
 export type Project = components['schemas']['Project'];
 
+/**
+ * 项目级共享目录。
+ *
+ * 接口管理、UI 元素管理、App 元素管理读写的是同一行数据，所以三个页面共用这一个
+ * 类型；三个计数按域分开返回，各页面只展示自己那一类。
+ */
+export interface Module {
+  id?: number;
+  project: number;
+  project_name?: string;
+  name: string;
+  created_by?: number | null;
+  created_by_name?: string;
+  endpoint_count?: number;
+  ui_element_count?: number;
+  app_element_count?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface ProjectVariable {
   id?: number;
   project: number;
@@ -62,6 +82,15 @@ export interface DynamicFunction {
   description: string;
   code: string;
   enabled: boolean;
+  language?: 'python';
+  version?: number;
+  code_hash?: string;
+  approval_status?: 'draft' | 'approved' | 'rejected';
+  timeout_seconds: number;
+  memory_mb: number;
+  created_by_name?: string;
+  approved_by_name?: string;
+  approved_at?: string | null;
 }
 
 export interface DatabaseConnection {
@@ -89,5 +118,6 @@ export interface DatabaseConnection {
   ssl_mode: 'preferred' | 'required' | 'disabled';
   connect_timeout: number;
   allow_write: boolean;
+  allow_delete: boolean;
   enabled: boolean;
 }

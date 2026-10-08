@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="xAcYDp9Ri5uXKREs0Rnrtd">
+<head data-page-node-id="H9iJ0ofetVsqXTaoiHDMSs">
+<meta charset="UTF-8" data-page-node-id="3bej5erPSGj3RMNYYuxCHp">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="BfdXXXJ36j8XCJ0llo5fTo">
+<title>自动化测试平台 · 代码价值评估报告</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:#0d1117;color:#e6edf3;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:56px 32px 96px}
+
+  header{border-bottom:1px solid #21262d;padding-bottom:32px;margin-bottom:40px}
+  .eyebrow{color:#8b949e;font-size:12px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:14px}
+  h1{font-size:30px;font-weight:600;letter-spacing:-.02em;line-height:1.3;margin-bottom:16px}
+  .verdict{
+    background:#161b22;border:1px solid #21262d;border-left:3px solid #58a6ff;
+    border-radius:8px;padding:18px 22px;color:#c9d1d9;font-size:15px;line-height:1.75;
+  }
+  .verdict b{color:#e6edf3;font-weight:600}
+
+  h2{
+    font-size:19px;font-weight:600;margin:52px 0 8px;
+    display:flex;align-items:baseline;gap:12px;
+  }
+  h2 .num{color:#484f58;font-size:14px;font-weight:500;font-variant-numeric:tabular-nums}
+  .sub{color:#8b949e;font-size:13px;margin-bottom:22px}
+
+  h3{font-size:15px;font-weight:600;margin:26px 0 10px;color:#e6edf3}
+
+  .grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:24px 0}
+  .stat{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:16px 18px}
+  .stat .k{color:#8b949e;font-size:12px;margin-bottom:8px}
+  .stat .v{font-size:26px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .stat .n{color:#6e7681;font-size:11.5px;margin-top:4px}
+
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:13px}
+  th{
+    text-align:left;color:#8b949e;font-weight:500;font-size:12px;
+    padding:9px 12px;border-bottom:1px solid #21262d;white-space:nowrap;
+  }
+  td{padding:10px 12px;border-bottom:1px solid #161b22;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.num{font-variant-numeric:tabular-nums;color:#c9d1d9;white-space:nowrap}
+  code{
+    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    font-size:12px;background:#1c2128;color:#79c0ff;
+    padding:1.5px 6px;border-radius:4px;word-break:break-all;
+  }
+  .tbl-wrap{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:6px 10px;overflow-x:auto}
+
+  .tier{border-radius:10px;padding:20px 22px;margin:14px 0;border:1px solid #21262d}
+  .tier-a{background:#0f2419;border-color:#1f4d33;border-left:3px solid #3fb950}
+  .tier-b{background:#1c1a10;border-color:#4d3f1f;border-left:3px solid #d29922}
+  .tier-c{background:#1a1418;border-color:#4d2530;border-left:3px solid #f85149}
+  .tier .th{font-size:15px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .tier .td{color:#8b949e;font-size:12.5px;margin-bottom:14px}
+  .tier ul{list-style:none;display:flex;flex-direction:column;gap:11px}
+  .tier li{padding-left:0;font-size:13.5px;color:#c9d1d9;line-height:1.65}
+  .tier li b{color:#e6edf3;font-weight:600}
+  .pill{
+    display:inline-block;font-size:11px;padding:2px 9px;border-radius:20px;
+    background:#21262d;color:#8b949e;font-weight:500;letter-spacing:.02em;
+  }
+
+  .risk{background:#1c1618;border:1px solid #4d2530;border-radius:10px;padding:16px 20px;margin:12px 0}
+  .risk .rh{font-size:14px;font-weight:600;color:#ff7b72;margin-bottom:7px;display:flex;gap:10px;align-items:baseline}
+  .risk .rh .lv{font-size:11px;padding:1px 8px;border-radius:20px;background:#f85149;color:#0d1117;font-weight:600}
+  .risk .rh .lv.mid{background:#d29922}
+  .risk .rh .lv.low{background:#6e7681;color:#e6edf3}
+  .risk p{color:#c9d1d9;font-size:13.5px}
+
+  .note{
+    background:#161b22;border:1px dashed #30363d;border-radius:10px;
+    padding:16px 20px;margin:18px 0;color:#8b949e;font-size:13px;
+  }
+  .note b{color:#c9d1d9;font-weight:600}
+  .note .tag{
+    display:inline-block;font-size:11px;padding:1px 8px;border-radius:4px;
+    background:#21262d;color:#58a6ff;margin-right:8px;font-weight:600;
+  }
+
+  .concl{background:#161b22;border:1px solid #21262d;border-radius:12px;padding:26px 28px;margin-top:16px}
+  .concl .big{font-size:17px;font-weight:600;color:#e6edf3;margin-bottom:14px;line-height:1.6}
+  .concl ol{margin:14px 0 0 20px;display:flex;flex-direction:column;gap:11px}
+  .concl li{color:#c9d1d9;font-size:13.5px}
+  .concl li b{color:#e6edf3}
+
+  footer{margin-top:56px;padding-top:22px;border-top:1px solid #21262d;color:#6e7681;font-size:12px;line-height:1.9}
+
+  .bar{display:flex;height:26px;border-radius:6px;overflow:hidden;margin:14px 0 8px;border:1px solid #21262d}
+  .bar div{display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:600;color:#0d1117;white-space:nowrap;overflow:hidden}
+  .lg{display:flex;gap:20px;flex-wrap:wrap;font-size:12px;color:#8b949e;margin-bottom:6px}
+  .lg span{display:flex;align-items:center;gap:7px}
+  .dot{width:10px;height:10px;border-radius:3px;flex:none}
+
+  @media(max-width:760px){
+    .wrap{padding:32px 18px 64px}
+    h1{font-size:23px}
+    .grid4{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .stat .v{font-size:21px}
+  }
+</style>
+</head>
+<body data-page-node-id="rNzy0eYsNCPYr2lyRSwqHk">
+<div class="wrap" data-page-node-id="uWCDtGfJNgSf6CJcC45xVp">
+
+<header data-page-node-id="EViyjiNOUpCvkcgE4YjDof">
+  <div class="eyebrow" data-page-node-id="Sxr3TqEjcrglHUoHLlRrQh">代码资产尽调 · 2026-09-12</div>
+  <h1 data-page-node-id="BeDi7EnH7Ee0oZ0w7bFZbd">自动化测试平台 · 代码价值评估</h1>
+  <div class="verdict" data-page-node-id="7vObKjuUtXmYipRJpuFSlb">
+    <b data-page-node-id="tMWkcKhHdqFGF2XD8UNkuu">一句话结论：</b>这不是玩具，也不是套壳。它是一套<b data-page-node-id="gcQDE9hdmBlowwuNAe2cRv">真正跑起来、有真实使用痕迹</b>的自研自动化测试平台，核心差异化在于自研的 UI 智能定位引擎——这部分是花钱买不到的踩坑经验。<b data-page-node-id="YD9DNfPL8WU8QzlPYsRbB6">但它目前不是一份「干净的资产」</b>：没有版本控制、密钥明文、约三成前端页面是模板遗留、类型检查形同虚设。价值真实存在，但需要先做一轮约 20–30% 的治理成本扣除。
+  </div>
+</header>
+
+<h2 data-page-node-id="OkJBCcPIgwvKenVVi8fG6Z"><span class="num" data-page-node-id="MmL3R5H7bEyF0q8BfgtoUZ">01</span>规模盘点</h2>
+<p class="sub" data-page-node-id="wNF1qWHSHr73SaRhAQIIxd">已排除 venv 虚拟环境、数据库迁移、__pycache__ 与 node_modules，以下均为手写业务代码</p>
+
+<div class="grid4" data-page-node-id="OmwLE4wIkBpGWxu8rB8fmB">
+  <div class="stat" data-page-node-id="cqoq9Nsez0rSI4l4Y2fyT9"><div class="k" data-page-node-id="91Ge7Hwtc9v6oiLmOtIdcr">后端代码</div><div class="v" data-page-node-id="88tEbFYFFyw9hFcVFV72yz">2.5万<span style="font-size:14px;color:#8b949e" data-page-node-id="gz22aggpp8WsaHyTvA5xbB"> 行</span></div><div class="n" data-page-node-id="6xqsWa1MX5zN3y6yeXcZbD">182 个 py 文件</div></div>
+  <div class="stat" data-page-node-id="JiguIIGk4q5mkNmqqSBUt9"><div class="k" data-page-node-id="lP8GJvWDi5msePjoE9BtSQ">前端代码</div><div class="v" data-page-node-id="OifgJVUXE0VCpGZ4KDhA4f">5.5万<span style="font-size:14px;color:#8b949e" data-page-node-id="hPY3EAl5CDYH54BuJcTLF5"> 行</span></div><div class="n" data-page-node-id="2U7gMDowNZ0akiSg7FPvMt">140 vue + 179 ts</div></div>
+  <div class="stat" data-page-node-id="3JLvqkFURMUfC03ZWAU1Hq"><div class="k" data-page-node-id="kykJUpEICeWBEwBNOXdsXO">业务数据表</div><div class="v" data-page-node-id="HXavapOYpl8mdQcrekQlRu">72<span style="font-size:14px;color:#8b949e" data-page-node-id="H9t9KnQVy5zXX3n86fYLpL"> 张</span></div><div class="n" data-page-node-id="LSCdGbmKPbOTZ8eevigQ3r">65 张有真实数据</div></div>
+  <div class="stat" data-page-node-id="9tvfY8ToqacvcBFJHOPK1L"><div class="k" data-page-node-id="OD4xifZhmKDq4hO8yAld16">后端测试</div><div class="v" data-page-node-id="lw6oCbFICPDP4jr67qNsVX">3,854<span style="font-size:14px;color:#8b949e" data-page-node-id="5lHkZgUMHc3TeJRL77YIDt"> 行</span></div><div class="n" data-page-node-id="qQISgOVlWN3VolxFOhxKYP">占业务代码 16.4%</div></div>
+</div>
+
+<div class="tbl-wrap" data-page-node-id="Q6fQNgICsnvlHLU3OPYqSV">
+<table data-page-node-id="zC3a92dNaTFlNxkehxXDOx">
+  <thead data-page-node-id="UKO7YYl0a6ll9u7LxoWef5"><tr data-page-node-id="5sVEh7A4Gh8xEIwFHgcvGP"><th data-page-node-id="maIT2MHvj6JeRwa2vgSIiV">模块</th><th data-page-node-id="Az5ZF0VUIXP71uLKDGVYkD">行数</th><th data-page-node-id="JbqWcTCPceClFKXzSQRIYm">文件</th><th data-page-node-id="YAz9asze9twYsuq0oJ4yYO">定位</th></tr></thead>
+  <tbody data-page-node-id="0U5XTsXLiUl2sx4DCHz5vC">
+    <tr data-page-node-id="46ryR5sxoFtS01YG5CqmuJ"><td data-page-node-id="BYJkzXBm5W1hk9Fj3zFI1G"><code data-page-node-id="MURngJ8lB5K6FAVRVFytDM">case_ui</code></td><td class="num" data-page-node-id="64C8mqliao6abt6R2CEqDY">4,544</td><td class="num" data-page-node-id="fEpZEwivjz51EILzCeKFIa">17</td><td data-page-node-id="Tkbvu8Dp8Ba6DuPQyjGZg0">UI 自动化 · 含自研智能定位引擎</td></tr>
+    <tr data-page-node-id="gaLt7M4cm79KCUREMKvVoY"><td data-page-node-id="L6upYsbPqJNPSMtrAuhhUV"><code data-page-node-id="0PVIG4SawmdQkp3XTDw9G8">suite</code></td><td class="num" data-page-node-id="eHodQhBruYr45KPuCzkAdT">4,436</td><td class="num" data-page-node-id="eYs58kgAyoiVczxSL5gv92">25</td><td data-page-node-id="aCzAFumiQhgQKKpnNum8fW">测试套件编排与执行</td></tr>
+    <tr data-page-node-id="jDkVEokYHtl3z4v11hDB45"><td data-page-node-id="Nr5PQTcFGqrFjG1VOP4NAR"><code data-page-node-id="LQkyEixG4qYZsCGbBHb2cE">fullstack_framework</code></td><td class="num" data-page-node-id="DyZnp6gIsnDiU5do2iUumR">2,572</td><td class="num" data-page-node-id="z0MQluZrC1q3Feu24NYeOE">15</td><td data-page-node-id="hgJvwKAMx84LvnafZgJGlh">核心框架层 · 断言/变量引擎</td></tr>
+    <tr data-page-node-id="Qh8OIwtZy5eZO3aHA4Er45"><td data-page-node-id="zhxfQtlOWnN4199ET4fQdQ"><code data-page-node-id="CquxGhw91QhLT2YrERwKMH">project</code></td><td class="num" data-page-node-id="hrTertm51XLzTF0SijP8m8">2,279</td><td class="num" data-page-node-id="0kuE3CdUwiIv9OP0K8fQh3">16</td><td data-page-node-id="OD3SmoelV26Ifiqj5RaEhH">项目 · 环境 · 变量 · 函数沙箱</td></tr>
+    <tr data-page-node-id="vSRsSiNj6LlPlA2AqTmrhl"><td data-page-node-id="lWLkJwFcpW8etSDU1cf7AQ"><code data-page-node-id="ZrJV7b15jTyVW4bKNVnFBr">case_app</code></td><td class="num" data-page-node-id="5Om80RWgVQ6YXx1q5aLs6b">2,066</td><td class="num" data-page-node-id="MEc0Vi7Zlma7MGvhGaBDGD">12</td><td data-page-node-id="zbWPvUYPDjSuI67bAmUNly">App 自动化（Appium）</td></tr>
+    <tr data-page-node-id="fl6jIYEzdTNHXouXwvBNIT"><td data-page-node-id="yQC6zBbsbfikHBte5D7HnK"><code data-page-node-id="gO53wTlshtLFzr7S4Am3lM">case_api</code></td><td class="num" data-page-node-id="9OIwTl1GyAqVy610KGFWi9">2,021</td><td class="num" data-page-node-id="gLlgcCD5mc3jxXBo5PJofg">12</td><td data-page-node-id="36fEXt3wZJ4jGETfFtRYRJ">接口测试 · 场景流程编排</td></tr>
+    <tr data-page-node-id="YZ1EWtBoYyzRucyQueOqh3"><td data-page-node-id="Yjamlg25I9bNlC3zjrMrEJ"><code data-page-node-id="GTivTUaouXAXDHlhBQufCF">performance</code></td><td class="num" data-page-node-id="1X1nUl5PWibdppYK5rC1hc">1,496</td><td class="num" data-page-node-id="SmmdPX4fOSZU6g3HUDT97L">14</td><td data-page-node-id="1gT9DoAbVzx7Brvgi8dNcA">性能测试（k6 内核 + 自研聚合）</td></tr>
+    <tr data-page-node-id="DAZhCkgdJzS2mtBfQJC3eA"><td data-page-node-id="YRerqpDvKFLnRi0TkFvbdN"><code data-page-node-id="1xbiWTtfAAn3DA97T9Ljnv">monitor</code></td><td class="num" data-page-node-id="fwCNBB3N9a4GHVj4efjpvP">1,393</td><td class="num" data-page-node-id="ovpPOTKavWQI3jBy97DBOu">9</td><td data-page-node-id="su7iyY9NF7iqyn4NzQ73JP">监控告警（Prometheus 数据源）</td></tr>
+    <tr data-page-node-id="VgfNxVGuAfQlfOtBGPceIn"><td data-page-node-id="JFGEFQoR7xDwoBIgcEjD6e"><code data-page-node-id="p5pRVIQH8TBcV1Gaa3lBRi">execution_control</code></td><td class="num" data-page-node-id="7tsC1E4v2m8ShOnS3dcTOd">1,249</td><td class="num" data-page-node-id="QVGZeE668Khsd4bMVmUqyD">16</td><td data-page-node-id="xjb6qfSl37qSf6O39lhqsb">任务调度 · Worker 心跳 · 恢复</td></tr>
+    <tr data-page-node-id="VZTyL0zF8LVgWrDOy1JBnj"><td data-page-node-id="HBKe3g5DAsh03PXEHdD6HX"><code data-page-node-id="zscwnMhBP24Qmyn6e7Hocb">Tesla</code> + 其余 5 个</td><td class="num" data-page-node-id="3zRtMSZApRiN13SIT7OkQL">1,979</td><td class="num" data-page-node-id="a1FPB4lnjVoiZrc823qs1F">36</td><td data-page-node-id="Sb9wesEyPZf6Ks9I69Zk7T">配置 · 账号 · 系统 · 模板 · AI</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note" data-page-node-id="T4LQN5SklXZfcv0FgaWGTA">
+  <span class="tag" data-page-node-id="GIJDHiaFsuxYc12LAAb2jc">口径说明</span>另有 <b data-page-node-id="KmimeVJJg3n787gXMpKyCQ">14,119 行数据库迁移代码</b>（207 个迁移文件）未计入上表。迁移行数多不直接等于价值，但 207 次迁移说明数据模型经历了长期迭代，不是一次成型。
+</div>
+
+<h2 data-page-node-id="JjtcmP8N5ZmeqoPYFyitKm"><span class="num" data-page-node-id="SKJVe66acq6jsTkX9Gp2qm">02</span>技术含量分层</h2>
+<p class="sub" data-page-node-id="JNh7BQCXfhudpKDPelFCcD">这是评估的核心。同样 8 万行代码，含金量差异可以到 10 倍——下面是逐层拆解</p>
+
+<div class="bar" data-page-node-id="JdoiGeFeBtdZCM3T1hxOaO">
+  <div style="width:34%;background:#3fb950" data-page-node-id="serPa3GygkF8OPtA6NtwQR">真自研 34%</div>
+  <div style="width:31%;background:#d29922" data-page-node-id="ZDU6N5uO1oAXaP7wDutls3">半自研整合 31%</div>
+  <div style="width:35%;background:#6e7681;color:#e6edf3" data-page-node-id="9eEKJCIXW2DczZD9TyhOQU">依赖外包/胶水 35%</div>
+</div>
+<div class="lg" data-page-node-id="kmezjvACqJBY92pJlcv80B">
+  <span data-page-node-id="0zBmtQntxNDiLYwqgH7Uws"><i class="dot" style="background:#3fb950" data-page-node-id="p1mSQJ1CW8Qu9HeCneOYWL"></i>真自研 — 自己解决的技术难题</span>
+  <span data-page-node-id="3e1OJYODQ41PknyiXDyp38"><i class="dot" style="background:#d29922" data-page-node-id="JORxN75ohxnHJJIHhNYq9Y"></i>半自研 — 在开源内核上做实质改造</span>
+  <span data-page-node-id="WatOyjZSt3FuEGvXA1gOj2"><i class="dot" style="background:#6e7681" data-page-node-id="pn8ieNwG2c9AchZ3RxsL0X"></i>胶水 — 包一层或直接调用</span>
+</div>
+
+<div class="tier tier-a" data-page-node-id="y1OSfrjFwJZDYsq4hBSpmx">
+  <div class="th" data-page-node-id="HvB5wrkKniAmEWYVhtscBA">第一层 · 真自研 <span class="pill" data-page-node-id="WwJs9b1FlW1RpYkIgYUABB">护城河在这里</span></div>
+  <div class="td" data-page-node-id="fjcqq0K2ULn7OwPH89yHwP">这些模块解决了非平凡的技术问题，且有非平凡的算法或状态机</div>
+  <ul data-page-node-id="Jv4sPoCixMi88BXYzZb6de">
+    <li data-page-node-id="4umf4UHzHwA5pn1LVctHLv"><b data-page-node-id="QNnx048YqqChCDRY3bjTLp">UI 智能定位引擎</b> <code data-page-node-id="saARa35Fp9eZhyEdF29CXv">case_ui/smart_locator/engine.py</code>（1,219 行）— 全项目最有价值的单个文件。实现了：编辑距离模糊匹配（<code data-page-node-id="GAPYCbIRLQFdtVCKCAVs3E">_edit_distance</code> / <code data-page-node-id="3P2Xx34wbwiKPevHfqMJHA">_fuzzy_score</code>）、DOM 作用域隔离（<code data-page-node-id="GRcCs9slW79q0AltlTyVAG">_active_scope</code> / <code data-page-node-id="47qPF4QXQoo8WNtnlImWUg">wait_for_active_scope</code>）、跨 UI 框架弹窗识别（选择器同时兼容 dialog / ant-modal / el-dialog / v-dialog / drawer）、表格行定位（按列名匹配行 <code data-page-node-id="l0jdcSFO5VJfhBFvWyISjg">_find_row_scope</code>）、滚动区域搜索（<code data-page-node-id="PwqHXqnZdSOFIY8QwoGhGF">_scroll_search_regions</code>）、UI 过渡状态等待（<code data-page-node-id="l0GEAEv6bFi3szFjh9yIne">start_ui_transition_watch</code>）。11 种回退策略加权评分 + 歧义保护。</li>
+    <li data-page-node-id="qTBZFnIxr9h3MRxzqVCKyB"><b data-page-node-id="hJuu7ONngljM0yncMaK99q">定位自愈能力</b> <code data-page-node-id="6f7HAZ9El4zqPq4tnFyn4c">smart_locator/fingerprints.py</code> + <code data-page-node-id="RTJAWRFPP5dJlEoCpzEpgQ">engine.py:849/908</code> — 定位成功的元素会生成可复用表达式并持久化指纹，后续失败时先尝试指纹回退。这是商业 UI 自动化工具的收费卖点，这里自己做出来了。</li>
+    <li data-page-node-id="OYt3JzSsKl6GHZjQazlVGO"><b data-page-node-id="LUVhO9ytMud9SIB2mgOgpB">断言与变量引擎</b> <code data-page-node-id="SsAhkdFtubej77jGzkIQiE">fullstack_framework/commons/api_executor.py</code>（620 行）— 自建 <code data-page-node-id="DGsrXjDJnOID3N884EPFIz">${}</code> / <code data-page-node-id="KtwEDWhLcNENDVwkV6DQjN">{{}}</code> 双语法变量解析、15+ 提取器白名单、轮询与失败重试状态机。不是包 requests。</li>
+    <li data-page-node-id="NH0VuTsdqtPNuIfkuSossH"><b data-page-node-id="Nlr2OFJzAVsWihE3OtlkaO">任务调度与故障恢复</b> <code data-page-node-id="H2XN96ThMR2n1qAD6ZxiT3">execution_control/dispatcher.py</code> — 基于 <code data-page-node-id="ms6CZDecMeGqUjxIhqMYgx">select_for_update</code> 的 FIFO 资源预留、资源冲突检测、Worker 心跳存活判定、离线任务自动恢复（<code data-page-node-id="pl0fLSan3Yy2sU1KTdAGbm">diagnose_tasks</code> / <code data-page-node-id="tBXqy99iUjQAjB75I2pmpm">recover_task</code>）。有真实的状态机。</li>
+    <li data-page-node-id="BM3cEiGS1oA1PGn01TEcGm"><b data-page-node-id="aBYwhGke4WvHSq1Xs99Eon">动态函数安全沙箱</b> <code data-page-node-id="IuRFnJBCHM8OAxfj4242Cz">project/function_sandbox.py</code> — AST 白名单 + <code data-page-node-id="ZvCahsRwTlMDH4stniM5Ny">resource</code> 限额，且独立跑在 <code data-page-node-id="1ntczd642LUaf9i029vIYY">dynamic-function-runtime</code> 容器的 unix socket 上。安全设计有诚意。</li>
+    <li data-page-node-id="IxEzGe0OzhLsSePpRb3AYq"><b data-page-node-id="ExunkhjekqP3CtmSuSSEr7">密钥轮换</b> <code data-page-node-id="S0bpBkjww4gfxCol3BoAP1">Tesla/encryption.py</code> — 用 MultiFernet 支持密钥轮换，不是简单 AES 一把梭。</li>
+  </ul>
+</div>
+
+<div class="tier tier-b" data-page-node-id="xwjXJgYFijrUZ5Nfd6tX3O">
+  <div class="th" data-page-node-id="eYIFClGppDqm8EhEwl10Vu">第二层 · 半自研 <span class="pill" data-page-node-id="f0XeFr1FrM7ckhPN3eK391">在开源内核上做了实质改造</span></div>
+  <div class="td" data-page-node-id="IDFJZ6VKrp0d8s3c2dPFyE">底层能力来自第三方，但上层有大量自研改造，改造部分是有价值的</div>
+  <ul data-page-node-id="xm2TIIDFVFmen1uPgqBZKo">
+    <li data-page-node-id="BJXuzdyOOSkrBW5smDHjmd"><b data-page-node-id="pYKwzHnK9wAX2DhNeYZJRA">Playwright 执行器</b> <code data-page-node-id="XwGyOn78zH1zNHbdgwchpw">case_ui/playwright_executor.py</code>（1,027 行）— 引擎是 Playwright，但定位回退、自愈锚点、OCR 兜底是自己加的。</li>
+    <li data-page-node-id="0OYUQA3sz9pamYLCjmGRKC"><b data-page-node-id="GV3e9xnh0vE9crjG0i0LOt">统一执行编排</b> <code data-page-node-id="0FeEbsqXFn5vXAS5Wgfr7O">suite/models.py:344</code> 的 <code data-page-node-id="AiqtynpwmiSgM1arIiHRhE">Suite.run()</code> — 支持 API / UI / Playwright / App 四类步骤交错执行、变量优先级（project &lt; environment_token &lt; template）、失败重试、<code data-page-node-id="FZtftMx4D0FRsObo5f8qUk">continue_on_failure</code>、DDT 数据驱动、条件分支、cron/webhook 触发。</li>
+    <li data-page-node-id="4Is9wn8yEzf8uwexmBXrir"><b data-page-node-id="AM3cSCg92QxUhblDiGRGoq">性能测试</b> <code data-page-node-id="cyvSW3IYz6bRgbnmBLjml7">performance/runner.py</code>（604 行）— 压测内核是 k6 二进制，但 k6 脚本由自研代码生成（<code data-page-node-id="QCMp6us6LVkUpvMyZJj7lM">build_script</code>），且自研了 5 秒桶聚合、p50–p99 百分位计算、实时增量消费。</li>
+    <li data-page-node-id="53ydWtBViAwqm296EOA2cX"><b data-page-node-id="ixFJnk9ET6HNL3Zk1q9KaC">Appium 客户端</b> <code data-page-node-id="tUr4MJSzHuoGHv4G2txMPG">case_app/appium_client.py</code> — 手写 Appium REST 协议调用，非官方 SDK。</li>
+    <li data-page-node-id="J3kCBzCytdjlDADLgTmJkm"><b data-page-node-id="ZYudap58mQaHKsh8rWF1Qa">监控告警状态机</b> <code data-page-node-id="87lYNxI0oC4mttDbqDv8Df">monitor/services.py</code> — 数据源是 Prometheus HTTP API，但 warning / critical / recovered 状态流转与去重是自己写的。</li>
+    <li data-page-node-id="ap5M3UiJ6CKUVQ2L9vAvn3"><b data-page-node-id="9bbvQfwerGb3xrCHJ8oAFQ">环境认证</b> <code data-page-node-id="nM3oKFW5cqYbonB6zRF1DH">project/models.py:247</code> — 自动登录 + Token 缓存 + 跨进程文件锁（<code data-page-node-id="CSPD8AsFlr2HMgcceWu0FT">runtime_auth_locks/</code>），解决了并发执行时重复登录的真实痛点。</li>
+  </ul>
+</div>
+
+<div class="tier tier-c" data-page-node-id="aHpABrAWg5oDrEoaIEvRs7">
+  <div class="th" data-page-node-id="8T9n10fXE6Aj4OT5IHP8OI">第三层 · 胶水与外包 <span class="pill" data-page-node-id="U37P9wc6e6RetIbiuE5UVE">价值主要在于整合，不在于技术</span></div>
+  <div class="td" data-page-node-id="x0mGFHxy1qWSX3pVALOGyu">这部分是「把它们接起来」的工程劳动，可替代性高</div>
+  <ul data-page-node-id="j5gJZ0NjBcihcDwgWFFT2S">
+    <li data-page-node-id="JBW7XUGYrkaiE3OIFbbgx0"><code data-page-node-id="bE4gBOk3ZemYXEvqClRNSd">fullstack_framework/commons/session.py</code> — <code data-page-node-id="smuh9QSQskLDvVE9utzNVC">BeifanSession(requests.Session)</code>，本质是包了一层 requests。</li>
+    <li data-page-node-id="4aBjjz2cj0pA1HUenVwDT8">套件执行依赖 <b data-page-node-id="3wKZDsA35kQFPhLD4EPMjB">pytest 子进程</b> + <b data-page-node-id="F1goQvCJw0StBIVuJNILsg">Django-Q2</b> 队列，没有自研执行器。</li>
+    <li data-page-node-id="QaZ8NLcROUh9O5NFXCpLHE">压测能力完全依赖 <b data-page-node-id="SDybmFQhwpXeGGA5keBziO">k6</b> 二进制；监控数据完全依赖 <b data-page-node-id="BCjpnBVMsXGtvL22kjpdCf">Prometheus / node_exporter</b>。</li>
+    <li data-page-node-id="XN5gkkxHJ9egipVnRA1vDP"><code data-page-node-id="IO5fODr6qSfsYuDtHqFzkD">ai_assistant</code> 仅 96 行 — 真接了 DeepSeek API，但是<b data-page-node-id="qZL4qGKDigJ5BNUCyCTqIN">薄转发</b>：无平台上下文注入、无工具调用。属于「能聊天」，不是「AI 驱动测试」。前端 <code data-page-node-id="RZbsdDdtNHqE2gy1inl45V">components/Ai</code> 里的 AI 洞察已接入执行报告，这块是活的。</li>
+    <li data-page-node-id="5CaS7clHCatfk3om9t6Tcb">前端 <code data-page-node-id="l4G0GBkYEck5kgQSGJMbdD">src/views/comp</code> <code data-page-node-id="Brp6JjhNz1mAIlH5dDXJX4">form</code> <code data-page-node-id="LjDDLUU15afYjUmK3iwrbc">list</code> <code data-page-node-id="GVT4QByXnxyOZFPy2gPClt">result</code> <code data-page-node-id="8rUOiqB3nMB10dBb9tC6IU">setting</code> 共 <b data-page-node-id="drpzf77aSijvQO87fDHNQH">35 个页面</b>是 UI 模板自带的 demo，未改造。</li>
+  </ul>
+</div>
+
+<h2 data-page-node-id="AhJx5MaOhxxXASXTJ6oyhF"><span class="num" data-page-node-id="t0mZA5Pfd0GixqtPb62l7y">03</span>完成度与真实使用证据</h2>
+<p class="sub" data-page-node-id="4XiTqw9hROmmDRKApe361w">代码写得再多，跑不起来就是零。这部分是判断「能不能用」的关键</p>
+
+<div class="tbl-wrap" data-page-node-id="G4t3pbXPN4WUmZYFtjTgst">
+<table data-page-node-id="AhpUXPtAHSfHVnc4SCDEFk">
+  <thead data-page-node-id="q1mdtmhQdT2eL2pB0TVgZE"><tr data-page-node-id="GSzk0RyEWWC78WjtPWJGx0"><th data-page-node-id="HmiwtmmxEZIpRnt9WDiwPK">证据</th><th data-page-node-id="b1TJ81NsEMFSQ5NNBus2h9">观察结果</th><th data-page-node-id="eKWZoUFe479U7GeWnuTuCM">含义</th></tr></thead>
+  <tbody data-page-node-id="Jy6RqquPOxg2bUZ2u2Wnp3">
+    <tr data-page-node-id="qdQDqsmD1vBTsHtidpTCBL"><td data-page-node-id="PF6Y8h6LBgfUwJiVZLE2sl">数据库真实数据</td><td class="num" data-page-node-id="OoIMnL3dETFBa3lS06KXEm">65 / 72 张表非空</td><td data-page-node-id="8giCj9mcH4k01EEbSGkFMC">不是空壳项目，被实际使用过</td></tr>
+    <tr data-page-node-id="vLtH1DrqZ7fyaLs8Nuqc9v"><td data-page-node-id="bFOTJaDa8SAY9IkFYQGM7z">执行任务记录</td><td class="num" data-page-node-id="vpwtM2hKA8Rp0CV5LdcB1x">87 条</td><td data-page-node-id="ozSbZZDh1gxMBBafhOXfjH">调度链路真的跑通过</td></tr>
+    <tr data-page-node-id="FdyT100vGtYG8ZTTxNU8ZK"><td data-page-node-id="YBpaWZTFkKfl4oIuipAsHt">套件运行结果</td><td class="num" data-page-node-id="GT7775lt995X2v8EKFJ7WD">58 条 · 19 个套件</td><td data-page-node-id="2GCekSLKHxFzk7Aw8NsWAE">编排能力被真实使用</td></tr>
+    <tr data-page-node-id="O9c7pjf6JjpDQWGs27uKPj"><td data-page-node-id="rM3OQ7g6vA2UrriguClfVP">性能测试</td><td class="num" data-page-node-id="MhdffMxInxQBqikNdcH9jw">18 次运行 · 590 个指标桶</td><td data-page-node-id="D2AdGCxjNK6po7wHMHZCRA">压测与指标聚合链路完整跑通</td></tr>
+    <tr data-page-node-id="R03QEqquo4bkk7wbF4dMkv"><td data-page-node-id="OT1U9NAa0E3wu8CSFz9XIw">接口 / 场景资产</td><td class="num" data-page-node-id="BlTAYo5rJWzNuteLjUP9hk">18 个接口 · 20 个流程节点</td><td data-page-node-id="aQ4cPYuLO6XKEhDkZydHw2">有真实测试资产沉淀</td></tr>
+    <tr data-page-node-id="x5X8BzSlfeYkYtAfcZFHt9"><td data-page-node-id="wc9ZGfdW2CKL9UpqtD1SjE">生产部署编排</td><td class="num" data-page-node-id="8zJshwbaPlDV9XoWYuryVx">6 个容器服务</td><td data-page-node-id="2e0N9xu21wPJG8VPGGDFvp">backend / scheduler / performance-worker / function-worker / nginx / 动态函数沙箱</td></tr>
+    <tr data-page-node-id="os3qsE2kTD9W5RgCnHGCT8"><td data-page-node-id="33ZPGatDvZEk1KoQPxdAxS">容器镜像构建</td><td class="num" data-page-node-id="DEQA9ysWnzZlmiQc5QMeg6">多阶段 + 中文化</td><td data-page-node-id="RguGKlc5u1p3ozpoKEPDay">含 chromium、chromedriver、playwright、tesseract 中文 OCR、思源中文字体、k6 官方镜像提取</td></tr>
+    <tr data-page-node-id="AGWMQ2N4NoNp4MfJYNXlZh"><td data-page-node-id="b2NsKCEq41HrBIl3uQxOEe">前端页面</td><td class="num" data-page-node-id="kqhH8AaK4ktJMPPpg43WLx">约 50 / 122 个功能完整</td><td data-page-node-id="ngJYG0pWGCeTD9LC0B3Pzg">复杂编排页真实存在：用例编辑器 2,904 行、接口编辑 2,497 行、执行报告 2,399 行</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note" data-page-node-id="RXNUDjlv3PEsVBpLdPVJkc">
+  <span class="tag" data-page-node-id="cmXV7tBZVTFzCLABN2RdV8">值得单独说</span><code data-page-node-id="uieWPJCCYhCNK0vpyftbH8">case_ui/serializers.py:215</code> 有一段我认为很能说明作者水平的代码：<b data-page-node-id="yHHlq9reDBtbXNruUhAsTI">当字段名匹配 <code data-page-node-id="Foci1Hpurqp5hCbMPFT7p8">password|token|secret|密码|密钥</code> 时，禁止启用 OCR 兜底</b>。这是一个「功能做出来之后还想了边界」的设计——不是能跑就行。另外后端业务代码里 <b data-page-node-id="LOyADCPSwcCuAmtLWnwZd2">TODO/FIXME 数量为 0</b>，注释质量普遍较高。
+</div>
+
+<h2 data-page-node-id="4QbwzapTkVbE80UPK6ABNH"><span class="num" data-page-node-id="U2nZcbqStwkGzyy6D957FP">04</span>折价项与风险</h2>
+<p class="sub" data-page-node-id="zC3M7qDrDARRay1yEBn8qD">这些是必须在估值里扣掉的部分。按严重程度排序</p>
+
+<div class="risk" data-page-node-id="cLHqJrK3T2xsz6ACEkgCf5">
+  <div class="rh" data-page-node-id="5Z5VFLkF0bXbMGhYYBNlat"><span class="lv" data-page-node-id="qkjKfECTZ0r9r453YG10Fu">严重</span>项目没有任何版本控制</div>
+  <p data-page-node-id="K2mpBKJGZ6hBYrSRQHHUeM">后端和前端<b data-page-node-id="nAXKrPLfXqAwlp0JPqos7c">都不是 git 仓库</b>，磁盘上不存在 <code data-page-node-id="7WKqAgRA3GEDqD85hXp794">.git</code>。这意味着：无法追溯任何一行代码是谁、何时、为何改的；无法回滚误删；无法多人协作；无法做分支发布；<b data-page-node-id="CXAl26JNroROtdABoNK0c0">也无法向任何第三方证明开发过程</b>。对一份要评估或交易的代码资产而言，这是最重的一条折价项——它让「交付物」和「一堆文件」的区别消失了。</p>
+</div>
+
+<div class="risk" data-page-node-id="1ug62TChQAVvaZdfVrbfVx">
+  <div class="rh" data-page-node-id="KZ5CRJiHJGGoFgbaopSEcI"><span class="lv" data-page-node-id="79KNHzC2lspeo0RiBQ2H4A">严重</span>密钥明文存在于磁盘</div>
+  <p data-page-node-id="RsenFZ2CDsJ29dOrtYxegl"><code data-page-node-id="N7z25k6WzkRsGowFxdyyL7">aaa.py:5</code> 硬编码了一个真实格式的 API Key（<code data-page-node-id="zW8CA4oj3QvjFrEtIVcpU1">sk-6d42cf…</code>）；<code data-page-node-id="PaV4YexOZ2YbKKj2wAIBYC">.env:2</code> 有明文 <code data-page-node-id="w5NBtDEqAMgq1CVPtiK3T9">DEEPSEEK_API_KEY</code>。虽然 <code data-page-node-id="mgHUIvaSINj7n78d1pDb0J">.gitignore</code> 已排除 <code data-page-node-id="8LVBnzjuVkHULeYjcNfRBg">.env</code>，但该文件仍在磁盘上，且 <code data-page-node-id="t8386f6YAeBGhJPWwodLnh">aaa.py</code> 是<b data-page-node-id="bCyrB2f2SfEkE30HbNjbbz">未被忽略的普通源码文件</b>。建议立即轮换这两个 Key 并删除 <code data-page-node-id="0Bsbl7p0SF85rO76RrU0ET">aaa.py</code>。</p>
+</div>
+
+<div class="risk" data-page-node-id="1VLzqyW9nzTiApWlbeguNL">
+  <div class="rh" data-page-node-id="gqXoEkk82Hn3iyPsT0tEeo"><span class="lv mid" data-page-node-id="wmVlY35oaQAvc0nSuqR3mz">中</span>约 29% 前端页面是模板遗留</div>
+  <p data-page-node-id="6UsMulYV7bEEX7cfXqg80y">122 个 <code data-page-node-id="jSGx6q01CFT5aRPdLmxvTb">.vue</code> 里，35 个是 UI 模板自带的 demo（<code data-page-node-id="kN992Hdm6NilPpnSvBfDMh">comp/*</code> 9 个、<code data-page-node-id="O1fVX5LjNE8SMr2uPDwO7S">setting/*</code> 7 个、<code data-page-node-id="0qrLFOGGD4nqTQ5D3vEs7g">form/*</code> 6 个、<code data-page-node-id="CBqDDNzzsDT2Gw6Y7vfmVu">result/*</code> 3 个等），另有若干孤儿页（<code data-page-node-id="VThkuJWEwiLigvEwL5HPvG">case_api/my_sfc.vue</code>、<code data-page-node-id="GweFx8OtlofGOtyPETcNrz">project/project_variable.vue</code> 零引用）。加上已确认的死代码：<code data-page-node-id="ddxk9kHBZu1iUYjwFkbwwr">api/schema.d.ts</code>（2,295 行，零 import）、<code data-page-node-id="WKBHtgev5qdwl0K5h5RVSU">components/Http</code>、<code data-page-node-id="S6UJA9L3msGnw9DOKL9tYa">components/CountTo</code>、<code data-page-node-id="jtBM6vCyDZl6besocp17Zk">plugins/customComponents.ts</code> + <code data-page-node-id="1jOE2aHuUzMRwdEVPoUcmq">globalMethods.ts</code>（<code data-page-node-id="5vbOzBwmlpdMWU4OmdkmiN">main.ts:23,29</code> 已被注释掉）——<b data-page-node-id="yHiD6u2L3CzW3miji6TDLy">合计约 7–8 千行是死代码</b>。</p>
+</div>
+
+<div class="risk" data-page-node-id="BlVNotQw72hVNzeVmJHmZU">
+  <div class="rh" data-page-node-id="glj1MVbaGfWNP90x1OsSsI"><span class="lv mid" data-page-node-id="cmG8humKpKe9eRSh33zRQa">中</span>类型检查与 Lint 形同虚设</div>
+  <p data-page-node-id="U1BzLNvjeMkLF9s7UmrYLz">构建脚本只有 <code data-page-node-id="bCizEZGw46fw3DswW7hiv8">vite build</code>，<b data-page-node-id="XC0hAFsb4zNSQOiSGVXnDp">没有 <code data-page-node-id="jlrRZQHTCqWV2oIm7smsAn">vue-tsc</code> 做类型校验</b>，所以类型错误不会阻断构建；<code data-page-node-id="OnNSpmZghM1Kq6b1dEJnYu">tsconfig</code> 虽然 <code data-page-node-id="foeTrDuSnBloD5O8rRPDwe">strict: true</code>，但 <code data-page-node-id="fXsmiQKQmrC5isjYCPV0xb">noImplicitAny: false</code>、<code data-page-node-id="4UYENsBmgt0V25ZFOrUF2j">strictFunctionTypes: false</code>；ESLint 配置里 <code data-page-node-id="fgF1PGRJde5YlJprpJBfSJ">no-explicit-any</code> 关闭、<code data-page-node-id="KCYuBtdT8ta3ajZYi455ft">ban-ts-comment</code> 关闭。结果是全项目 <b data-page-node-id="gLJS9OsGyyTDnjBSvP56ml">109 处 <code data-page-node-id="L7uPvlh3MbcAf0OEWrdamj">any</code></b>（<code data-page-node-id="vIO5uCpy0rg8MHK1SOJlPp">scenario_edit.vue</code> 一个文件就 188 处含 <code data-page-node-id="ejzIcGoXx8ifdfJEx6lSRE">as any</code>）。</p>
+</div>
+
+<div class="risk" data-page-node-id="BGAEcPPaLZ2oaZYLa1LHuU">
+  <div class="rh" data-page-node-id="JMUByfM53oqNCcBZGADxgj"><span class="lv mid" data-page-node-id="RyhrHYyEfZL8qQ6pK797I6">中</span>超大文件与压缩代码</div>
+  <p data-page-node-id="mW4Oy3fbCY9ub42GAh2VDe">前端 9 个文件超过 800 行（最大 <code data-page-node-id="5G288KlJ1Nr5zhQpOHMiIv">ui_case_edit.vue</code> 2,904 行）；后端 3 个超过 1,000 行（<code data-page-node-id="g1VUXMl8xiCuUIOuhaNulE">engine.py</code> 1,219 / <code data-page-node-id="V73btlolrktcl4THD1v4oX">playwright_executor.py</code> 1,027 / <code data-page-node-id="Fqf2c9uFyWq3njg5PXYJvA">suite/models.py</code> 1,005），其中 <code data-page-node-id="xTCLP6jvHMumKrZU244x1k">suite/models.py:344</code> 的 <code data-page-node-id="Lpxa4ayDhDn8IkSwaGECIZ">run()</code> 单函数 <b data-page-node-id="PcrCLyBIlONDnUiJvjSRIU">447 行</b>。更麻烦的是前端有 <b data-page-node-id="hYCehZn6Hph7r4bxPHD6EO">20 个文件存在超过 1,500 字符的单行</b>（最长 9,007 字符），源码被压成一整行，Code Review 和后续维护成本很高。</p>
+</div>
+
+<div class="risk" data-page-node-id="5nkyPxxnnKK5TleYcStF3p">
+  <div class="rh" data-page-node-id="HCANvAgyR3eYbjX37mOBBc"><span class="lv low" data-page-node-id="2ZuretgGFukIx2REvEPEkJ">低</span>其他技术债</div>
+  <p data-page-node-id="ZYExzHV0g5qLrzBo8aAsFy">① 生产 <code data-page-node-id="zg4dZv2TbHkdoGot4PhUPC">dist</code> 里残留 <b data-page-node-id="ZA8lpHayi2p2gmpFmbd4Xr">69 处 <code data-page-node-id="Y9Sh7OybCnAV2bGKGBr0gF">console.log</code></b>——<code data-page-node-id="TxUBG4vQQqFh70XAFobcWD">.env</code> 里的 <code data-page-node-id="B5nK6fn2DC2yNCnmPAB7Ek">VITE_DROP_CONSOLE=true</code> 没有接进 <code data-page-node-id="Rz9Lf6o1M5dm0fcAcPaIWp">vite.config.ts</code>；② 冗余依赖零引用：<code data-page-node-id="HGdxDCzmze4HdSwKpzn8U3">json-editor-vue</code>、<code data-page-node-id="tF6rJdALvJ7ZbEyhi70W9u">vue-draggable-next</code>（与 <code data-page-node-id="JVy1vQE1BGFFGBq48ONyg0">vuedraggable</code> 重复）、<code data-page-node-id="GQjWUbp9BFhWaZuldZYAKD">mockjs</code>、<code data-page-node-id="Yo3EdFSeZy31PPnYWJw6vJ">blueimp-md5</code>、<code data-page-node-id="Ag4VbkwRxrUxbJg4Vk3Cnk">mitt</code>，另有三套图标库并存；③ 后端约 118 处 <code data-page-node-id="YiCb5uMJFptnDQAuekjLP5">except Exception</code>，部分静默 <code data-page-node-id="AaR0XvmlSe2Uqgk8nPz2yE">pass</code>（<code data-page-node-id="PCqMTMetFxa0rZvC6NAgrX">suite/tasks.py:81,134</code>），故障会难以定位；④ <b data-page-node-id="cPutLVz1bcuRyAt39b8uJe">无跨机分布式调度</b>，并发上限受 Django-Q 的 <code data-page-node-id="SCrnNH7WDaMQr4RDMxu2sv">workers</code> 配置约束，扩不了机器。</p>
+</div>
+
+<h2 data-page-node-id="DPqiLPtC0GwlLHpGt5rE2z"><span class="num" data-page-node-id="bYJJAcdJqAhj8edJLMrAN1">05</span>价值估算</h2>
+<p class="sub" data-page-node-id="cDh7LQE5E68UphPqwBvyLy">用「重置成本法」：把这份代码从零重做需要多少投入。这比拍一个金额更有依据</p>
+
+<div class="tbl-wrap" data-page-node-id="JkKH6CIIDXGtIbJErqac8l">
+<table data-page-node-id="vNTJeHFyPcDeIfFdHYYeb8">
+  <thead data-page-node-id="Wofg9nGpPLExVGhGMb1Q2H"><tr data-page-node-id="eEQ9U55xcDTUSrmtxgABa3"><th data-page-node-id="M7YEEaUGtrH1AIBmnBOkXi">估算步骤</th><th data-page-node-id="S5s4Xrj3l1Vt1wgEmCNVsK">口径</th><th data-page-node-id="naBNstSDk59EIVKFRXCOxg">结果</th></tr></thead>
+  <tbody data-page-node-id="EPjUys8LtaAzFI1acZ8jOO">
+    <tr data-page-node-id="s6n8xzE6aeEcSRdYLD4THd"><td data-page-node-id="CfF4PGAAZzFSZvZlvkFyFh">① 代码总规模</td><td data-page-node-id="ny4wEXPCG5w5vPf3HvuDP1">前后端手写代码</td><td class="num" data-page-node-id="18XOPuBI2ATfZDDbHAERRo">约 80,000 行</td></tr>
+    <tr data-page-node-id="gUFsSNCltmjGEx8MXgLR5t"><td data-page-node-id="fKB16KPwyhfeXXCWkVNDIG">② 扣除死代码与模板遗留</td><td data-page-node-id="zyYYXS809Uz89KAjTIGFwU">约 18%</td><td class="num" data-page-node-id="za66eScnbKctEJ7aTmahws">有效代码 约 65,000 行</td></tr>
+    <tr data-page-node-id="pB9eQJMM03HeQo8Ekhoawx"><td data-page-node-id="tfH2G7ogmesc6q0YvTLXXA">③ 按熟练全栈产出折算</td><td data-page-node-id="cHfvEREQkBtWCW3uh0rnxk">日均 150–200 行有效代码<br data-page-node-id="gP6dAd4DX6xXNdcWTH8K2N"><span style="color:#6e7681;font-size:12px" data-page-node-id="yCbIWAIWWsjBkBdC8qjD5g">需同时具备 Django + Vue3 + 自动化测试领域经验</span></td><td class="num" data-page-node-id="yJumzMLG6fD4KCQVK8USHm">325–430 人天</td></tr>
+    <tr data-page-node-id="oWMZaLdpXUbc1lfdbO9ccZ"><td data-page-node-id="Hjek45dN6qSW5qsMPeU955">④ 计入架构设计与踩坑调试</td><td data-page-node-id="CYH9rFKfo9hCuzUNVlG44x">不体现在行数上，但恰是 smart_locator 这类模块的核心成本<br data-page-node-id="b45eooKKPsw6dB9NUVzWt7">上浮 30–50%</td><td class="num" data-page-node-id="ub41aMAJViGqO3DuMLpQr5">≈ 16–21 人月<br data-page-node-id="5PnAR0gW7b30h6sMBN1yFN">→ 21–32 人月</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note" data-page-node-id="MQd7MuLSQDcZ0xSXsEEpBA">
+  <span class="tag" data-page-node-id="Qfs4gp4IuVeWBuVOWCs39E">结论</span><b data-page-node-id="eDA1bCCSXesU4tLoL75g2S">代码重置成本约 21–32 人月</b>，即 1.5–2.5 个熟练工程师做一年。请注意这是<b data-page-node-id="aWb30W1j5YgAiosHueDmAs">重建成本</b>，不等于市场售价——售价还取决于能否变现。<br data-page-node-id="fQBryqGGBaEiBNSiKGmPBR"><br data-page-node-id="aJeGGONPWNZ4pNnqPReFD0">
+  <b data-page-node-id="4TvuiBGjWwiAxn9eKyykrE">关键变量（我的判断，非事实）：</b>这个数字的上限主要来自 <code data-page-node-id="e0hDL4wbpbRdBz3Usrr0F8">smart_locator</code>。多策略回退定位 + 自愈指纹这类东西，写出来的时间可能只占 5%，但「知道要这么写」需要真实踩过大量网站的坑。这部分经验成本很难用行数衡量，实际比估算值更值钱。反之，前端那 5.5 万行里有相当比例是模板改造和脚本生成的压缩代码，含金量低于行数暗示的水平。
+</div>
+
+<h3 data-page-node-id="mvrdIHgVjH4D9tCx3yKvAF">如果要对外变现，还差什么</h3>
+<div class="tbl-wrap" data-page-node-id="x4w9N5ngv3YxxqZ6Bbk8uf">
+<table data-page-node-id="jtGqREHVHIlX3Er6TZ1FtJ">
+  <thead data-page-node-id="9pd8HvoLQFENcT3Sk8Tt9d"><tr data-page-node-id="TBYbniHIz873zcobegD5Uw"><th data-page-node-id="HiZ80L3jpDtRL3b1iAjF2l">缺口</th><th data-page-node-id="WpCwgdnTGxOgBlFB4gIdji">工作量估算</th><th data-page-node-id="Q5hCNjLyBBVSEBOowh43D6">说明</th></tr></thead>
+  <tbody data-page-node-id="VgGo1NuZGhXlIQoO2AbBnJ">
+    <tr data-page-node-id="20jJ0I9w1N2ZYTlHLRO01j"><td data-page-node-id="atXA2FsxXNwPbVmEHF7Bhe">多租户与租户隔离</td><td class="num" data-page-node-id="O4HHHJB4phz8wTEPVl7J7j">2–4 人月</td><td data-page-node-id="eVRy13601pcJKwjbPgUrwY">当前是单团队自用模型，无租户概念</td></tr>
+    <tr data-page-node-id="MWAZ8T6gF88o96WnXUVSqV"><td data-page-node-id="6nXWDkwOlvH5epTYtZA2jg">跨机分布式执行</td><td class="num" data-page-node-id="Vw7Tm9KEEV6g4X5uPDlSSl">2–3 人月</td><td data-page-node-id="supP6LtPWgBhXygtaPetfI">需把 Django-Q 换成可水平扩展的调度 + 任务分发</td></tr>
+    <tr data-page-node-id="4GewCWyhwnLmrpUBYM82M6"><td data-page-node-id="PR6Zy58j2rlGpxox9D83bn">权限与计费体系</td><td class="num" data-page-node-id="wrQXZe9jyCIslQhCluNovv">1–2 人月</td><td data-page-node-id="AWigUyL3i7GBMqOjRuNtag">account 模块仅 371 行，能力较薄</td></tr>
+    <tr data-page-node-id="1fIv6Qn3pUyP0fs3ejyTGA"><td data-page-node-id="S9qgHDedlLdlmmnaYj3z0e">前端治理与重构</td><td class="num" data-page-node-id="zv0S3REM8BleCvpPunFq7I">2–3 人月</td><td data-page-node-id="KKdCc4nKiP5UBCGVx2EOHM">拆超大文件、清死代码、开启类型检查</td></tr>
+    <tr data-page-node-id="hVGbYa7If2xB1mZIBgbKD8"><td data-page-node-id="57xbMYIkdHu4XFNOTyt5h0">文档与交付物</td><td class="num" data-page-node-id="ByDiTc4mLKOc6gNIF57E4C">1 人月</td><td data-page-node-id="Fbmc2x1NKVcDVG1yMGAyAx">docs 目录目前仅 5 篇 md</td></tr>
+    <tr data-page-node-id="kMZBwroLHdFJyQU5c7tF7F"><td colspan="2" style="text-align:right;color:#8b949e" data-page-node-id="jTwDyA4EzSMgwxrG9B2exL">合计</td><td class="num" data-page-node-id="95sMyPDRYQemL8qvw2SyHj"><b style="color:#d29922" data-page-node-id="hwcoq5MsAWhsuqRptEDyrq">8–13 人月</b></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 data-page-node-id="yde9xmpGgUA4tZuAtZZhqT"><span class="num" data-page-node-id="BL5WkG10AFqerFxUupMtDX">06</span>结论</h2>
+
+<div class="concl" data-page-node-id="BeSB8gPXkx7eoRMNDsO6Tm">
+  <div class="big" data-page-node-id="qmruwj6X39GdvEg2uHCrq9">技术价值真实，资产成熟度不足。</div>
+  <p style="color:#8b949e;font-size:13px;margin-bottom:4px" data-page-node-id="FpOBJQ5D3cmGDMjRiJD36M">建议按「先治理、再定价值」的顺序推进：</p>
+  <ol data-page-node-id="6gj7F3YbBSfSsfvX9BrEcT">
+    <li data-page-node-id="yxHvGRahWR9598heE2dRqZ"><b data-page-node-id="7hfQVvDvdsGm0uLY7GAvGZ">立刻做两件事</b>：① 给前后端各建 git 仓库并提交全量代码（哪怕只有一个初始 commit，也远好过零历史）；② 轮换 <code data-page-node-id="d1yGsBrn1wRHPhPoLpwxCk">aaa.py</code> 和 <code data-page-node-id="A08gXJ5TUhyo4xuhfsYLCO">.env</code> 里的两个 API Key，删除 <code data-page-node-id="tgn9instSMBBqdu9JF95dp">aaa.py</code>。这两件事成本极低，但直接决定资产是否「可交付」。</li>
+    <li data-page-node-id="abLHtD9NnZ32eRsEgHTJfa"><b data-page-node-id="WJL8M90lNcuqLnfLdwvPt6">清理死代码换回真实规模</b>：删掉 35 个模板 demo 页、<code data-page-node-id="9fsjMx1ShTdhxBrGidYcVT">api/schema.d.ts</code>、<code data-page-node-id="QEXVeB4Sct0E7gWhaVp78t">components/Http</code>、<code data-page-node-id="qVWfsJK3ndh9V4h72A86M2">CountTo</code> 和两个被注释的 plugin。约 7–8 千行，前端规模立刻从「5.5 万行」变成可信的数字，也顺手缩小了打包体积（当前 <code data-page-node-id="m89JVc1HtBfjejXJs5eusw">import.meta.glob</code> 把孤儿页全打进了 dist）。</li>
+    <li data-page-node-id="ehp7NDQddUGCRy66XHNsFC"><b data-page-node-id="6hqelEsKYt3VGSZme0tEtp">把类型检查接进构建</b>：<code data-page-node-id="x7VhPgxmQzSfjII45L69Og">build</code> 脚本加上 <code data-page-node-id="AUKSdAAFGEo9CGqMh0EaML">vue-tsc --noEmit</code>，打开 <code data-page-node-id="MeJANqPIyBTWPJQFDqGgPR">noImplicitAny</code>。不用一次性修完 109 处 <code data-page-node-id="aCk6HmAQEZR9z4UslqLSSY">any</code>，先让它能报错，再按模块收敛。</li>
+    <li data-page-node-id="So6MIZMkSuc56cHoA0y2J9"><b data-page-node-id="HR8sWQqXGXvgH9V9FKwkNZ">把 smart_locator 单独拎出来当成核心资产对待</b>：这是全项目唯一具备差异化壁垒的部分。给它补测试、补文档、把定位策略做成可配置项。如果未来要做技术输出或融资，这是唯一需要重点讲的东西。</li>
+    <li data-page-node-id="Hf96G1IhrouiqYnBL4KCvO"><b data-page-node-id="jeIByOOuVECXHLDrbeZYtm">拆分长函数</b>：优先 <code data-page-node-id="QAXD88dImfG2imc6bHD19b">suite/models.py:344</code> 的 <code data-page-node-id="yuvZUi1YWePgDBJi6BqLoP">run()</code>（447 行）和 <code data-page-node-id="FKVusgH12pW6izH8avKmfo">engine.py</code>。这两个是全平台最核心也最难改的地方，改之前务必先有测试覆盖——目前 suite 模块已有 8 个测试文件，基础不错，可以在此基础上加。</li>
+  </ol>
+</div>
+
+<footer data-page-node-id="9U50EChIcC3MfloeiOazrr">
+  <b data-page-node-id="J4trqlHJ6YGxjxnhJw0rav">评估方法说明</b><br data-page-node-id="3FkVOC07wCjqCq2PepX68h">
+  本报告基于对代码库的静态分析：文件统计（排除 venv / migrations / __pycache__）、依赖清单核对、关键模块源码审阅、数据库表数据量查询、部署配置检查。<br data-page-node-id="2elKSy4vB248isl2XfVjLw">
+  报告中标注为「事实」的内容均有文件路径与行号支撑；涉及价值判断、工作量估算、市场定位的部分属于<b data-page-node-id="tKLF5WrXKpBuzIeF6Jhx6W">推测</b>，已在文中明确区分。<br data-page-node-id="7i1v0VpSdVXzaf1WDFc1Vy"><br data-page-node-id="Fyz7hAwbDOcAOqFAwWybHo">
+  工作量估算采用重置成本法，未计入沟通、需求变更、环境搭建等间接成本，实际可能上浮。<br data-page-node-id="L6k0V9Cu3pvN7bPmitORmj">
+  生成时间：2026-09-12 · 分析范围：后端 182 个 py 文件 + 前端 319 个 vue/ts 文件
+</footer>
+
+</div>
+</body>
+</html>

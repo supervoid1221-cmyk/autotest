@@ -4,11 +4,11 @@ import re
 import shlex
 import socket
 import time
-from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import requests
+from Tesla.ssh import configured_ssh_client, ssh_connection_options
 from django.utils import timezone
 
 from .models import MonitorAlertEvent, MonitorTarget, ServiceMonitorEvent
@@ -33,22 +33,8 @@ def _ssh_client(server):
     except ImportError as exc:
         raise PrometheusRequestError("服务端未安装 Paramiko，无法通过 SSH 查询 Prometheus。") from exc
 
-    client = paramiko.SSHClient()
-    if server.strict_host_key:
-        client.load_system_host_keys()
-        client.set_missing_host_key_policy(paramiko.RejectPolicy())
-    else:
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    options = {
-        "hostname": server.host,
-        "port": server.port,
-        "username": server.username,
-        "timeout": PROMETHEUS_TIMEOUT_SECONDS,
-        "banner_timeout": PROMETHEUS_TIMEOUT_SECONDS,
-        "auth_timeout": PROMETHEUS_TIMEOUT_SECONDS,
-        "look_for_keys": False,
-        "allow_agent": False,
-    }
+    client = configured_ssh_client(paramiko, server.strict_host_key)
+    options = ssh_connection_options(server.host, server.port, server.username, PROMETHEUS_TIMEOUT_SECONDS)
     if server.auth_type == "private_key":
         key_path = Path(os.path.expanduser(server.private_key_path))
         if not key_path.is_file():
@@ -129,7 +115,7 @@ def sync_cluster(cluster):
             instance_label = str(labels.get(cluster.instance_label_key, "")).strip()
             if not instance_label: skipped += 1; continue
             found.add(instance_label)
-            defaults = {"cluster": cluster, "mode": "cluster", "discovered": True, "discovery_active": True, "discovery_labels": labels, "last_discovered_at": now, "project": cluster.project, "server": cluster.server, "name": str(labels.get(cluster.node_name_label) or labels.get("nodename") or instance_label), "job": cluster.job, "extra_labels": cluster.label_rules, "enabled": True, "cpu_warning_threshold": cluster.cpu_warning_threshold, "cpu_critical_threshold": cluster.cpu_critical_threshold, "memory_warning_threshold": cluster.memory_warning_threshold, "memory_critical_threshold": cluster.memory_critical_threshold, "disk_warning_threshold": cluster.disk_warning_threshold, "disk_critical_threshold": cluster.disk_critical_threshold}
+            defaults = {"tenant": cluster.tenant, "cluster": cluster, "mode": "cluster", "discovered": True, "discovery_active": True, "discovery_labels": labels, "last_discovered_at": now, "project": cluster.project, "server": cluster.server, "name": str(labels.get(cluster.node_name_label) or labels.get("nodename") or instance_label), "job": cluster.job, "extra_labels": cluster.label_rules, "enabled": True, "cpu_warning_threshold": cluster.cpu_warning_threshold, "cpu_critical_threshold": cluster.cpu_critical_threshold, "memory_warning_threshold": cluster.memory_warning_threshold, "memory_critical_threshold": cluster.memory_critical_threshold, "disk_warning_threshold": cluster.disk_warning_threshold, "disk_critical_threshold": cluster.disk_critical_threshold}
             _, made = MonitorTarget.objects.update_or_create(prometheus=cluster.prometheus, instance_label=instance_label, defaults=defaults)
             created += int(made); updated += int(not made)
         offline = cluster.targets.filter(discovered=True).exclude(instance_label__in=found).update(discovery_active=False)
@@ -155,11 +141,15 @@ def _instant_value(target, query, reducer="first"):
     return max(values) if reducer == "max" else values[0]
 
 
-def _series(target, query, seconds):
-    end = timezone.now()
-    start = end - timedelta(seconds=seconds)
+def _series(target, query, seconds, start_timestamp=None, end_timestamp=None):
+    end = float(end_timestamp) if end_timestamp is not None else timezone.now().timestamp()
+    start = float(start_timestamp) if start_timestamp is not None else end - seconds
+    range_seconds = max(300, int(end - start))
     data = _request(target.prometheus, "/api/v1/query_range", {
-        "query": query, "start": start.timestamp(), "end": end.timestamp(), "step": max(15, min(300, seconds // 80)),
+        "query": query,
+        "start": start,
+        "end": end,
+        "step": max(15, min(3600, range_seconds // 240)),
     }, target.server)
     result = data.get("result") or []
     points = {}
@@ -176,26 +166,43 @@ def _series(target, query, seconds):
 
 def metric_queries(target):
     selector = _selector(target)
+    disk_selector = f'{selector},device!~"loop.*|ram.*|fd.*|sr.*"'
     return {
         "up": f"up{{{selector}}}",
         "cpu": f"100 - (avg by (instance) (rate(node_cpu_seconds_total{{{selector},mode=\"idle\"}}[5m])) * 100)",
         "memory": f"(1 - (node_memory_MemAvailable_bytes{{{selector}}} / node_memory_MemTotal_bytes{{{selector}}})) * 100",
         "disk": f"100 * (1 - (node_filesystem_avail_bytes{{{selector},fstype!~\"tmpfs|overlay|squashfs\"}} / node_filesystem_size_bytes{{{selector},fstype!~\"tmpfs|overlay|squashfs\"}}))",
+        "disk_read_iops": f"sum by (instance) (rate(node_disk_reads_completed_total{{{disk_selector}}}[5m]))",
+        "disk_write_iops": f"sum by (instance) (rate(node_disk_writes_completed_total{{{disk_selector}}}[5m]))",
+        "disk_iops": (
+            f"sum by (instance) (rate(node_disk_reads_completed_total{{{disk_selector}}}[5m])) + "
+            f"sum by (instance) (rate(node_disk_writes_completed_total{{{disk_selector}}}[5m]))"
+        ),
     }
 
 
-def snapshot(target, include_series=False, range_seconds=3600):
+def snapshot(target, include_series=False, range_seconds=3600, start_timestamp=None, end_timestamp=None):
     queries = metric_queries(target)
     values = {
         "up": _instant_value(target, queries["up"]),
         "cpu": _instant_value(target, queries["cpu"]),
         "memory": _instant_value(target, queries["memory"]),
         "disk": _instant_value(target, queries["disk"], reducer="max"),
+        "disk_read_iops": _instant_value(target, queries["disk_read_iops"]),
+        "disk_write_iops": _instant_value(target, queries["disk_write_iops"]),
+        "disk_iops": _instant_value(target, queries["disk_iops"]),
     }
     values = {key: (round(value, 2) if value is not None else None) for key, value in values.items()}
     result = {"current": values, "series": {}}
     if include_series:
-        result["series"] = {key: _series(target, query, range_seconds) for key, query in queries.items() if key != "up"}
+        result["series"] = {
+            key: _series(target, query, range_seconds, start_timestamp, end_timestamp)
+            for key, query in queries.items()
+            if key != "up"
+        }
+        effective_end = float(end_timestamp) if end_timestamp is not None else timezone.now().timestamp()
+        effective_start = float(start_timestamp) if start_timestamp is not None else effective_end - range_seconds
+        result["range"] = {"start": int(effective_start * 1000), "end": int(effective_end * 1000)}
     return result
 
 

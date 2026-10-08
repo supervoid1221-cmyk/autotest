@@ -111,7 +111,7 @@
       const tableElRef = ref<ComponentRef>(null);
       const wrapRef = ref<Nullable<HTMLDivElement>>(null);
       let paginationEl: HTMLElement | null;
-      const isStriped = ref(true);
+      const isStriped = ref(false);
       const tableData = ref<Recordable[]>([]);
       const innerPropsRef = ref<Partial<BasicTableProps>>();
 

@@ -1,10 +1,174 @@
 @import 'transition/index.less';
+// 用例列表页共用版式必须先于深色层加载，深色覆盖才自然生效。
+@import 'case-catalog.less';
+@import 'dark-theme.less';
 
-// 全局弹窗尺寸规范：默认居中限高，内容过长时仅内容区滚动。
+// 平台弹窗基准与“接口管理 - 导入 cURL”保持一致。
+// 所有新建的 card 弹窗会自动继承该尺寸，无需页面重复声明宽度。
+:root {
+  --platform-modal-width: 1100px;
+  --platform-modal-gap: 48px;
+  --platform-modal-height-gap: 48px;
+  --http-method-get: #318357;
+  --http-method-post: #da820b;
+  --http-method-put: #277bc5;
+  --http-method-patch: #277bc5;
+  --http-method-delete: #d44857;
+}
+
+// 浅色主题侧栏：提高普通菜单可读性，用完整背景表达选中态。
+html:not([data-theme='dark']) body #app {
+  .layout .layout-sider {
+    border-right: 1px solid #e5e9ef !important;
+    background: #fbfcfe !important;
+    box-shadow: none !important;
+  }
+
+  .layout-sider .logo {
+    border-bottom-color: #edf0f4 !important;
+    background: #fbfcfe !important;
+  }
+
+  .layout-sider .logo .logo-cn {
+    color: #172033 !important;
+    font-weight: 650;
+  }
+
+  .layout-sider .logo .logo-en {
+    color: #8492a6 !important;
+  }
+
+  .layout-sider .menu-search {
+    padding: 12px 12px 4px;
+  }
+
+  .layout-sider .menu-search .n-input {
+    border-radius: 8px !important;
+    background: #f2f5f9 !important;
+  }
+
+  .layout-sider .menu-search .n-input-wrapper {
+    box-shadow: 0 0 0 1px #e2e7ee inset !important;
+  }
+
+  .layout-sider .menu-search .n-input:hover .n-input-wrapper,
+  .layout-sider .menu-search .n-input.n-input--focus .n-input-wrapper {
+    box-shadow: 0 0 0 1px #b9c8dc inset !important;
+  }
+
+  .layout-sider .menu-search-shortcut {
+    border-color: #d9e0e9 !important;
+    background: #fff !important;
+    color: #758398 !important;
+  }
+
+  .layout-sider .n-menu {
+    padding-right: 10px !important;
+    padding-left: 10px !important;
+  }
+
+  .layout-sider .n-menu .n-menu-item-group-title {
+    padding: 15px 10px 7px !important;
+    color: #8795a8 !important;
+    font-size: 11px !important;
+    font-weight: 650 !important;
+    letter-spacing: 0.06em !important;
+  }
+
+  .layout-sider .n-menu .n-menu-item-content {
+    height: 40px !important;
+    margin: 1px 0 !important;
+    border-radius: 7px !important;
+    color: #536176 !important;
+  }
+
+  .layout-sider .n-menu .n-menu-item-content-header,
+  .layout-sider .n-menu .n-menu-item-content__icon,
+  .layout-sider .n-menu .n-menu-item-content__arrow {
+    color: inherit !important;
+  }
+
+  .layout-sider .n-menu .n-menu-item-content__icon,
+  .layout-sider .n-menu .n-menu-item-content__arrow {
+    color: #7b899d !important;
+  }
+
+  .layout-sider .n-menu .n-submenu-children .n-menu-item-content {
+    height: 35px !important;
+    color: #68768a !important;
+  }
+
+  .layout-sider .n-menu .n-menu-item-content:hover {
+    background: #f1f4f8 !important;
+    color: #26364b !important;
+  }
+
+  .layout-sider .n-menu .n-menu-item-content--child-active {
+    background: transparent !important;
+    color: #2563d9 !important;
+  }
+
+  .layout-sider .n-menu .n-menu-item-content--child-active .n-menu-item-content__icon,
+  .layout-sider .n-menu .n-menu-item-content--child-active .n-menu-item-content__arrow {
+    color: #4f8deb !important;
+  }
+
+  .layout-sider .n-menu .n-menu-item-content--selected {
+    overflow: hidden;
+    background: #edf3fb !important;
+    color: #2563d9 !important;
+  }
+
+  .layout-sider .n-menu .n-menu-item-content--selected::before {
+    position: absolute !important;
+    inset: 0 !important;
+    width: auto !important;
+    height: auto !important;
+    border-radius: 7px !important;
+    background: #edf3fb !important;
+    transform: none !important;
+  }
+
+  .layout-sider .n-menu .n-menu-item-content--selected::after {
+    position: absolute;
+    z-index: 1;
+    top: 8px;
+    bottom: 8px;
+    left: 0;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: #4f8deb;
+    content: '';
+  }
+
+  .layout-sider .n-menu .n-menu-item-content--selected .n-menu-item-content-header,
+  .layout-sider .n-menu .n-menu-item-content--selected .n-menu-item-content__icon {
+    position: relative;
+    z-index: 2;
+    color: #2563d9 !important;
+  }
+
+  .sidebar-account {
+    border-top-color: #e5e9ef !important;
+    background: rgb(251 252 254 / 96%) !important;
+  }
+
+  .sidebar-account .account-trigger {
+    color: #26364b !important;
+  }
+
+  .sidebar-account .account-copy small,
+  .sidebar-account .account-icon-button {
+    color: #748296 !important;
+  }
+}
+
+// 默认居中限高，内容过长时仅内容区滚动。
 // 只有显式添加 modal-allow-fullscreen 的工作台类弹窗才允许占满视口。
 .n-modal.n-card:not(.modal-allow-fullscreen) {
-  max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 64px);
+  width: min(var(--platform-modal-width), calc(100vw - var(--platform-modal-gap)));
+  max-width: calc(100vw - var(--platform-modal-gap));
+  max-height: calc(100vh - var(--platform-modal-height-gap));
   display: flex;
   flex-direction: column;
 
@@ -15,25 +179,19 @@
 }
 
 @media (max-width: 640px) {
+  :root {
+    --platform-modal-gap: 24px;
+    --platform-modal-height-gap: 32px;
+  }
+
   .n-modal.n-card:not(.modal-allow-fullscreen) {
-    max-width: calc(100vw - 24px);
-    max-height: calc(100vh - 32px);
+    width: calc(100vw - var(--platform-modal-gap));
   }
 }
 
-// 业务表单弹窗统一采用“接口管理 - 导入 cURL”的尺寸规格。
-// 新增配置类弹窗应添加 platform-form-modal，避免内容直接铺满视口。
+// 兼容已有业务弹窗类；尺寸由上方平台默认规范统一管理。
 .platform-form-modal.n-card {
-  width: min(1100px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
-  overflow: auto;
-}
-
-@media (max-width: 640px) {
-  .platform-form-modal.n-card {
-    width: calc(100vw - 24px);
-    max-height: calc(100vh - 32px);
-  }
+  width: min(var(--platform-modal-width), calc(100vw - var(--platform-modal-gap)));
 }
 
 // 卡片 hover
@@ -106,11 +264,37 @@
   font-weight: 500;
   font-family: 'JetBrains Mono', monospace;
 
-  &-get    { background: #ECFDF5; color: #065F46; }
-  &-post   { background: #EFF6FF; color: #1E40AF; }
-  &-put    { background: #FFFBEB; color: #92400E; }
-  &-delete { background: #FFF1F2; color: #9F1239; }
-  &-patch  { background: #F3F4FF; color: #4338CA; }
+  &-get    { background: #eef8f2; color: var(--http-method-get); }
+  &-post   { background: #fff6e8; color: var(--http-method-post); }
+  &-put    { background: #eef5fb; color: var(--http-method-put); }
+  &-delete { background: #fff0f2; color: var(--http-method-delete); }
+  &-patch  { background: #eef5fb; color: var(--http-method-patch); }
+}
+
+// HTTP 请求方式全平台统一色，以 API 场景详情的语义色为唯一基准。
+:is(.http-method-get, .endpoint-method-tag.method-get, .method.get, .request-method-option.method-get),
+.request-method-select.method-get .n-base-selection-label {
+  color: var(--http-method-get) !important;
+}
+
+:is(.http-method-post, .endpoint-method-tag.method-post, .method.post, .request-method-option.method-post),
+.request-method-select.method-post .n-base-selection-label {
+  color: var(--http-method-post) !important;
+}
+
+:is(.http-method-put, .endpoint-method-tag.method-put, .method.put, .request-method-option.method-put),
+.request-method-select.method-put .n-base-selection-label {
+  color: var(--http-method-put) !important;
+}
+
+:is(.http-method-patch, .endpoint-method-tag.method-patch, .method.patch, .request-method-option.method-patch),
+.request-method-select.method-patch .n-base-selection-label {
+  color: var(--http-method-patch) !important;
+}
+
+:is(.http-method-delete, .endpoint-method-tag.method-delete, .method.delete, .request-method-option.method-delete),
+.request-method-select.method-delete .n-base-selection-label {
+  color: var(--http-method-delete) !important;
 }
 
 // H5 表格统一适配：操作列不再固定占据大半屏幕，按钮允许紧凑换行。

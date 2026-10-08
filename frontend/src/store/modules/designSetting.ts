@@ -1,8 +1,22 @@
 import { defineStore } from 'pinia';
 import { store } from '@/store';
 import designSetting from '@/settings/designSetting';
+import { storage } from '@/utils/Storage';
+import { DESIGN_SETTING } from '@/store/mutation-types';
 
 const { darkTheme, appTheme, appThemeList } = designSetting;
+
+interface PersistedDesignSetting {
+  darkTheme?: boolean;
+  appTheme?: string;
+}
+
+const persistedSetting = storage.get(DESIGN_SETTING, {}) as PersistedDesignSetting;
+const initialDarkTheme =
+  typeof persistedSetting.darkTheme === 'boolean' ? persistedSetting.darkTheme : darkTheme;
+const initialAppTheme = appThemeList.includes(persistedSetting.appTheme || '')
+  ? persistedSetting.appTheme!
+  : appTheme;
 
 interface DesignSettingState {
   //深色主题
@@ -16,8 +30,8 @@ interface DesignSettingState {
 export const useDesignSettingStore = defineStore({
   id: 'app-design-setting',
   state: (): DesignSettingState => ({
-    darkTheme,
-    appTheme,
+    darkTheme: initialDarkTheme,
+    appTheme: initialAppTheme,
     appThemeList,
   }),
   getters: {
@@ -31,7 +45,24 @@ export const useDesignSettingStore = defineStore({
       return this.appThemeList;
     },
   },
-  actions: {},
+  actions: {
+    persistSetting(): void {
+      storage.set(
+        DESIGN_SETTING,
+        { darkTheme: this.darkTheme, appTheme: this.appTheme },
+        null
+      );
+    },
+    setDarkTheme(value: boolean): void {
+      this.darkTheme = value;
+      this.persistSetting();
+    },
+    setAppTheme(value: string): void {
+      if (!this.appThemeList.includes(value)) return;
+      this.appTheme = value;
+      this.persistSetting();
+    },
+  },
 });
 
 // Need to be used outside the setup

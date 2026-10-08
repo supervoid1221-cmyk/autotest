@@ -8,7 +8,7 @@ const routes: Array<RouteRecordRaw> = [
     name: 'LegacyMonitorCenter',
     component: Layout,
     redirect: '/server-configuration/monitor-config',
-    meta: { title: '监控', hidden: true },
+    meta: { title: '监控', hidden: true, sort: 0 },
     children: [
       { path: 'overview', name: 'legacy_monitor_overview', redirect: '/dashboard/monitor', meta: { title: '监控台', hidden: true } },
       { path: 'config', name: 'legacy_monitor_config', redirect: '/server-configuration/monitor-config', meta: { title: '监控配置', hidden: true } },

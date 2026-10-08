@@ -16,9 +16,10 @@
         <div class="report-actions"
           ><n-button quaternary @click="backToResults">返回</n-button
           ><n-button secondary :loading="loading" @click="refreshProgress">刷新</n-button
-          ><n-button v-if="active" type="error" secondary :loading="canceling" @click="cancelRun"
+          ><n-button v-if="active && !reportRestricted" type="error" secondary :loading="canceling" @click="cancelRun"
             >取消执行</n-button
           ><n-dropdown
+            v-if="!reportRestricted"
             trigger="click"
             placement="bottom-end"
             :show-arrow="true"
@@ -33,14 +34,18 @@
         ><span class="report-runline__label">执行状态</span
         ><n-tag size="small" :type="reportStatus.type">{{ reportStatus.label }}</n-tag
         ><span>开始时间：{{ formatTime(report.started_at) }}</span
-        ><span>执行环境：{{ report?.environment || '-' }}</span
+        ><span>执行环境：{{ report?.environment || result?.environment_name || '-' }}</span
         ><span>总耗时：{{ formatDuration(report.duration_ms) }}</span></section
       >
 
-      <AiInsight v-if="summary?.failed > 0" title="AI 失败分析" :content="aiAnalysis" />
+      <n-alert v-if="reportRestricted" type="info" class="report-access-notice">
+        当前账号可查看本项目的实时执行日志；该套件包含其他项目内容，完整报告已隐藏。
+      </n-alert>
 
-      <div class="report-workspace">
-        <main class="report-main">
+      <AiInsight v-if="!reportRestricted && summary?.failed > 0" title="AI 失败分析" :content="aiAnalysis" />
+
+      <div class="report-workspace" :class="{ 'report-workspace--log-only': reportRestricted }">
+        <main v-if="!reportRestricted" class="report-main">
           <section class="report-overview" v-if="summary">
             <div class="report-overview__metrics">
               <div class="pass-ring" :style="stepRingStyle"
@@ -134,10 +139,10 @@
                   @click="toggleScenario(scenario)"
                   ><span class="scenario-identity"
                     ><strong>{{ scenario.name }}</strong
-                    ><n-tag size="small" :type="isUiScenario(scenario) ? 'info' : 'default'">{{
+                    ><n-tag size="small" :type="isAutomationScenario(scenario) ? 'info' : 'default'">{{
                       scenarioTypeLabel(scenario)
                     }}</n-tag
-                    ><n-tag v-if="isUiScenario(scenario)" size="small" :bordered="false"
+                    ><n-tag v-if="isUiScenario(scenario) && !isAppScenario(scenario)" size="small" :bordered="false"
                       >{{ uiBrowserLabel(scenario.browser) }} ·
                       {{ scenario.run_mode === 'headed' ? '有界面' : '无头' }}</n-tag
                     ><span class="scenario-meta">{{ scenario.steps?.length || 0 }} 个步骤</span></span
@@ -362,7 +367,7 @@
         </main>
 
         <aside class="report-log-rail">
-          <section v-if="isAdmin" class="live-log">
+          <section class="live-log">
             <div class="live-log-title"
               ><div
                 ><h3>实时执行日志</h3
@@ -398,8 +403,7 @@
               v-html="highlightedProgressLog || '等待执行器输出日志…'"
             ></pre>
           </section>
-          <n-empty v-else description="仅管理员可查看实时执行日志" class="log-empty" />
-          <div class="variable-entry"
+          <div v-if="!reportRestricted" class="variable-entry"
             ><div
               ><strong>变量解析</strong
               ><span v-if="variableResolution.length"
@@ -443,11 +447,12 @@
                   <n-button
                     size="small"
                     secondary
-                    circle
+                    class="fullscreen-exit"
                     aria-label="退出全屏"
                     @click="logFullscreen = false"
                   >
                     <template #icon><n-icon><FullscreenExitOutlined /></n-icon></template>
+                    退出全屏
                   </n-button>
                 </template>
                 退出全屏
@@ -465,7 +470,8 @@
         v-model:show="variableResolutionVisible"
         preset="card"
         title="变量解析详情"
-        style="width: min(820px, calc(100vw - 48px))"
+        class="variable-resolution-modal"
+        style="width: min(920px, calc(100vw - 48px))"
       >
         <p class="resolution-description"
           >按变量的实际产生顺序展示；同名变量以最后一次设置为准，Token、密码等敏感值已遮罩。</p
@@ -510,6 +516,8 @@
 </template>
 
 <script lang="ts" setup>
+import { methodStyle, formatJson, formatRequest, formatResponse, formatTime, formatDuration, stepStatus } from '@/utils/report';
+
   import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import { useMessage } from 'naive-ui';
@@ -517,12 +525,10 @@
   import { RunResultAPI } from '@/api/suite/http';
   import { AiInsight } from '@/components/Ai';
   import ReportApiStepList from './components/ReportApiStepList.vue';
-  import { useUserStore } from '@/store/modules/user';
 
   const route = useRoute();
   const router = useRouter();
-  const userStore = useUserStore();
-  const isAdmin = computed(() => Boolean((userStore.info as any)?.is_admin));
+  const emit = defineEmits<{ (event: 'report-type-change', value: 'app' | null): void }>();
   const result = ref<any>();
   const loading = ref(true);
   const progressLog = ref('');
@@ -532,6 +538,8 @@
   const fullscreenLogContentRef = ref<HTMLElement | null>(null);
   const logFullscreen = ref(false);
   const active = ref(false);
+  const reportRestricted = ref(false);
+  const reportAccessResolved = ref(false);
   const canceling = ref(false);
   const pausing = ref(false);
   const rerunning = ref(false);
@@ -548,6 +556,12 @@
   let progressPollingVersion = 0;
   const report = computed(() => result.value?.native_report || {});
   const scenarios = computed(() => report.value?.scenarios || []);
+  const reportType = computed<'app' | null>(() =>
+    scenarios.value.length && scenarios.value.every((item: any) => item?.type === 'app')
+      ? 'app'
+      : null
+  );
+  watch(reportType, (value) => emit('report-type-change', value), { immediate: true });
   const isPaused = computed(() => String(result.value?.status || '') === '已暂停');
   const variableResolution = computed(() => report.value?.variable_resolution || []);
   const summary = computed(() => report.value?.summary);
@@ -583,6 +597,15 @@
     return { background: `conic-gradient(${stops.join(', ')})` };
   });
   const reportStatus = computed(() => {
+    if (reportRestricted.value) {
+      const status = String(result.value?.status || '等待执行');
+      if (status.includes('出错') || status.includes('失败'))
+        return { label: status, type: 'error' as const };
+      if (status.includes('取消')) return { label: status, type: 'default' as const };
+      if (status.includes('完毕') || status.includes('成功'))
+        return { label: status, type: 'success' as const };
+      return { label: status, type: 'warning' as const };
+    }
     if (isPaused.value) return { label: '已暂停', type: 'warning' as const };
     if (active.value) return { label: '执行中', type: 'warning' as const };
     if (Number(summary.value?.failed || 0) > 0)
@@ -616,7 +639,7 @@
       key: 'pause',
       disabled: !active.value || pausing.value,
     },
-    { label: '重新执行', key: 'retry', disabled: active.value },
+    { label: '重新执行', key: 'retry', disabled: active.value || rerunning.value },
   ]);
   const escapeHtml = (value: string) =>
     value.replace(
@@ -635,11 +658,25 @@
     ).length;
   });
   const highlightedProgressLog = computed(() => {
-    const content = escapeHtml(progressLog.value || '');
     const keyword = logSearch.value.trim();
-    if (!keyword) return content;
-    const expression = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return content.replace(new RegExp(expression, 'gi'), (matched) => `<mark>${matched}</mark>`);
+    const expression = keyword
+      ? new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+      : null;
+    const highlight = (value: string) => {
+      const content = escapeHtml(value);
+      return expression
+        ? content.replace(expression, (matched) => `<mark>${matched}</mark>`)
+        : content;
+    };
+    return String(progressLog.value || '')
+      .split('\n')
+      .map((line) => {
+        const matched = line.match(/^(\[[^\]]+\])\s+\[(INFO|SUCCESS|WARNING|ERROR)\]\s*(.*)$/);
+        if (!matched) return highlight(line);
+        const level = matched[2].toLowerCase();
+        return `<span class="log-time">${highlight(matched[1])}</span> <span class="log-level ${level}">${highlight(matched[2])}</span> <span class="log-message">${highlight(matched[3])}</span>`;
+      })
+      .join('\n');
   });
   const locateNextLogMatch = async () => {
     if (!logSearch.value.trim() || !logMatchCount.value) return;
@@ -660,15 +697,8 @@
     if (!keyword.trim()) return;
     await locateNextLogMatch();
   });
-  const methodStyle = (method?: string) =>
-    ({
-      GET: { color: '#1677ff', background: '#eaf3ff' },
-      POST: { color: '#20a162', background: '#ebf8f0' },
-      PUT: { color: '#d97706', background: '#fff5e6' },
-      PATCH: { color: '#7c3aed', background: '#f3edff' },
-      DELETE: { color: '#dc2626', background: '#fff0f0' },
-    }[String(method || '').toUpperCase()] || { color: '#667085', background: '#f2f4f7' });
-  const formatJson = (data: unknown) => JSON.stringify(data || {}, null, 2);
+  
+  
   const formatVariableValue = (value: unknown) =>
     typeof value === 'string' ? value : JSON.stringify(value, null, 2);
   const variableReference = (name: unknown) => `\${${String(name || '')}}`;
@@ -709,25 +739,18 @@
       }`;
     return item.source === 'template' ? '本次执行入参' : '项目配置';
   };
-  const isEmpty = (value: unknown) =>
-    value == null ||
-    (typeof value === 'string' && value.trim() === '') ||
-    (Array.isArray(value) && value.length === 0) ||
-    (typeof value === 'object' && Object.keys(value).length === 0);
-  const formatRequest = (request: any) => {
-    const clone = { ...(request || {}) };
-    (['params', 'data', 'json'] as const).forEach((key) => {
-      if (isEmpty(clone[key])) delete clone[key];
-    });
-    return JSON.stringify(clone, null, 2);
-  };
-  const formatResponse = (data: any) =>
-    JSON.stringify({ headers: data?.headers || {}, body: data?.body || '' }, null, 2);
+  
+  
+  
   const isUiScenario = (scenario: any) =>
-    ['ui', 'playwright_ui'].includes(String(scenario?.type || '')) ||
+    ['ui', 'playwright_ui', 'app'].includes(String(scenario?.type || '')) ||
     Boolean(scenario?.browser && scenario?.run_mode);
+  const isAppScenario = (scenario: any) => String(scenario?.type || '') === 'app';
+  const isAutomationScenario = (scenario: any) => isUiScenario(scenario) || isAppScenario(scenario);
   const scenarioTypeLabel = (scenario: any) =>
-    scenario?.type === 'playwright_ui'
+    scenario?.type === 'app'
+      ? 'App 自动化'
+      : scenario?.type === 'playwright_ui'
       ? 'Playwright UI'
       : scenario?.type === 'ui'
       ? 'UI 自动化'
@@ -782,13 +805,16 @@
       2
     );
   };
-  const screenshotMeta = (step: any) =>
-    step?.detail?.screenshot ||
-    step?.detail?.failure_screenshot ||
-    step?.detail?.ocr_screenshot ||
-    {};
+  const screenshotMeta = (step: any) => {
+    const native = step?.detail?.screenshot || step?.detail?.failure_screenshot || step?.detail?.ocr_screenshot;
+    if (native) return native;
+    const appArtifact = (step?.artifacts || []).find((item: any) => item?.type === 'screenshot');
+    return appArtifact ? { path: appArtifact.download_url, label: appArtifact.name || 'App 步骤截图', absolute: true } : {};
+  };
   const screenshotSource = (step: any) => {
-    const screenshotPath = String(screenshotMeta(step)?.path || '').replace(/^\/+/, '');
+    const meta = screenshotMeta(step);
+    if (meta?.absolute) return String(meta.path || '');
+    const screenshotPath = String(meta?.path || '').replace(/^\/+/, '');
     const artifactsUrl = String(result.value?.artifacts_url || '');
     if (!screenshotPath || !artifactsUrl.endsWith('/artifacts.zip')) return '';
     return `${artifactsUrl.slice(0, -'artifacts.zip'.length)}${screenshotPath}`;
@@ -815,38 +841,9 @@
   }
   const assertionName = (type?: string) =>
     ({ assert_text: '文本断言', assert_value: '值断言' }[String(type || '')] || type || '断言');
-  const formatTime = (value?: string) => {
-    if (!value) return '-';
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
-  };
-  const formatDuration = (value?: number, step?: any) => {
-    let milliseconds = Number(value);
-    if (!Number.isFinite(milliseconds) && step?.started_at && step?.finished_at) {
-      milliseconds = new Date(step.finished_at).getTime() - new Date(step.started_at).getTime();
-    }
-    if (!Number.isFinite(milliseconds)) return '-';
-    milliseconds = Math.max(0, milliseconds);
-    return milliseconds >= 1000
-      ? `${(milliseconds / 1000).toFixed(2)} 秒`
-      : `${milliseconds.toFixed(0)} ms`;
-  };
-  const stepStatus = (step: any) => {
-    const status =
-      step?.status ||
-      (step?.passed === true ? 'passed' : step?.passed === false ? 'failed' : 'pending');
-    return (
-      (
-        {
-          passed: { label: '通过', type: 'success' },
-          failed: { label: '失败', type: 'error' },
-          running: { label: '执行中', type: 'warning' },
-          pending: { label: '待执行', type: 'default' },
-          skipped: { label: '已跳过', type: 'warning' },
-        } as any
-      )[status] || { label: '待执行', type: 'default' }
-    );
-  };
+  
+  
+  
   const scenarioKey = (scenario: any) => String(scenario?.id ?? scenario?.name ?? 'scenario');
   const isScenarioExpanded = (scenario: any) => {
     const key = scenarioKey(scenario);
@@ -1168,6 +1165,19 @@
   }
   async function refreshProgress() {
     const requestVersion = ++progressRequestVersion;
+    if (!reportAccessResolved.value || reportRestricted.value) {
+      const logData: any = await api.getExecutionLog(Number(route.params.id));
+      if (requestVersion !== progressRequestVersion) return;
+      reportAccessResolved.value = true;
+      reportRestricted.value = !Boolean(logData.can_view_report);
+      result.value = logData.result;
+      progressLog.value = logData.log || '';
+      active.value = Boolean(logData.active);
+      if (reportRestricted.value) {
+        if (!active.value) stopProgressPolling();
+        return;
+      }
+    }
     const data: any = await api.getProgress(Number(route.params.id));
     if (requestVersion !== progressRequestVersion) return;
     result.value = data.result;
@@ -1220,14 +1230,15 @@
       progressRequestVersion += 1;
       stopProgressPolling();
       const response: any = await api.retryById(Number(route.params.id));
+      progressLog.value = '';
+      logSearch.value = '';
+      logMatchIndex.value = -1;
+      scenarioExpansion.value = {};
+      conditionExpansion.value = {};
+      clearScreenshotCache();
+      await refreshProgress();
+      startProgressPolling();
       message.success(`已重新提交执行记录：${response.result_id}`);
-      // 与“直接运行套件”保持同一条进入报告页路径：使用相同执行编号重建
-      // 报告页面实例，避免 keep-alive 中的旧状态、旧轮询和旧报告快照残留。
-      await router.replace({
-        name: 'suite_report',
-        params: { id: response.result_id },
-        query: { ...route.query, rerun: String(Date.now()) },
-      });
     } catch (error: any) {
       message.error(error?.detail || error?.message || '重新执行失败');
     } finally {
@@ -1235,7 +1246,7 @@
     }
   }
   function backToResults() {
-    router.push({ name: 'suite_run_result' });
+    router.push({ name: 'execution_control' });
   }
   function handleLogFullscreenKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape' && logFullscreen.value) logFullscreen.value = false;
@@ -1260,6 +1271,9 @@
     min-height: 100%;
     padding: 24px 28px 30px;
     background: #f7f9fc;
+  }
+  .report-access-notice {
+    margin-top: 16px;
   }
   .report-header {
     display: flex;
@@ -1325,6 +1339,9 @@
     grid-template-columns: minmax(0, 1fr) minmax(330px, 37%);
     gap: 16px;
     align-items: start;
+  }
+  .report-workspace--log-only {
+    grid-template-columns: minmax(0, 1fr);
   }
   .report-main {
     min-width: 0;
@@ -1657,12 +1674,18 @@
     font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   }
   .resolution-description {
-    margin: -2px 0 14px;
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: #f6f8fb;
     color: #7a8ba5;
     font-size: 12px;
+    line-height: 1.65;
   }
   .resolution-table-wrap {
     overflow-x: auto;
+    border: 1px solid #e4e9f0;
+    border-radius: 8px;
   }
   .resolution-table {
     width: 100%;
@@ -1672,16 +1695,24 @@
     font-size: 12px;
   }
   .resolution-table th {
-    padding: 10px 12px;
-    background: #f8faff;
+    height: 44px;
+    padding: 0 14px;
+    background: #f6f8fb;
     color: #667085;
     font-weight: 600;
     text-align: left;
   }
   .resolution-table td {
-    padding: 10px 12px;
-    border-top: 1px solid #edf1f7;
+    height: 54px;
+    padding: 8px 14px;
+    border-top: 1px solid #edf0f4;
     vertical-align: top;
+  }
+  .resolution-table tbody tr {
+    transition: background-color 0.16s ease;
+  }
+  .resolution-table tbody tr:hover {
+    background: #f8fafc;
   }
   .resolution-table th:nth-child(1) {
     width: 130px;
@@ -1693,7 +1724,7 @@
     width: 100px;
   }
   .resolution-table code {
-    color: #376bff;
+    color: #356f9c;
     font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   }
   .resolution-table pre {
@@ -2114,6 +2145,8 @@
   }
   .errors {
     margin-bottom: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .detail-block {
     margin-top: 14px;
@@ -2230,22 +2263,72 @@
     height: 100vh;
     height: 100dvh;
     margin: 0;
-    padding: 20px;
+    padding: 0;
     overflow: hidden;
     border-radius: 0;
-    background: #fff;
+    background: #181818;
   }
   .fullscreen-log-panel .live-log-title {
     flex: 0 0 auto;
+    min-height: 68px;
+    margin: 0;
+    padding: 0 24px;
+    border-bottom: 1px solid #303030;
+    background: #202020;
+  }
+  .fullscreen-log-panel .live-log-title > div:first-child {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .fullscreen-log-panel .live-log-title h3 {
+    color: #d6d6d6;
+    font-size: 16px;
+    font-weight: 650;
+  }
+  .fullscreen-log-panel .log-connection {
+    margin-top: 0;
+    color: #8996a8;
   }
   .fullscreen-log-panel .live-log-tools :deep(.n-input) {
-    width: min(420px, 50vw);
+    width: min(460px, 46vw);
+    --n-color: #181818;
+    --n-color-focus: #181818;
+    --n-color-disabled: #181818;
+    --n-border: 1px solid #383838;
+    --n-border-hover: 1px solid #484848;
+    --n-border-focus: 1px solid #555;
+    --n-text-color: #d6d6d6;
+    --n-placeholder-color: #737d8b;
+  }
+  .fullscreen-exit {
+    min-width: 104px;
+    border-color: #404040 !important;
+    background: #2c2c2c !important;
+    color: #d6d6d6 !important;
+  }
+  .fullscreen-exit:hover {
+    border-color: #4a4a4a !important;
+    background: #333 !important;
   }
   .fullscreen-log-panel .log-content {
     flex: 1 1 auto;
     height: auto;
     min-height: 0;
+    margin: 18px 20px 20px;
+    width: auto;
+    border-color: #30343a;
+    border-radius: 8px;
+    background: #171a1e;
+    color: #8996a8;
+    line-height: 1.75;
   }
+  .fullscreen-log-panel .log-content :deep(.log-time) { color: #8996a8; }
+  .fullscreen-log-panel .log-content :deep(.log-message) { color: #aeb6c1; }
+  .fullscreen-log-panel .log-content :deep(.log-level.info) { color: #79b8e8; }
+  .fullscreen-log-panel .log-content :deep(.log-level.success) { color: #71c7a5; }
+  .fullscreen-log-panel .log-content :deep(.log-level.warning) { color: #e1b96e; }
+  .fullscreen-log-panel .log-content :deep(.log-level.error) { color: #df858d; }
   .log-content {
     width: 100%;
     height: clamp(500px, calc(100vh - 290px), 760px);
@@ -2271,6 +2354,13 @@
     color: #fff;
     background: #1677ff;
   }
+  .log-content :deep(.log-time) { color: #64748b; }
+  .log-content :deep(.log-level) { display: inline-block; min-width: 62px; font-weight: 700; }
+  .log-content :deep(.log-level.info) { color: #2563eb; }
+  .log-content :deep(.log-level.success) { color: #059669; }
+  .log-content :deep(.log-level.warning) { color: #b45309; }
+  .log-content :deep(.log-level.error) { color: #dc2626; }
+  .log-content :deep(.log-message) { color: #27364b; font-weight: 500; }
   @media (max-width: 760px) {
     .report-page {
       padding: 16px;

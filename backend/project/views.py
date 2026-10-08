@@ -1,15 +1,20 @@
 from time import perf_counter
 
 import requests
+from django.db import transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from account.permissions import IsPlatformAdmin
+from account.models import Tenant, TenantMembership
+from account.tenancy import get_request_tenant, validate_tenant_relations
 
-from .models import DatabaseConnection, DynamicFunction, Environment, Project, ProjectVariable
-from .serializers import DatabaseConnectionSerializer, DynamicFunctionSerializer, EnvironmentSerializer, ProjectSerializer, ProjectVariableSerializer
+from .models import DatabaseConnection, DynamicFunction, DynamicFunctionRevision, Environment, Module, Project, ProjectVariable
+from .serializers import DatabaseConnectionSerializer, DynamicFunctionSerializer, EnvironmentSerializer, ModuleSerializer, ProjectSerializer, ProjectVariableSerializer
 from .database_functions import test_database_connection, test_database_query
 from .dynamic_functions import execute_dynamic_function, function_names, parse_dynamic_arguments, validate_dynamic_code, whitelist
 from .access import (
@@ -28,14 +33,19 @@ class ProjectViewSet(viewsets.ModelViewSet):
     serializer_class = ProjectSerializer
 
     def get_queryset(self):
+        tenant = get_request_tenant(self.request)
+        queryset = self.queryset.filter(tenant=tenant)
         if is_admin(self.request.user):
-            return self.queryset
-        return self.queryset.filter(project_access_q(self.request.user)).distinct()
+            return queryset
+        return queryset.filter(project_access_q(self.request.user)).distinct()
 
     def create(self, request, *args, **kwargs):
         if not is_admin(request.user):
             raise PermissionDenied("仅管理员可以创建项目和设置项目负责人。")
         return super().create(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=get_request_tenant(self.request))
 
     def perform_update(self, serializer):
         project = self.get_object()
@@ -58,6 +68,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
         user = User.objects.filter(pk=user_id, is_active=True).first()
         if not user:
             return Response({"detail": "用户不存在或已禁用。"}, status=status.HTTP_404_NOT_FOUND)
+        if not TenantMembership.objects.filter(
+            tenant=project.tenant,
+            user=user,
+            status=TenantMembership.Status.ACTIVE,
+        ).exists():
+            return Response({"detail": "该用户不属于当前租户。"}, status=status.HTTP_400_BAD_REQUEST)
         if request.method == "POST":
             project.user_list.add(user)
         else:
@@ -95,21 +111,90 @@ class ProjectVariableViewSet(viewsets.ModelViewSet):
 
 
 @extend_schema(tags=["Project"])
+class ModuleViewSet(viewsets.ModelViewSet):
+    """项目下的共享目录。
+
+    接口管理、UI 元素管理、App 元素管理读写的是同一套目录数据，所以这里不按
+    调用方区分，只按项目过滤：在任意一个页面新建/重命名，另外两个页面立即生效。
+    """
+
+    queryset = Module.objects.select_related("project", "created_by").all()
+    serializer_class = ModuleSerializer
+
+    def get_queryset(self):
+        queryset = self.queryset.filter(
+            project__tenant=get_request_tenant(self.request),
+        ).filter(project_access_q(self.request.user, "project__")).distinct()
+        project_id = self.request.query_params.get("project")
+        return queryset.filter(project_id=project_id) if project_id else queryset
+
+    def perform_create(self, serializer):
+        project = serializer.validated_data["project"]
+        require_project_access(self.request.user, project)
+        validate_tenant_relations(self.request, project=project)
+        serializer.save(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        module = self.get_object()
+        project = serializer.validated_data.get("project", module.project)
+        require_project_access(self.request.user, project)
+        validate_tenant_relations(self.request, project=project)
+        serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        """删除目录。
+
+        目录被三个模块共用，删除会同时影响三处，所以调用方必须明确说明关联资产
+        怎么处理：默认只删目录，接口/UI 元素/App 元素一律移到「未分组」；显式传
+        ``cascade=true`` 才连同目录下的资产一起删除。
+        """
+        module = self.get_object()
+        require_project_access(request.user, module.project)
+        cascade = str(request.query_params.get("cascade", "false")).lower() in {"1", "true", "yes"}
+        counts = {
+            "endpoint_count": module.endpoints.count(),
+            "ui_element_count": module.ui_elements.count(),
+            "app_element_count": module.app_elements.count(),
+        }
+        with transaction.atomic():
+            if cascade:
+                module.endpoints.all().delete()
+                module.ui_elements.all().delete()
+                module.app_elements.all().delete()
+            # 非级联时无需手工置空：三个外键都是 SET_NULL，Django 的删除收集器
+            # 会把三处关联资产的 module 一并置为 NULL。
+            module.delete()
+        return Response(
+            {
+                "detail": "目录及其下资产已删除。" if cascade else "目录已删除，关联资产已移至未分组。",
+                "cascade": cascade,
+                "counts": counts,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(tags=["Project"])
 class EnvironmentViewSet(viewsets.ModelViewSet):
     queryset = Environment.objects.select_related("project").all()
     serializer_class = EnvironmentSerializer
 
     def get_queryset(self):
-        return self.queryset.filter(project_access_q(self.request.user, "project__")).distinct()
+        return self.queryset.filter(
+            project__tenant=get_request_tenant(self.request),
+        ).filter(project_access_q(self.request.user, "project__")).distinct()
 
     def perform_create(self, serializer):
-        require_project_access(self.request.user, serializer.validated_data["project"])
+        project = serializer.validated_data["project"]
+        validate_tenant_relations(self.request, project=project)
+        require_project_access(self.request.user, project)
         serializer.save()
 
     def perform_update(self, serializer):
         environment = self.get_object()
         require_project_access(self.request.user, environment.project)
         target_project = serializer.validated_data.get("project", environment.project)
+        validate_tenant_relations(self.request, project=target_project)
         require_project_access(self.request.user, target_project)
         serializer.save()
 
@@ -218,7 +303,12 @@ class DynamicFunctionViewSet(viewsets.ModelViewSet):
     serializer_class = DynamicFunctionSerializer
 
     def get_queryset(self):
+        tenant = get_request_tenant(self.request)
         queryset = self.queryset.filter(
+            projects__tenant=tenant,
+        ).exclude(
+            projects__tenant__in=Tenant.objects.exclude(pk=tenant.pk),
+        ).filter(
             project_access_q(self.request.user, "projects__")
         ).distinct()
         project_ids = self.request.query_params.get("projects") or self.request.query_params.get("project")
@@ -231,13 +321,16 @@ class DynamicFunctionViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        require_projects_access(self.request.user, serializer.validated_data["projects"])
-        serializer.save()
+        projects = list(serializer.validated_data["projects"])
+        validate_tenant_relations(self.request, projects=projects)
+        require_projects_access(self.request.user, projects)
+        serializer.save(created_by=self.request.user, approval_status=DynamicFunction.ApprovalStatus.DRAFT)
 
     def perform_update(self, serializer):
         instance = self.get_object()
         require_projects_access(self.request.user, instance.projects.all())
-        projects = serializer.validated_data.get("projects", instance.projects.all())
+        projects = list(serializer.validated_data.get("projects", instance.projects.all()))
+        validate_tenant_relations(self.request, projects=projects)
         require_projects_access(self.request.user, projects)
         serializer.save()
 
@@ -245,13 +338,40 @@ class DynamicFunctionViewSet(viewsets.ModelViewSet):
         require_projects_access(self.request.user, instance.projects.all())
         instance.delete()
 
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, IsPlatformAdmin])
+    def approve(self, request, pk=None):
+        instance = self.get_object()
+        with transaction.atomic():
+            instance.approval_status = DynamicFunction.ApprovalStatus.APPROVED
+            instance.approved_by = request.user
+            instance.approved_at = timezone.now()
+            instance.save(update_fields=["approval_status", "approved_by", "approved_at", "code_hash", "updated_at"])
+            # 已审批版本是审计证据，重复点击审批不得覆盖原快照。
+            DynamicFunctionRevision.objects.get_or_create(
+                dynamic_function=instance, version=instance.version,
+                defaults={"code": instance.code, "code_hash": instance.code_hash, "project_ids": list(instance.projects.values_list("id", flat=True)), "timeout_seconds": instance.timeout_seconds, "memory_mb": instance.memory_mb, "approved_by": request.user},
+            )
+        return Response(self.get_serializer(instance).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, IsPlatformAdmin])
+    def reject(self, request, pk=None):
+        instance = self.get_object()
+        instance.approval_status = DynamicFunction.ApprovalStatus.REJECTED
+        instance.approved_by = None
+        instance.approved_at = None
+        instance.save(update_fields=["approval_status", "approved_by", "approved_at", "code_hash", "updated_at"])
+        return Response(self.get_serializer(instance).data)
+
     @action(detail=False, methods=["post"], url_path="check-conflicts")
     def check_conflicts(self, request):
         try:
             project_ids = [int(item) for item in request.data.get("projects", [])]
         except (TypeError, ValueError):
             project_ids = []
-        projects = list(Project.objects.filter(pk__in=project_ids))
+        projects = list(Project.objects.filter(
+            pk__in=project_ids,
+            tenant=get_request_tenant(request),
+        ))
         if len(projects) != len(set(project_ids)):
             return Response({"detail": "存在无效的项目。"}, status=status.HTTP_400_BAD_REQUEST)
         require_projects_access(request.user, projects)
@@ -280,7 +400,10 @@ class DynamicFunctionViewSet(viewsets.ModelViewSet):
             if function_name not in names:
                 return Response({"detail": "请选择当前代码中定义的函数。", "functions": names}, status=status.HTTP_400_BAD_REQUEST)
             args, kwargs = parse_dynamic_arguments(arguments)
-            result = execute_dynamic_function([code], function_name, args=args, kwargs=kwargs)
+            result = execute_dynamic_function(
+                [code], function_name, args=args, kwargs=kwargs,
+                timeout_seconds=request.data.get("timeout_seconds"), memory_mb=request.data.get("memory_mb"),
+            )
             return Response({"function_name": function_name, "functions": names, "result": result, "display": str(result)})
         except Exception as exc:
             return Response({"detail": f"函数调试失败：{exc}", "functions": function_names(code)}, status=status.HTTP_400_BAD_REQUEST)
@@ -292,16 +415,24 @@ class DatabaseConnectionViewSet(viewsets.ModelViewSet):
     serializer_class = DatabaseConnectionSerializer
 
     def get_queryset(self):
-        return self.queryset.filter(project_access_q(self.request.user, "projects__")).distinct()
+        tenant = get_request_tenant(self.request)
+        return self.queryset.filter(
+            projects__tenant=tenant,
+        ).exclude(
+            projects__tenant__in=Tenant.objects.exclude(pk=tenant.pk),
+        ).filter(project_access_q(self.request.user, "projects__")).distinct()
 
     def perform_create(self, serializer):
-        require_projects_access(self.request.user, serializer.validated_data["projects"])
+        projects = list(serializer.validated_data["projects"])
+        validate_tenant_relations(self.request, projects=projects)
+        require_projects_access(self.request.user, projects)
         serializer.save()
 
     def perform_update(self, serializer):
         instance = self.get_object()
         require_projects_access(self.request.user, instance.projects.all())
-        projects = serializer.validated_data.get("projects", instance.projects.all())
+        projects = list(serializer.validated_data.get("projects", instance.projects.all()))
+        validate_tenant_relations(self.request, projects=projects)
         require_projects_access(self.request.user, projects)
         serializer.save()
 

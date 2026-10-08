@@ -1,32 +1,9 @@
 import { NTag } from 'naive-ui';
 import { h } from 'vue';
-
-const formatDateTime = (value: unknown): string => {
-  if (!value) return '-';
-  const date = new Date(value as string);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-};
+import { formatDateTime, formatElapsedDuration } from '@/utils/time';
 
 const formatDuration = (row: any): string => {
-  const start = row.started_at;
-  const end = row.finished_at;
-  if (!start || !end) return '-';
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  if (Number.isNaN(ms) || ms < 0) return '-';
-  const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}秒`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}分${seconds % 60}秒`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}时${minutes % 60}分`;
+  return formatElapsedDuration(row.started_at, row.finished_at, { showMilliseconds: false });
 };
 
 export const columns = [
@@ -73,11 +50,7 @@ export const columns = [
     width: 100,
     render(row) {
       if (row.status !== '执行完毕' && row.status !== '执行出错') {
-        return h(
-          NTag,
-          { type: 'default' },
-          { default: () => '-' }
-        );
+        return h(NTag, { type: 'default' }, { default: () => '-' });
       }
 
       return h(

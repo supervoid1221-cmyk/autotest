@@ -13,7 +13,7 @@
   >
     <section class="mascot-panel" aria-hidden="true">
       <div class="brand-lockup">
-        <img :src="websiteConfig.logo" alt="" />
+        <img :class="{ 'logo-image--contrast': websiteConfig.logoNeedsContrastPlate }" :src="websiteConfig.logo" alt="" />
         <div><span>{{ websiteConfig.enTitle }}</span><strong>{{ websiteConfig.title }}</strong></div>
       </div>
 
@@ -48,10 +48,10 @@
     <section class="login-panel">
       <div class="login-card">
         <header class="login-header">
-          <div class="mobile-logo"><img :src="websiteConfig.logo" alt="" /><span>{{ websiteConfig.title }}</span></div>
-          <span class="login-kicker">账号登录</span>
-          <h2>欢迎回来</h2>
-          <p>请输入你的平台账号信息</p>
+          <div class="mobile-logo"><img :class="{ 'logo-image--contrast': websiteConfig.logoNeedsContrastPlate }" :src="websiteConfig.logo" alt="" /><span>{{ websiteConfig.title }}</span></div>
+          <span class="login-kicker">{{ isExpiredSession ? '会话已锁定' : '账号登录' }}</span>
+          <h2>{{ isExpiredSession ? '重新登录激活' : '欢迎回来' }}</h2>
+          <p>{{ isExpiredSession ? '登录令牌已过期，请重新输入账号密码' : '请输入你的平台账号信息' }}</p>
         </header>
 
         <n-form
@@ -108,8 +108,8 @@ import { useMessage } from 'naive-ui';
 import { PersonOutline, LockClosedOutline } from '@vicons/ionicons5';
 import { useUserStore } from '@/store/modules/user';
 import { ResultEnum } from '@/enums/httpEnum';
-import { PageEnum } from '@/enums/pageEnum';
 import { websiteConfig } from '@/config/website.config';
+import { resolveLoginRedirect } from '@/router/loginRedirect';
 
 interface FormState {
   username: string;
@@ -124,7 +124,6 @@ const focusedField = ref<'username' | 'password' | null>(null);
 const pointerActive = ref(false);
 const pointerGaze = reactive({ x: 0, y: 0 });
 const autoLogin = ref(true);
-const LOGIN_NAME = PageEnum.BASE_LOGIN_NAME;
 let errorTimer: number | undefined;
 let pointerFrame: number | undefined;
 let pendingPointer = { x: 0, y: 0 };
@@ -167,6 +166,7 @@ const resetPointerGaze = () => {
 const userStore = useUserStore();
 const router = useRouter();
 const route = useRoute();
+const isExpiredSession = computed(() => route.query?.expired === '1');
 
 const showLoginError = () => {
   loginError.value = false;
@@ -198,10 +198,9 @@ const handleSubmit = (event?: Event) => {
       const { code, message: msg } = await userStore.login(params);
       message.destroyAll();
       if (code == ResultEnum.SUCCESS) {
-        const toPath = decodeURIComponent((route.query?.redirect || '/') as string);
+        const toPath = resolveLoginRedirect(route.query?.redirect);
         message.success('登录成功，即将进入系统');
-        if (route.name === LOGIN_NAME) router.replace('/');
-        else router.replace(toPath);
+        await router.replace(toPath);
       } else {
         showLoginError();
         message.info(msg || '登录失败');
@@ -262,6 +261,7 @@ onBeforeUnmount(() => {
 .brand-lockup, .mascot-copy, .character-stage { position: relative; z-index: 1; }
 .brand-lockup { display: flex; align-items: center; gap: .8rem; }
 .brand-lockup img { width: 2.75rem; height: 2.75rem; object-fit: contain; }
+.brand-lockup img.logo-image--contrast, .mobile-logo img.logo-image--contrast { box-sizing: border-box; padding: .32rem; border: 1px solid #cfd5dc; border-radius: .6rem; background: #eef1f3; }
 .brand-lockup span { display: block; color: #8290a5; font-size: .7rem; font-weight: 700; letter-spacing: .14em; }
 .brand-lockup strong { display: block; margin-top: .18rem; font-size: 1.1rem; font-weight: 700; letter-spacing: -.02em; }
 .mascot-copy { margin-top: clamp(3.2rem, 8vh, 6.5rem); max-width: 37rem; }

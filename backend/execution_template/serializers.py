@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from case_api.models import ScenarioStep
+from account.tenancy import validate_tenant_relations
 from .models import ExecutionTemplate
 
 
@@ -56,6 +57,9 @@ class ExecutionTemplateSerializer(serializers.ModelSerializer):
         attrs = super().validate(attrs)
         output_fields = attrs.get("output_fields", getattr(self.instance, "output_fields", []))
         suite = attrs.get("suite", getattr(self.instance, "suite", None))
+        request = self.context.get("request")
+        if request and suite:
+            validate_tenant_relations(request, suite=suite)
         if output_fields and suite:
             step_ids = {int(item["source_step_id"]) for item in output_fields}
             valid_step_ids = set(

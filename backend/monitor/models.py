@@ -2,12 +2,18 @@ from django.conf import settings
 from django.db import models
 
 from Tesla.model_fields import EncryptedTextField
+from account.models import get_default_tenant_id
 
 
 class PrometheusInstance(models.Model):
     """平台可查询的 Prometheus 服务。访问令牌仅用于服务端请求。"""
 
-    name = models.CharField("名称", max_length=64, unique=True)
+    tenant = models.ForeignKey(
+        "account.Tenant", on_delete=models.PROTECT,
+        related_name="prometheus_instances", default=get_default_tenant_id,
+        editable=False, verbose_name="所属租户",
+    )
+    name = models.CharField("名称", max_length=64)
     project = models.ForeignKey(
         "project.Project",
         null=True,
@@ -26,6 +32,12 @@ class PrometheusInstance(models.Model):
 
     class Meta:
         ordering = ["-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "name"], name="unique_tenant_prometheus_name",
+            ),
+        ]
+        indexes = [models.Index(fields=["tenant", "project"], name="prom_tenant_project_idx")]
 
     def __str__(self):
         return self.name
@@ -37,6 +49,11 @@ class MonitorCluster(models.Model):
         KUBERNETES = "kubernetes", "Kubernetes 服务发现"
         FILE_SD = "file_sd", "文件服务发现"
         CLOUD = "cloud", "云服务发现"
+    tenant = models.ForeignKey(
+        "account.Tenant", on_delete=models.PROTECT,
+        related_name="monitor_clusters", default=get_default_tenant_id,
+        editable=False, verbose_name="所属租户",
+    )
     project = models.ForeignKey("project.Project", on_delete=models.CASCADE, related_name="monitor_clusters")
     prometheus = models.ForeignKey(PrometheusInstance, on_delete=models.CASCADE, related_name="clusters")
     server = models.ForeignKey("system.ServerConnection", null=True, blank=True, on_delete=models.SET_NULL, related_name="monitor_clusters")
@@ -58,11 +75,17 @@ class MonitorCluster(models.Model):
     class Meta:
         ordering = ["-id"]
         constraints = [models.UniqueConstraint(fields=["project", "name"], name="unique_project_monitor_cluster")]
+        indexes = [models.Index(fields=["tenant", "project"], name="cluster_tenant_project_idx")]
 
 
 class MonitorTarget(models.Model):
     """一个 node_exporter 实例及其项目、服务器和告警阈值配置。"""
 
+    tenant = models.ForeignKey(
+        "account.Tenant", on_delete=models.PROTECT,
+        related_name="monitor_targets", default=get_default_tenant_id,
+        editable=False, verbose_name="所属租户",
+    )
     prometheus = models.ForeignKey(PrometheusInstance, on_delete=models.CASCADE, related_name="targets")
     cluster = models.ForeignKey(MonitorCluster, null=True, blank=True, on_delete=models.CASCADE, related_name="targets")
     mode = models.CharField("监控模式", max_length=16, choices=(("standalone", "单机模式"), ("cluster", "集群模式")), default="standalone")
@@ -90,6 +113,7 @@ class MonitorTarget(models.Model):
     class Meta:
         ordering = ["-id"]
         constraints = [models.UniqueConstraint(fields=["prometheus", "instance_label"], name="unique_prometheus_monitor_target")]
+        indexes = [models.Index(fields=["tenant", "project"], name="target_tenant_project_idx")]
 
     def __str__(self):
         return self.name
@@ -103,6 +127,11 @@ class ServiceMonitor(models.Model):
         TCP = "tcp", "TCP"
         DOCKER = "docker", "Docker 容器"
 
+    tenant = models.ForeignKey(
+        "account.Tenant", on_delete=models.PROTECT,
+        related_name="service_monitors", default=get_default_tenant_id,
+        editable=False, verbose_name="所属租户",
+    )
     project = models.ForeignKey("project.Project", null=True, blank=True, on_delete=models.CASCADE, related_name="service_monitors")
     server = models.ForeignKey("system.ServerConnection", null=True, blank=True, on_delete=models.SET_NULL, related_name="service_monitors")
     name = models.CharField("服务名称", max_length=96)
@@ -118,6 +147,7 @@ class ServiceMonitor(models.Model):
 
     class Meta:
         ordering = ["-id"]
+        indexes = [models.Index(fields=["tenant", "project"], name="service_tenant_project_idx")]
 
     def __str__(self):
         return self.name

@@ -1,10 +1,11 @@
 import os
 import json
+import subprocess
 import yaml
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -12,11 +13,14 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from case_api.models import Endpoint, Scenario, ScenarioBranch, ScenarioFlowNode, ScenarioStep
-from case_ui.models import Element, PlaywrightCase, UiCase, UiStep
+from case_app.executor import _merge_suite_run_result
+from case_app.models import AppApplication, AppCase, AppDevice, AppExecutionNode, AppRun, AppStep, AppStepResult
+from case_ui.models import Element, PlaywrightCase, PlaywrightScenarioFile, PlaywrightStep, UiCase, UiStep
 from project.models import Environment, Project
-from suite.models import RunResult, Suite, SuitePlaywrightCase, SuiteScenario, SuiteUiCase
+from execution_control.models import ExecutionTask
+from suite.models import RunResult, Suite, SuiteAppCase, SuiteExecutionItem, SuitePlaywrightCase, SuiteScenario, SuiteUiCase
 from suite.serializers import RunResultSerializer, SuiteSerializer
-from suite.tasks import _reconcile_process_result, run_by_cron
+from suite.tasks import _reconcile_process_result, _stop_process, run_by_cron
 from suite.reporting import (
     finalize_unfinished_steps,
     merge_ui_runtime_results,
@@ -49,6 +53,44 @@ class SuiteScenarioOrderingTests(ExecutionFixtureMixin, TestCase):
         )
         ScenarioStep.objects.create(scenario=scenario, endpoint=endpoint, order=1)
         return scenario
+
+    def test_yaml_file_is_smart_ui_execution_item_and_runs_from_saved_content(self):
+        yaml_case = PlaywrightScenarioFile.objects.create(
+            project=self.project, filename="batch-check.yaml", environment_name="Test",
+            content=("测试场景:\n- 场景名称: 批量质量检测 场景ID: BATCH_CHECK 描述: 检测入口\n"
+                     "  步骤:\n  - 打开页面：/login\n  - 点击：IP管理--批量质量检测\n  截图：true\n"
+                     "- 场景名称: 查看结果 场景ID: CHECK_RESULT 描述: 检查页面\n"
+                     "  步骤:\n  - 点击：查看结果\n"),
+        )
+        client = APIClient()
+        client.force_authenticate(self.user)
+        response = client.post(
+            f"/api/suite/suite/{self.suite.pk}/sync-execution-items/",
+            {"items": [{"type": "yaml_ui", "id": yaml_case.pk}]}, format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        item = SuiteExecutionItem.objects.get(suite=self.suite)
+        self.assertEqual(item.yaml_case_id, yaml_case.pk)
+        serialized = SuiteSerializer(self.suite).data
+        self.assertEqual(serialized["execution_items"][0]["type"], "yaml_ui")
+        self.assertEqual(serialized["case_playwright_count"], 1)
+        self.assertEqual(serialized["ui_step_count"], 3)
+
+        original_cwd = os.getcwd()
+        with TemporaryDirectory() as directory, patch("suite.models.submit_run"):
+            os.chdir(directory)
+            try:
+                result = self.suite.run()
+                with open(Path(result.path) / "execution_plan.yaml", encoding="utf-8") as file:
+                    plan = yaml.safe_load(file)
+            finally:
+                os.chdir(original_cwd)
+        self.assertEqual([item["type"] for item in plan], ["yaml_ui_group"])
+        self.assertEqual([case["name"] for case in plan[0]["cases"]], ["批量质量检测", "查看结果"])
+        self.assertEqual(plan[0]["cases"][0]["steps"][1]["target"], "IP管理--批量质量检测")
+        self.assertTrue(plan[0]["cases"][0]["steps"][1]["options"]["screenshot"])
+        self.assertEqual([item["source_type"] for item in result.native_report["scenarios"]], ["yaml_ui", "yaml_ui"])
+        self.assertEqual([item["name"] for item in result.native_report["scenarios"]], ["批量质量检测", "查看结果"])
 
     def test_run_generates_and_reports_scenarios_in_suite_order(self):
         first_created = self._create_scenario("后执行")
@@ -93,6 +135,10 @@ class SuiteScenarioOrderingTests(ExecutionFixtureMixin, TestCase):
             os.chdir(directory)
             try:
                 result = self.suite.run()
+                self.assertIn(
+                    f"tenant_{self.suite.tenant.slug}_{self.suite.tenant_id}",
+                    Path(result.path).parts,
+                )
                 previous_path = Path(result.path)
                 (previous_path / "old-run.log").write_text("previous", encoding="utf-8")
                 result.status = RunResult.RunStatus.Done
@@ -235,11 +281,131 @@ class SuiteScenarioOrderingTests(ExecutionFixtureMixin, TestCase):
         ScenarioStep.objects.create(scenario=scenario, endpoint=None, order=1)
         SuiteScenario.objects.create(suite=self.suite, scenario=scenario, order=1)
 
-        with self.assertRaisesRegex(ValueError, "存在未选择接口的步骤"):
-            self.suite.run()
+        # 「存在未选择接口的步骤」这条校验发生在运行目录创建之后
+        # （suite/models.py 第 3 步），所以这里必须切到临时目录，
+        # 否则每次跑测试都会在真实仓库的 upload_yaml/ 下留一个租户目录。
+        original_cwd = os.getcwd()
+        with TemporaryDirectory() as directory:
+            os.chdir(directory)
+            try:
+                with self.assertRaisesRegex(ValueError, "存在未选择接口的步骤"):
+                    self.suite.run()
+            finally:
+                os.chdir(original_cwd)
 
 
 class SuiteUiExecutionPlanningTests(ExecutionFixtureMixin, TestCase):
+    def _create_app_case(self):
+        application = AppApplication.objects.create(
+            project=self.project, name="测试 App", package_name="com.example.app",
+        )
+        node = AppExecutionNode.objects.create(project=self.project, name="本地 Appium")
+        device = AppDevice.objects.create(
+            project=self.project, node=node, name="Pixel 5", udid="emulator-5554",
+            state=AppDevice.State.ONLINE,
+        )
+        case = AppCase.objects.create(
+            project=self.project, application=application, default_device=device, name="App 登录",
+        )
+        step = AppStep.objects.create(case=case, order=1, action="launch")
+        return case, step
+
+    def test_sync_execution_items_accepts_app_case(self):
+        app_case, _ = self._create_app_case()
+        client = APIClient()
+        client.force_authenticate(self.user)
+
+        response = client.post(
+            f"/api/suite/suite/{self.suite.id}/sync-execution-items/",
+            {"items": [{"type": "app", "id": app_case.id}]}, format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["execution_items"][0]["type"], "app")
+        self.assertEqual(response.data["app_cases"], [app_case.id])
+        self.assertEqual(response.data["case_app_count"], 1)
+
+    def test_app_case_is_written_to_suite_execution_plan_and_report(self):
+        app_case, step = self._create_app_case()
+        SuiteAppCase.objects.create(suite=self.suite, app_case=app_case, order=1)
+
+        original_cwd = os.getcwd()
+        with TemporaryDirectory() as directory, patch("suite.models.submit_run") as submit_run:
+            os.chdir(directory)
+            try:
+                result = self.suite.run()
+                with open(Path(result.path) / "execution_plan.yaml", encoding="utf-8") as file:
+                    plan = yaml.safe_load(file)
+            finally:
+                os.chdir(original_cwd)
+
+        result.refresh_from_db()
+        self.assertEqual(plan[0]["type"], "app")
+        self.assertEqual(plan[0]["case"]["device_name"], "Pixel 5")
+        self.assertEqual(result.native_report["scenarios"][0]["type"], "app")
+        self.assertEqual(result.native_report["scenarios"][0]["steps"][0]["source_step_id"], step.id)
+        submit_run.assert_called_once_with(Path(result.path), result.id, 0, 1)
+
+    def test_app_step_results_are_merged_into_suite_report(self):
+        app_case, step = self._create_app_case()
+        result = RunResult.objects.create(
+            suite=self.suite, project=self.project, environment_name=self.environment.name,
+            path="todo", native_report={
+                "scenarios": [{
+                    "id": f"app-{app_case.id}", "name": app_case.name, "type": "app",
+                    "steps": [{"source_step_id": step.id, "status": "pending", "passed": None}],
+                }],
+            },
+        )
+        app_run = AppRun.objects.create(
+            case=app_case, project=self.project, application=app_case.application,
+            device=app_case.default_device, status=AppRun.Status.PASSED,
+            progress=100, summary={"total": 1, "passed": 1, "failed": 0},
+        )
+        AppStepResult.objects.create(
+            run=app_run, step=step, order=1, action=step.action, name="启动应用",
+            status="passed", duration_ms=123,
+            detail={
+                "value": "13800138000", "value_masked": False,
+                "element_name": "手机号", "page_name": "登录页",
+                "locator_type": "id", "locator_value": "com.example:id/mobile",
+            },
+        )
+
+        with patch.dict(os.environ, {"PLATFORM_RUN_RESULT_ID": str(result.id)}):
+            _merge_suite_run_result(app_run)
+
+        result.refresh_from_db()
+        merged = result.native_report["scenarios"][0]
+        self.assertEqual(merged["app_run_id"], app_run.id)
+        self.assertTrue(merged["steps"][0]["passed"])
+        self.assertEqual(merged["steps"][0]["duration_ms"], 123)
+        self.assertEqual(merged["steps"][0]["detail"]["value"], "13800138000")
+        self.assertEqual(merged["steps"][0]["element_name"], "手机号")
+        self.assertEqual(merged["steps"][0]["locator"], "com.example:id/mobile")
+
+    def test_suite_child_app_run_does_not_create_duplicate_execution_task(self):
+        app_case, _ = self._create_app_case()
+        result = RunResult.objects.create(
+            suite=self.suite, project=self.project, environment_name=self.environment.name,
+            path="todo",
+        )
+
+        app_run = AppRun.objects.create(
+            case=app_case, project=self.project, application=app_case.application,
+            device=app_case.default_device,
+            options={"suite_result_id": str(result.id)},
+        )
+
+        self.assertFalse(ExecutionTask.objects.filter(
+            source_type=ExecutionTask.SourceType.APP,
+            source_id=app_run.id,
+        ).exists())
+        self.assertTrue(ExecutionTask.objects.filter(
+            source_type=ExecutionTask.SourceType.SUITE,
+            source_id=result.id,
+        ).exists())
+
     def test_suite_and_result_project_names_follow_actual_ui_case_project(self):
         actual_project = Project.objects.create(name="前台项目", pm=self.user)
         ui_case = UiCase.objects.create(name="跨项目 UI", project=actual_project)
@@ -270,6 +436,63 @@ class SuiteUiExecutionPlanningTests(ExecutionFixtureMixin, TestCase):
 
         self.assertEqual(data["case_ui_count"], 2)
         self.assertEqual(data["case_playwright_count"], 1)
+
+    def test_suite_execution_timeout_has_backend_bounds(self):
+        low = SuiteSerializer(self.suite, data={"execution_timeout": 29}, partial=True)
+        high = SuiteSerializer(self.suite, data={"execution_timeout": 86401}, partial=True)
+        valid = SuiteSerializer(self.suite, data={"execution_timeout": 86400}, partial=True)
+
+        self.assertFalse(low.is_valid())
+        self.assertFalse(high.is_valid())
+        self.assertTrue(valid.is_valid(), valid.errors)
+
+    def test_scope_step_counts_follow_selected_enabled_cases(self):
+        self.assertEqual(SuiteSerializer(self.suite).data["ui_step_count"], 0)
+        self.assertEqual(SuiteSerializer(self.suite).data["app_step_count"], 0)
+        items = []
+        for case_model, step_model, step_fk, item_type in (
+            (UiCase, UiStep, "ui_case", "ui"),
+            (PlaywrightCase, PlaywrightStep, "case", "playwright_ui"),
+            (AppCase, AppStep, "case", "app"),
+        ):
+            extra = {}
+            if item_type == "app":
+                extra["application"] = AppApplication.objects.create(
+                    project=self.project, name="步骤统计 App", package_name="com.example.count",
+                )
+            # 两个有步骤的用例、空用例、停用用例、未选用例。
+            for index, (enabled, count, selected) in enumerate(
+                [(True, 2, True), (True, 3, True), (True, 0, True),
+                 (False, 4, True), (True, 5, False)]
+            ):
+                case = case_model.objects.create(
+                    project=self.project, name=f"{item_type}-{index}", enabled=enabled, **extra,
+                )
+                for order in range(1, count + 1):
+                    step_model.objects.create(**{step_fk: case}, order=order, action="wait")
+                if selected:
+                    items.append({"type": item_type, "id": case.id})
+
+        scenario = SuiteScenarioOrderingTests._create_scenario(self, "统计 API")
+        items.append({"type": "api", "id": scenario.id})
+        self.suite.sync_execution_items(items)
+        data = SuiteSerializer(self.suite).data
+        self.assertEqual(data["ui_step_count"], 10)
+        self.assertEqual(data["app_step_count"], 5)
+        self.assertEqual(data["case_ui_count"], 6)
+        self.assertEqual(data["case_app_count"], 3)
+        self.assertEqual(data["case_api_count"], 1)
+
+        ui_case_id = items[0]["id"]
+        UiStep.objects.create(ui_case_id=ui_case_id, order=3, action="wait")
+        self.assertEqual(SuiteSerializer(self.suite).data["ui_step_count"], 11)
+        app_case_id = next(item["id"] for item in items if item["type"] == "app")
+        AppStep.objects.filter(case_id=app_case_id, order=1).delete()
+        self.assertEqual(SuiteSerializer(self.suite).data["app_step_count"], 4)
+        self.suite.sync_execution_items([])
+        data = SuiteSerializer(self.suite).data
+        self.assertEqual(data["ui_step_count"], 0)
+        self.assertEqual(data["app_step_count"], 0)
 
     def test_sync_execution_items_api_persists_mixed_order(self):
         scenario = SuiteScenarioOrderingTests._create_scenario(self, "创建订单")
@@ -441,6 +664,23 @@ class ProcessResultReconciliationTests(ExecutionFixtureMixin, TestCase):
         self.assertEqual(result.status, RunResult.RunStatus.Done)
         self.assertTrue(result.is_pass)
         notify.assert_not_called()
+
+    @patch("suite.tasks.os.killpg")
+    @patch("suite.tasks.os.getpgid", return_value=13579)
+    def test_stop_process_resumes_group_then_forces_kill_after_grace(self, getpgid, killpg):
+        process = MagicMock(pid=24680)
+        process.poll.return_value = None
+        process.wait.side_effect = [subprocess.TimeoutExpired("runner", 5), 0]
+
+        _stop_process(process, resume=True)
+
+        self.assertEqual(
+            [call.args for call in killpg.call_args_list],
+            [(13579, __import__("signal").SIGCONT),
+             (13579, __import__("signal").SIGTERM),
+             (13579, __import__("signal").SIGKILL)],
+        )
+        self.assertEqual(process.wait.call_count, 2)
 
 
 class NativeReportStateTests(TestCase):

@@ -5,11 +5,11 @@
     <n-tabs type="line">
       <n-tab-pane name="rules" tab="通知规则">
         <div class="toolbar"><n-button type="primary" @click="openRule()">新增通知规则</n-button></div>
-        <n-data-table striped :columns="ruleColumns" :data="rules" :loading="loading" />
+        <n-data-table :columns="ruleColumns" :data="rules" :loading="loading" />
       </n-tab-pane>
       <n-tab-pane name="deliveries" tab="投递记录">
         <div class="toolbar"><n-button @click="load">刷新</n-button></div>
-        <n-data-table striped :columns="deliveryColumns" :data="deliveries" :loading="loading" :pagination="{ pageSize: 10 }" />
+        <n-data-table :columns="deliveryColumns" :data="deliveries" :loading="loading" :pagination="{ pageSize: 10 }" />
       </n-tab-pane>
     </n-tabs>
 
@@ -33,6 +33,8 @@
 </template>
 
 <script setup lang="ts">
+import { asList } from '@/utils/list';
+
 import { computed, h, onMounted, reactive, ref, watch } from 'vue';
 import { NButton, NPopconfirm, NTag, useMessage } from 'naive-ui';
 import { MonitorAPI, type MonitorNotificationDelivery, type MonitorNotificationRule, type MonitorTarget, type ServiceMonitor } from '@/api/monitor/http';
@@ -65,7 +67,7 @@ const canMaintain = computed(() => isAdmin.value || managedProjects.value.length
 
 const blank = (): MonitorNotificationRule => ({ channel: null, target: null, services: [], all_services: false, event: 'alert', enabled: true });
 const form = reactive<MonitorNotificationRule>(blank());
-const asList = <T,>(data: any): T[] => Array.isArray(data) ? data : data?.list || data?.results || data?.data || [];
+
 const channelOptions = computed(() => channels.value.map((item) => ({ label: `${item.name}（${item.platform === 'lark' ? '飞书' : '企业微信'}）`, value: item.id })));
 const targetOptions = computed(() => targets.value.map((item) => ({ label: `${item.name} · ${item.project_name || '平台级'}`, value: item.id })));
 const serviceOptions = computed(() => [

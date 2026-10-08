@@ -4,6 +4,7 @@ import socket
 import socketserver
 import threading
 from contextlib import contextmanager
+from Tesla.ssh import configured_ssh_client, ssh_connection_options
 
 
 class _ForwardServer(socketserver.ThreadingTCPServer):
@@ -56,28 +57,16 @@ def ssh_tunnel(config):
     if not os.path.isfile(key_path):
         raise ValueError(f"SSH 私钥不存在或后端不可访问：{key_path}")
 
-    client = paramiko.SSHClient()
-    client.load_system_host_keys()
-    if config.get("ssh_strict_host_key", True):
-        client.set_missing_host_key_policy(paramiko.RejectPolicy())
-    else:
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client = configured_ssh_client(paramiko, config.get("ssh_strict_host_key", True), load_host_keys=True)
 
     server = None
     thread = None
     try:
         timeout = max(1, min(60, int(config.get("connect_timeout") or 10)))
         client.connect(
-            hostname=config["ssh_host"],
-            port=int(config.get("ssh_port") or 22),
-            username=config["ssh_username"],
+            **ssh_connection_options(config["ssh_host"], int(config.get("ssh_port") or 22), config["ssh_username"], timeout),
             key_filename=key_path,
             passphrase=config.get("ssh_private_key_passphrase") or None,
-            look_for_keys=False,
-            allow_agent=False,
-            timeout=timeout,
-            banner_timeout=timeout,
-            auth_timeout=timeout,
         )
         transport = client.get_transport()
         if not transport or not transport.is_active():

@@ -7,10 +7,84 @@ from types import SimpleNamespace
 
 from .flow import execute_flow
 from .models import Endpoint, Scenario, ScenarioFlowNode, ScenarioStep
-from project.models import Environment, Project
+from .recording import normalize_record
+from .swagger_import import parse_swagger
+from .swagger_links import suggest_relations
+from fullstack_framework.commons.api_executor import apply_extract_processor
+from project.models import Environment, Module, Project
+
+
+class SwaggerImportParserTests(SimpleTestCase):
+    def test_required_extract_processor_rejects_missing_value(self):
+        with self.assertRaisesRegex(ValueError, "必需的响应值"):
+            apply_extract_processor("no data", {"type": "required"})
+        self.assertEqual(apply_extract_processor(0, {"type": "required"}), 0)
+
+    def test_openapi_link_is_preferred_over_name_matching(self):
+        content = '''{"openapi":"3.0.3","paths":{"/create":{"post":{"operationId":"create","responses":{"201":{"description":"ok","links":{"next":{"operationId":"fetch","parameters":{"id":"$response.body#/data/id"}}}}}}},"/lookup/{id}":{"get":{"operationId":"fetch"}}}}'''
+        relations = suggest_relations(parse_swagger(content))
+        self.assertEqual(len(relations), 1)
+        self.assertEqual(relations[0]["score"], 100)
+        self.assertEqual(relations[0]["response_path"], "$.data.id")
+
+    def test_openapi_json_resolves_examples_and_drops_auth_headers(self):
+        document = '''{"openapi":"3.0.3","servers":[{"url":"https://example.com/v1"}],"paths":{"/users/{id}":{"post":{"summary":"新增用户","parameters":[{"name":"q","in":"query","schema":{"example":"hello"}},{"name":"Authorization","in":"header","example":"secret"}],"requestBody":{"content":{"application/json":{"schema":{"type":"object","properties":{"name":{"example":"张三"}}}}}}}}}}'''
+        entries = parse_swagger(document)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["url"], "/v1/users/{id}")
+        self.assertEqual(entries[0]["params"], {"q": "hello"})
+        self.assertEqual(entries[0]["json"], {"name": "张三"})
+        self.assertEqual(entries[0]["headers"], {})
+
+    def test_swagger_yaml_body_and_base_path(self):
+        document = '''swagger: '2.0'
+basePath: /api
+paths:
+  /items:
+    post:
+      summary: 新增商品
+      parameters:
+        - name: body
+          in: body
+          schema:
+            type: object
+            properties:
+              title:
+                example: 商品
+'''
+        entries = parse_swagger(document)
+        self.assertEqual(entries[0]["url"], "/api/items")
+        self.assertEqual(entries[0]["json"], {"title": "商品"})
+
+    def test_rejects_unrelated_yaml(self):
+        with self.assertRaises(ValueError):
+            parse_swagger("foo: bar")
+
+    def test_module_name_prefers_tag_and_falls_back_to_path(self):
+        content = '''{"openapi":"3.0.3","paths":{"/users/{id}":{"get":{"tags":["用户管理"]}},"/orders":{"post":{}}}}'''
+        entries = parse_swagger(content)
+        self.assertEqual([entry["module_name"] for entry in entries], ["用户管理", "orders"])
 
 
 class ScenarioFlowExecutionTests(SimpleTestCase):
+    def test_disabled_steps_and_branches_are_skipped_without_stopping_flow(self):
+        called = []
+        nodes = [
+            {"id": 1, "order": 1, "node_type": "endpoint", "enabled": False, "step": {"id": 11}},
+            {"id": 2, "order": 2, "node_type": "condition", "enabled": False, "branches": [
+                {"id": 21, "nodes": [{"id": 3, "node_type": "endpoint", "step": {"id": 12}}]},
+            ]},
+            {"id": 4, "order": 3, "node_type": "endpoint", "step": {"id": 13}},
+        ]
+        def run(node):
+            called.append(node["step"]["id"])
+            return {"step_id": node["step"]["id"], "passed": True}
+        result = execute_flow(nodes, {}, run)
+        self.assertEqual(called, [13])
+        self.assertTrue(result["passed"])
+        self.assertEqual(len([item for item in result["results"] if item.get("skipped")]), 2)
+        self.assertEqual(result["decisions"][0]["status"], "disabled")
+
     def test_first_matching_branch_runs_then_returns_to_main_flow(self):
         called = []
         nodes = [
@@ -122,7 +196,85 @@ class ScenarioStepRequestTargetTests(SimpleTestCase):
         self.assertEqual(result["request"]["url"], "https://other.example/update")
 
 
+class RecordingHeaderSanitizationTests(SimpleTestCase):
+    def test_parse_drops_volatile_anti_replay_headers_case_insensitively(self):
+        record = normalize_record({
+            "request": {
+                "method": "GET",
+                "url": "https://api.example.com/wallet",
+                "headers": [
+                    {"name": "X-Timestamp", "value": "1789716122"},
+                    {"name": "x-nonce", "value": "once-only"},
+                    {"name": "X-SIGNATURE", "value": "stale-signature"},
+                    {"name": "X-Platform", "value": "WEB"},
+                ],
+            },
+        })
+
+        self.assertEqual(record["headers"], {"X-Platform": "WEB"})
+
+
 class EndpointRunAPITests(TestCase):
+    def test_import_dataset_preserves_json_types_and_csv_quoted_cells(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        response = self.client.post(
+            "/api/case_api/endpoint/import-dataset/",
+            {"file": SimpleUploadedFile("input.json", b'[{"id":"001","active":true,"count":2,"extra":null}]', content_type="application/json")},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["rows"], [["001", True, 2, None]])
+        response = self.client.post(
+            "/api/case_api/endpoint/import-dataset/",
+            {"file": SimpleUploadedFile("input.csv", b'name,note\nuser,"hello, world"\n', content_type="text/csv")},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["rows"], [["user", "hello, world"]])
+
+    def test_rejects_invalid_dataset_shape_and_all_disabled_rows(self):
+        for payload in (
+            {"parametrize": 12},
+            {"parametrize": [123, [1]]},
+            {"parametrize": [["id"], [1]], "dataset_options": {"enabled": True, "disabled_rows": [0]}},
+        ):
+            response = self.client.patch(f"/api/case_api/endpoint/{self.endpoint.pk}/", payload, format="json")
+            self.assertEqual(response.status_code, 400, response.data)
+
+    @patch("case_api.views._run_step")
+    def test_selecting_data_row_does_not_modify_saved_dataset(self, run_step):
+        self.endpoint.parametrize = [["id"], ["001"], [2]]
+        self.endpoint.dataset_options = {"enabled": True, "disabled_rows": [0]}
+        self.endpoint.save()
+        run_step.return_value = {"passed": True, "errors": []}
+        response = self.client.post(
+            f"/api/case_api/endpoint/{self.endpoint.pk}/run/",
+            {"environment": self.environment.pk, "data_row": 1}, format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(run_step.call_args.args[0].endpoint.parametrize, [["id"], [2]])
+        self.endpoint.refresh_from_db()
+        self.assertEqual(self.endpoint.parametrize, [["id"], ["001"], [2]])
+        self.assertEqual(self.endpoint.dataset_options["disabled_rows"], [0])
+
+    def test_yaml_respects_enabled_rows_and_disabled_mode(self):
+        self.endpoint.parametrize = [["id"], [1], [2]]
+        self.endpoint.dataset_options = {"enabled": True, "disabled_rows": [0]}
+        self.assertEqual(self.endpoint.to_yaml_data("https://example.com")["parametrize"], [["id"], [2]])
+        self.endpoint.dataset_options = {"enabled": False}
+        self.assertNotIn("parametrize", self.endpoint.to_yaml_data("https://example.com"))
+
+    def test_form_data_preserves_text_fields_and_removes_manual_content_type(self):
+        self.endpoint.method = "POST"
+        self.endpoint.body_type = "form_data"
+        self.endpoint.data = {"description": "测试文本"}
+        self.endpoint.headers = {"Content-Type": "multipart/form-data", "X-Test": "1"}
+        request = self.endpoint.to_yaml_data("https://example.com")["request"]
+        self.assertEqual(request["body_type"], "form_data")
+        self.assertEqual(request["data"], {"description": "测试文本"})
+        self.assertNotIn("Content-Type", request["headers"])
+
     def setUp(self):
         self.user = User.objects.create_superuser("endpoint-runner", "runner@example.com", "pass")
         self.client = APIClient()
@@ -133,6 +285,7 @@ class EndpointRunAPITests(TestCase):
             name="Dev",
             base_url="https://api.example.com",
         )
+        self.module = Module.objects.create(project=self.project, name="默认模块")
         self.endpoint = Endpoint.objects.create(
             project=self.project,
             name="查询余额",
@@ -144,6 +297,85 @@ class EndpointRunAPITests(TestCase):
             json={},
             cookies={},
         )
+
+    def test_swagger_import_previews_and_skips_existing_endpoint(self):
+        content = '''{"openapi":"3.0.3","paths":{"/wallet":{"get":{"summary":"旧接口"}},"/new":{"post":{"summary":"新接口"}}}}'''
+        payload = {"project": self.project.pk, "module": self.module.pk, "content": content}
+        url = "/api/case_api/endpoint/import-swagger/"
+        preview = self.client.post(url, payload, format="json")
+        self.assertEqual(preview.status_code, 200, preview.data)
+        self.assertEqual(preview.data["new"], 1)
+        self.assertEqual(Endpoint.objects.filter(project=self.project).count(), 1)
+        saved = self.client.post(url, {**payload, "save": True}, format="json")
+        self.assertEqual(saved.status_code, 200, saved.data)
+        self.assertEqual(saved.data, {"created": 1, "skipped": 1})
+        self.assertEqual(Endpoint.objects.get(project=self.project, url="/new").module, self.module)
+        repeated = self.client.post(url, {**payload, "save": True}, format="json")
+        self.assertEqual(repeated.data, {"created": 0, "skipped": 2})
+
+    def test_swagger_import_auto_creates_and_reuses_modules(self):
+        content = '''{"openapi":"3.0.3","paths":{"/users":{"get":{"tags":["用户管理"],"summary":"用户列表"}},"/users/{id}":{"delete":{"tags":["用户管理"]}},"/orders":{"post":{}}}}'''
+        payload = {"project": self.project.pk, "content": content}
+        url = "/api/case_api/endpoint/import-swagger/"
+        preview = self.client.post(url, payload, format="json")
+        self.assertEqual(preview.status_code, 200, preview.data)
+        self.assertEqual(preview.data["modules"], ["orders", "用户管理"])
+        self.assertFalse(Module.objects.filter(project=self.project, name="用户管理").exists())
+        saved = self.client.post(url, {**payload, "save": True}, format="json")
+        self.assertEqual(saved.status_code, 200, saved.data)
+        self.assertEqual(saved.data["created"], 3)
+        self.assertEqual(Module.objects.filter(project=self.project, name="用户管理").count(), 1)
+        self.assertEqual(Endpoint.objects.get(project=self.project, url="/users").module.name, "用户管理")
+        self.assertEqual(Endpoint.objects.get(project=self.project, url="/orders").module.name, "orders")
+        repeated = self.client.post(url, {**payload, "save": True}, format="json")
+        self.assertEqual(repeated.data, {"created": 0, "skipped": 3})
+        self.assertEqual(Module.objects.filter(project=self.project).count(), 3)
+
+    def test_swagger_selected_module_overrides_tags(self):
+        content = '''{"openapi":"3.0.3","paths":{"/users":{"get":{"tags":["用户管理"]}}}}'''
+        payload = {"project": self.project.pk, "module": self.module.pk, "content": content, "save": True}
+        response = self.client.post("/api/case_api/endpoint/import-swagger/", payload, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(Endpoint.objects.get(project=self.project, url="/users").module, self.module)
+        self.assertFalse(Module.objects.filter(project=self.project, name="用户管理").exists())
+
+    def test_swagger_relation_preview_and_generated_scenario(self):
+        content = '''{"openapi":"3.0.3","paths":{"/users":{"post":{"summary":"创建用户","responses":{"201":{"description":"created","content":{"application/json":{"schema":{"type":"object","properties":{"data":{"type":"object","properties":{"id":{"type":"integer"}}}}}}}}}}},"/users/{id}":{"get":{"summary":"查询用户","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"integer"}}]}}}}'''
+        payload = {"project": self.project.pk, "content": content}
+        url = "/api/case_api/endpoint/import-swagger/"
+        preview = self.client.post(url, payload, format="json")
+        self.assertEqual(preview.status_code, 200, preview.data)
+        self.assertEqual(Endpoint.objects.filter(project=self.project).count(), 1)
+        self.assertEqual(Scenario.objects.filter(project=self.project).count(), 0)
+        relations = preview.data["relations"]
+        self.assertEqual(len(relations), 1)
+        self.assertEqual(relations[0]["response_path"], "$.data.id")
+        self.assertEqual(relations[0]["target_field"], "path")
+        saved = self.client.post(url, {**payload, "save": True, "create_scenario": True, "scenario_name": "创建后查询", "relation_ids": [relations[0]["id"]]}, format="json")
+        self.assertEqual(saved.status_code, 200, saved.data)
+        self.assertEqual(saved.data["created"], 2)
+        scenario = Scenario.objects.get(pk=saved.data["scenario_id"])
+        steps = list(scenario.steps.order_by("order"))
+        self.assertEqual([step.endpoint.method for step in steps], ["POST", "GET"])
+        self.assertEqual(steps[0].extract[relations[0]["variable"]], {"mode": "jsonpath", "source": "json", "expression": "$.data.id", "index": 0, "processors": [{"type": "required"}]})
+        self.assertEqual(steps[1].request_url, "/users/${" + relations[0]["variable"] + "}")
+        self.assertEqual(scenario.flow_nodes.count(), 2)
+        self.assertEqual(Endpoint.objects.get(project=self.project, url="/users/{id}").url, "/users/{id}")
+        self.assertFalse(steps[0].continue_on_failure)
+        repeated = self.client.post(url, {**payload, "save": True, "create_scenario": True, "scenario_name": "创建后查询（再次编排）", "relation_ids": [relations[0]["id"]]}, format="json")
+        self.assertEqual(repeated.status_code, 200, repeated.data)
+        self.assertEqual(repeated.data["created"], 0)
+        self.assertEqual(repeated.data["skipped"], 2)
+        self.assertTrue(Scenario.objects.filter(pk=repeated.data["scenario_id"]).exists())
+
+    def test_swagger_rejects_unconfirmed_relation_without_importing(self):
+        content = '''{"openapi":"3.0.3","paths":{"/items":{"post":{"responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"type":"object","properties":{"id":{"type":"integer"}}}}}}}}},"/items/{id}":{"get":{}}}}'''
+        response = self.client.post("/api/case_api/endpoint/import-swagger/", {
+            "project": self.project.pk, "content": content, "save": True,
+            "create_scenario": True, "relation_ids": ["not-a-previewed-relation"],
+        }, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Endpoint.objects.filter(project=self.project, url="/items").exists())
 
     def test_create_endpoint_and_scenario_record_creator(self):
         endpoint_response = self.client.post(
@@ -168,6 +400,32 @@ class EndpointRunAPITests(TestCase):
         self.assertEqual(scenario.created_by, self.user)
         self.assertEqual(endpoint_response.data["creator_name"], self.user.username)
         self.assertEqual(scenario_response.data["creator_name"], self.user.username)
+
+    def test_recording_import_drops_volatile_headers_even_when_parse_is_bypassed(self):
+        response = self.client.post(
+            "/api/case_api/recording/import_records/",
+            {
+                "project": self.project.id,
+                "module": self.module.id,
+                "records": [{
+                    "selected": True,
+                    "name": "录制余额",
+                    "method": "GET",
+                    "url": "/wallet/recorded",
+                    "headers": {
+                        "x-timestamp": "1789716122",
+                        "X-Nonce": "once-only",
+                        "x-signature": "stale-signature",
+                        "x-platform": "WEB",
+                    },
+                }],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        endpoint = Endpoint.objects.get(project=self.project, url="/wallet/recorded")
+        self.assertEqual(endpoint.headers, {"x-platform": "WEB"})
 
     def test_scenario_list_is_sorted_by_creation_time_descending(self):
         earlier = Scenario.objects.create(project=self.project, name="较早创建的场景")

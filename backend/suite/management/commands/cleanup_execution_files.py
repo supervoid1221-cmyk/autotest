@@ -4,11 +4,11 @@ from suite.retention import cleanup_expired_files
 
 
 class Command(BaseCommand):
-    help = "清理超过保留天数的本地执行目录、报告和日志"
+    help = "清理超过保留天数的执行文件、日志和性能报告"
 
     def add_arguments(self, parser):
         parser.add_argument("--days", type=int, help="保留天数，默认读取 FILE_RETENTION_DAYS")
-        parser.add_argument("--dry-run", action="store_true", help="只预览将被清理的文件")
+        parser.add_argument("--dry-run", action="store_true", help="只预览将被清理的文件和性能报告")
 
     def handle(self, *args, **options):
         days = options["days"]
@@ -19,7 +19,9 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"{action}完成：保留 {result['retention_days']} 天，"
-                f"命中 {result['removed_count']} 项，失败 {len(result['errors'])} 项。"
+                f"命中文件 {result['removed_count']} 项、"
+                f"性能报告 {result['removed_performance_run_count']} 份，"
+                f"失败 {len(result['errors'])} 项。"
             )
         )
         for path in result["removed"]:

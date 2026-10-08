@@ -4,8 +4,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.contrib.auth.models import User
+from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
+from account.models import Tenant
+from case_app.models import AppApplication, AppCase, AppDevice, AppExecutionNode, AppRun
+from project.models import Project
 from suite.retention import cleanup_expired_files
 from suite import tasks
 
@@ -97,3 +102,77 @@ class FileRetentionTests(SimpleTestCase):
                         cleanup.assert_called_once_with()
         finally:
             tasks._last_cleanup_date = original_cleanup_date
+
+
+class AppRunRetentionLayoutTests(TestCase):
+    """过期 App 执行记录的目录清理只认租户命名空间。
+
+    运行产物固定由 ``case_app/executor.py`` 建在
+    ``app_runs/tenant_<租户>/<执行编号>/`` 下。此前 ``cleanup_expired_files`` 在租户
+    目录不存在时会回退去删 ``app_runs/<执行编号>/``，一旦磁盘上存在同名扁平目录就会
+    被误删。这里锁住两点：租户目录被清理、同名扁平目录不受影响。
+    """
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.base = Path(self.directory.name)
+        settings_override = override_settings(BASE_DIR=self.base)
+        settings_override.enable()
+        self.addCleanup(settings_override.disable)
+
+        tenant = Tenant.objects.create(name="保留期租户", slug="retention-tenant")
+        user = User.objects.create_user(username="retention-user")
+        project = Project.objects.create(tenant=tenant, name="保留期项目", pm=user)
+        application = AppApplication.objects.create(
+            project=project, name="测试 App", package_name="com.example.retention"
+        )
+        node = AppExecutionNode.objects.create(project=project, name="本地 Appium")
+        device = AppDevice.objects.create(
+            project=project, node=node, name="Pixel 5", udid="emulator-5554",
+            state=AppDevice.State.ONLINE,
+        )
+        case = AppCase.objects.create(
+            project=project, application=application, default_device=device, name="App 登录"
+        )
+        self.tenant = tenant
+        self.run = AppRun.objects.create(
+            tenant=tenant, case=case, project=project, application=application,
+            device=device, execution_no=88001, status=AppRun.Status.PASSED,
+            finished_at=timezone.now() - timedelta(days=30),
+        )
+
+    def _make_run_dir(self, path):
+        (path / "logs").mkdir(parents=True, exist_ok=True)
+        (path / "logs" / "runner.log").write_text("log", encoding="utf-8")
+        return path
+
+    def _cleanup(self):
+        # base_dir 会默认关掉数据库记录清理，这里显式打开以覆盖 App 记录分支。
+        return cleanup_expired_files(
+            15, base_dir=self.base, include_database_records=True, active_paths=[],
+        )
+
+    def test_expired_run_directory_is_removed_from_the_tenant_namespace(self):
+        tenant_dir = self._make_run_dir(
+            self.base / "app_runs" / f"tenant_{self.tenant.pk}" / str(self.run.execution_no)
+        )
+
+        self._cleanup()
+
+        self.assertFalse(AppRun.objects.filter(pk=self.run.pk).exists())
+        self.assertFalse(tenant_dir.exists(), "租户命名空间下的过期运行目录应被清理")
+
+    def test_expired_run_does_not_delete_a_same_named_flat_directory(self):
+        """这是已删除的「扁平布局回退」分支的直接回归防线。"""
+        flat_dir = self._make_run_dir(self.base / "app_runs" / str(self.run.execution_no))
+        tenant_dir = (
+            self.base / "app_runs" / f"tenant_{self.tenant.pk}" / str(self.run.execution_no)
+        )
+        self.assertFalse(tenant_dir.exists(), "本用例要求租户目录缺失")
+
+        self._cleanup()
+
+        self.assertFalse(AppRun.objects.filter(pk=self.run.pk).exists())
+        self.assertTrue(flat_dir.exists(), "扁平目录不在租户命名空间内，不能回退删除")
+        self.assertTrue((flat_dir / "logs" / "runner.log").exists())

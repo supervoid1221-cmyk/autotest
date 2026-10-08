@@ -2,10 +2,12 @@ import type { RouteRecordRaw } from 'vue-router';
 import { isNavigationFailure, Router } from 'vue-router';
 import { useUser } from '@/store/modules/user';
 import { useAsyncRoute } from '@/store/modules/asyncRoute';
-import { ACCESS_TOKEN } from '@/store/mutation-types';
+import { ACCESS_TOKEN, ACCESS_TOKEN_EXPIRES_AT } from '@/store/mutation-types';
 import { storage } from '@/utils/Storage';
 import { PageEnum } from '@/enums/pageEnum';
 import { ErrorPageRoute } from '@/router/base';
+import { useScreenLockStore } from '@/store/modules/screenLock';
+import { resolveLoginRedirect } from '@/router/loginRedirect';
 
 const LOGIN_PATH = PageEnum.BASE_LOGIN;
 
@@ -14,6 +16,7 @@ const whitePathList = [LOGIN_PATH]; // no redirect whitelist
 export function createRouterGuards(router: Router) {
   const userStore = useUser();
   const asyncRouteStore = useAsyncRoute();
+  const screenLockStore = useScreenLockStore();
   router.beforeEach(async (to, from, next) => {
     const Loading = window['$loading'] || null;
     Loading && Loading.start();
@@ -38,6 +41,18 @@ export function createRouterGuards(router: Router) {
     const token = storage.get(ACCESS_TOKEN);
 
     if (!token) {
+      if (screenLockStore.isLocked) {
+        // 锁屏仍可通过账号密码重新激活；不要让后台发起的路由跳转
+        // 把屏保层清掉并导航到登录页。
+        screenLockStore.setLock(true, 'expired', to.fullPath);
+        Loading && Loading.finish();
+        if (from.matched.length === 0) {
+          next({ path: LOGIN_PATH, replace: true, query: { redirect: to.fullPath } });
+          return;
+        }
+        next(false);
+        return;
+      }
       // redirect login page
       const redirectData: { path: string; replace: boolean; query?: Recordable<string> } = {
         path: LOGIN_PATH,
@@ -53,12 +68,75 @@ export function createRouterGuards(router: Router) {
       return;
     }
 
+    const tokenExpiresAt = Number(storage.get(ACCESS_TOKEN_EXPIRES_AT, 0)) || 0;
+    if (tokenExpiresAt && tokenExpiresAt <= Date.now()) {
+      if (screenLockStore.isLocked) {
+        screenLockStore.setLock(true, 'expired', to.fullPath);
+        Loading && Loading.finish();
+        if (from.matched.length === 0) {
+          next({ path: LOGIN_PATH, replace: true, query: { redirect: to.fullPath } });
+          return;
+        }
+        next(false);
+        return;
+      }
+      // 非锁屏状态下首次进入仍走完整登录，避免拿已过期令牌请求 profile。
+      next({
+        path: LOGIN_PATH,
+        replace: true,
+        query: { redirect: to.fullPath, expired: '1' },
+      });
+      return;
+    }
+
     if (asyncRouteStore.getIsDynamicRouteAdded) {
       next();
       return;
     }
 
-    const userInfo = await userStore.getInfo();
+    let userInfo;
+    try {
+      userInfo = await userStore.getInfo();
+    } catch (error: any) {
+      if (error?.staleAuthResponse) {
+        try {
+          userInfo = await userStore.getInfo();
+        } catch (retryError: any) {
+          error = retryError;
+        }
+      }
+
+      if (!userInfo) {
+        Loading && Loading.finish();
+        if (screenLockStore.isLocked) {
+          screenLockStore.setLock(true, 'expired', to.fullPath);
+          if (from.matched.length === 0) {
+            next({ path: LOGIN_PATH, replace: true, query: { redirect: to.fullPath } });
+            return;
+          }
+          next(false);
+          return;
+        }
+        if (error?.httpStatus === 401) {
+          // 保留当前页面，由屏保层重新认证；不再与统一 401 处理
+          // 重复竞争并导航到登录页。
+          screenLockStore.setLock(true, 'expired', to.fullPath);
+          if (from.matched.length === 0) {
+            next({ path: LOGIN_PATH, replace: true, query: { redirect: to.fullPath } });
+            return;
+          }
+          next(false);
+          return;
+        }
+
+        next({
+          path: LOGIN_PATH,
+          replace: true,
+          query: { redirect: to.fullPath },
+        });
+        return;
+      }
+    }
 
     const routes = await asyncRouteStore.generateRoutes(userInfo);
 
@@ -73,8 +151,7 @@ export function createRouterGuards(router: Router) {
       router.addRoute(ErrorPageRoute as unknown as RouteRecordRaw);
     }
 
-    const redirectPath = (from.query.redirect || to.path) as string;
-    const redirect = decodeURIComponent(redirectPath);
+    const redirect = resolveLoginRedirect(from.query.redirect || to.fullPath);
     const nextData = to.path === redirect ? { ...to, replace: true } : { path: redirect };
     asyncRouteStore.setDynamicRouteAdded(true);
     next(nextData);

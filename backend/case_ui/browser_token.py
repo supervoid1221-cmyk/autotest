@@ -3,6 +3,32 @@ import json
 from urllib.parse import urlparse
 
 
+def should_inject_environment_auth(base_url, navigation_targets):
+    """仅当用例实际访问当前环境时才注入认证信息。
+
+    相对地址会基于环境 base_url 打开；绝对地址只有与环境同源时
+    才需要环境自动登录，避免外部网站用例被无关的环境登录失败阻断。
+    """
+    environment_url = urlparse(str(base_url or "").strip())
+    if environment_url.scheme not in {"http", "https"} or not environment_url.netloc:
+        return False
+
+    environment_origin = (environment_url.scheme.lower(), environment_url.netloc.lower())
+    for raw_target in navigation_targets or []:
+        target = str(raw_target or "").strip()
+        if not target:
+            continue
+        parsed_target = urlparse(target)
+        if not parsed_target.scheme and not parsed_target.netloc:
+            return True
+        if (
+            parsed_target.scheme.lower(),
+            parsed_target.netloc.lower(),
+        ) == environment_origin:
+            return True
+    return False
+
+
 def storage_init_script(payload):
     storage = payload.get("storage")
     if storage not in {"local_storage", "session_storage"}:

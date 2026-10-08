@@ -6,14 +6,6 @@ export type Element = components['schemas']['Element'] & {
   project_name?: string;
 };
 
-export interface ElementModule {
-  id?: number;
-  project: number;
-  project_name?: string;
-  name: string;
-  element_count?: number;
-}
-
 export interface UiCaseTab {
   key: string;
   name: string;
@@ -26,6 +18,7 @@ export interface UiCase {
   project_name?: string;
   name: string;
   description: string;
+  environment_name?: string;
   browser: 'chrome';
   run_mode: 'headless' | 'headed';
   tabs: UiCaseTab[];

@@ -1,5 +1,5 @@
 <template>
-  <n-card :bordered="false" class="proCard" title="项目环境与认证">
+  <n-card :bordered="false" class="proCard environment-list-page" title="项目环境与认证">
     <BasicTable v-if="!isMobile" ref="tableRef" :columns="columns" :request="loadDataTable" :row-key="(row) => row.id">
       <template #toolbar>
         <n-button type="primary" @click="router.push({ name: 'project_environment_edit', params: { id: 0 } })">
@@ -49,6 +49,8 @@
 </template>
 
 <script lang="ts" setup>
+import { asList } from '@/utils/list';
+
   import { computed, h, ref, watch } from 'vue';
   import { useRouter } from 'vue-router';
   import { NButton, NTag, useDialog, useMessage } from 'naive-ui';
@@ -82,9 +84,7 @@
     },
   ];
   const loadDataTable = async (params) => api.getDataList(params);
-  const asList = (payload: any) => Array.isArray(payload)
-    ? payload
-    : payload?.list || payload?.results || payload?.data || [];
+  
 
   async function loadMobileRows() {
     try {

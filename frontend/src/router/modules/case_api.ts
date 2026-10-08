@@ -1,6 +1,6 @@
 import { RouteRecordRaw } from 'vue-router';
 import { Layout } from '@/router/constant';
-import { PhPlug } from '@phosphor-icons/vue';
+import { PhGlobe } from '@phosphor-icons/vue';
 import { renderIcon } from '@/utils/index';
 
 /**
@@ -22,8 +22,9 @@ const routes: Array<RouteRecordRaw> = [
     component: Layout,
     meta: {
       title: 'API测试',
-      icon: renderIcon(PhPlug),
+      icon: renderIcon(PhGlobe),
       sort: 17,
+      group: '测试资产',
     },
     children: [
       {
@@ -41,6 +42,8 @@ const routes: Array<RouteRecordRaw> = [
           title: '接口详情',
           hidden: true,
           activeMenu: 'case_api_endpoint',
+          // 执行结果和未提交的请求配置在切换平台多页签时需要保留。
+          keepAlive: true,
         },
         component: () => import('@/views/case_api/endpoint_edit.vue'),
       },

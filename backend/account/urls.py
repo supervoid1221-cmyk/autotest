@@ -5,10 +5,11 @@
 """
 from rest_framework import routers
 
-from .views import ProfileViewSet, UserManageViewSet
+from .views import ProfileViewSet, TenantViewSet, UserManageViewSet
 
 router = routers.SimpleRouter()
 router.register("profile", ProfileViewSet, "profile")
 router.register("user", UserManageViewSet, "user")
+router.register("tenant", TenantViewSet, "tenant")
 
 urlpatterns = router.urls

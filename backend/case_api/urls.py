@@ -6,7 +6,7 @@
 from rest_framework import routers
 
 from .views import (
-    EndpointModuleViewSet, EndpointViewSet, RecordingViewSet, ScenarioBranchViewSet,
+    EndpointViewSet, RecordingViewSet, ScenarioBranchViewSet,
     ScenarioFlowNodeViewSet, ScenarioStepViewSet, ScenarioViewSet,
 )
 
@@ -15,7 +15,6 @@ router.register(
     "endpoint",
     EndpointViewSet,
 )
-router.register("endpoint-module", EndpointModuleViewSet)
 router.register("recording", RecordingViewSet, basename="recording")
 router.register("scenario", ScenarioViewSet)
 router.register("scenario-step", ScenarioStepViewSet)

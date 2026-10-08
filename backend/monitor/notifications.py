@@ -1,19 +1,12 @@
 """监控告警复用测试套件既有的飞书、企业微信通知渠道。"""
 
-import requests
 from django.db.models import Q
 from django.utils import timezone
 from datetime import timedelta
 
-from suite.notifications import notification_response_summary, validate_notification_response
+from suite.notifications import deliver_notification, notification_payload
 
 from .models import MonitorAlertEvent, MonitorNotificationDelivery, MonitorNotificationRule, ServiceMonitor
-
-
-def _payload(channel, text):
-    if channel.platform == "lark":
-        return {"msg_type": "text", "content": {"text": text}}
-    return {"msgtype": "markdown", "markdown": {"content": text.replace("\n", "\n> ")}}
 
 
 def _subject(target=None, service=None):
@@ -77,7 +70,7 @@ def notify_monitor_event(
                 created_at__gte=retry_after,
             ).exists():
                 continue
-        payload = _payload(rule.channel, text)
+        payload = notification_payload(rule.channel.platform, text)
         delivery = MonitorNotificationDelivery.objects.create(
             channel=rule.channel,
             rule=rule,
@@ -89,16 +82,7 @@ def notify_monitor_event(
             status=MonitorNotificationDelivery.Status.FAILED,
             payload=payload,
         )
-        try:
-            response = requests.post(rule.channel.webhook_url, json=payload, timeout=8)
-            succeeded, detail = validate_notification_response(rule.channel.platform, response)
-            delivery.response_code = response.status_code
-            delivery.response_summary = notification_response_summary(response, detail)
-            if succeeded:
-                delivery.status = MonitorNotificationDelivery.Status.SENT
-        except Exception as exc:
-            delivery.response_summary = str(exc)[:500]
-        delivery.save(update_fields=["status", "response_code", "response_summary"])
+        deliver_notification(rule.channel, payload, delivery)
 
 
 def backfill_active_alerts(rule):

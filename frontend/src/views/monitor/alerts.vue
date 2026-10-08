@@ -4,14 +4,17 @@
       <div><h2>告警事件</h2><p>统一展示主机指标与 HTTP、TCP、Docker 服务的异常和恢复记录。</p></div>
       <n-button :loading="loading" @click="load">刷新</n-button>
     </header>
-    <n-data-table striped :columns="columns" :data="records" :loading="loading" :pagination="{ pageSize: 15 }" />
+    <n-data-table :columns="columns" :data="records" :loading="loading" :pagination="{ pageSize: 15 }" />
   </section>
 </template>
 
 <script setup lang="ts">
+import { asList } from '@/utils/list';
+
 import { h, onMounted, ref } from 'vue';
 import { NTag } from 'naive-ui';
 import { MonitorAPI, type MonitorAlertEvent, type MonitorServiceEvent } from '@/api/monitor/http';
+import { formatDateTime } from '@/utils/time';
 
 type AlertRecord = {
   id: string;
@@ -26,7 +29,7 @@ type AlertRecord = {
 
 const records = ref<AlertRecord[]>([]);
 const loading = ref(false);
-const asList = <T,>(data: any): T[] => Array.isArray(data) ? data : data?.list || data?.results || data?.data || [];
+
 
 const load = async () => {
   loading.value = true;
@@ -74,15 +77,14 @@ const load = async () => {
   }
 };
 
-const time = (value?: string) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-';
 const columns: any[] = [
   { title: '目标', key: 'object_name' },
   { title: '项目', key: 'project_name', render: (row: AlertRecord) => row.project_name || '平台级' },
   { title: '告警内容', key: 'message' },
   { title: '级别', key: 'severity', render: (row: AlertRecord) => h(NTag, { type: row.severity === 'critical' ? 'error' : 'warning' }, { default: () => row.severity === 'critical' ? '告警' : '预警' }) },
   { title: '状态', key: 'status', render: (row: AlertRecord) => h(NTag, { type: row.status === 'active' ? 'error' : 'success' }, { default: () => row.status === 'active' ? '告警中' : '已恢复' }) },
-  { title: '开始时间', key: 'started_at', render: (row: AlertRecord) => time(row.started_at) },
-  { title: '恢复时间', key: 'recovered_at', render: (row: AlertRecord) => time(row.recovered_at) },
+  { title: '开始时间', key: 'started_at', render: (row: AlertRecord) => formatDateTime(row.started_at) },
+  { title: '恢复时间', key: 'recovered_at', render: (row: AlertRecord) => formatDateTime(row.recovered_at) },
 ];
 
 onMounted(load);

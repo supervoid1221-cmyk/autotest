@@ -1,6 +1,6 @@
 import { RouteRecordRaw } from 'vue-router';
 import { Layout } from '@/router/constant';
-import { PhFactory } from '@phosphor-icons/vue';
+import { PhCube } from '@phosphor-icons/vue';
 import { renderIcon } from '@/utils/index';
 
 const routes: Array<RouteRecordRaw> = [
@@ -10,8 +10,9 @@ const routes: Array<RouteRecordRaw> = [
     component: Layout,
     meta: {
       title: '数据工厂',
-      icon: renderIcon(PhFactory),
-      sort: 1,
+      icon: renderIcon(PhCube),
+      sort: 24,
+      group: '测试资产',
     },
     children: [
       {

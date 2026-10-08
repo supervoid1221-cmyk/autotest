@@ -1,6 +1,6 @@
 import { RouteRecordRaw } from 'vue-router';
 import { Layout } from '@/router/constant';
-import { PhChartLineUp } from '@phosphor-icons/vue';
+import { PhActivity } from '@phosphor-icons/vue';
 import { renderIcon } from '@/utils/index';
 
 const routes: Array<RouteRecordRaw> = [
@@ -11,8 +11,9 @@ const routes: Array<RouteRecordRaw> = [
     redirect: '/dashboard/console',
     meta: {
       title: '监控中心',
-      icon: renderIcon(PhChartLineUp),
+      icon: renderIcon(PhActivity),
       sort: 0,
+      group: '工作区',
       alwaysShow: true,
     },
     children: [

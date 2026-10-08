@@ -12,7 +12,7 @@
       <div class="server-page__actions"><n-select v-model:value="selectedProject" clearable class="project-filter" :options="projectOptions" placeholder="全部项目" @update:value="load" /><n-button type="primary" @click="openEditor()">新增服务器</n-button></div>
     </header>
     <n-card :bordered="false" class="server-card">
-      <n-data-table striped :columns="columns" :data="records" :loading="loading" :row-key="row => row.id" />
+      <n-data-table :columns="columns" :data="records" :loading="loading" :row-key="row => row.id" />
     </n-card>
 
     <n-modal v-model:show="editorVisible" preset="card" :title="editing?.id ? '编辑服务器连接' : '新增服务器连接'" class="platform-form-modal server-editor" :mask-closable="false">
@@ -39,6 +39,9 @@
 </template>
 
 <script setup lang="ts">
+import { asList } from '@/utils/list';
+import { formatDateTime as formatTime } from '@/utils/time';
+
   import { computed, h, nextTick, onMounted, reactive, ref } from 'vue';
   import { NButton, NPopconfirm, NSpace, NTag, useMessage, type FormInst, type FormRules } from 'naive-ui';
   import { ServerConnectionAPI, type ServerConnection } from '@/api/system/server';
@@ -63,8 +66,6 @@
     private_key_path: { validator: () => form.auth_type !== 'private_key' || !!form.private_key_path?.trim(), message: '请填写私钥文件路径', trigger: ['blur', 'input'] },
     password: { validator: () => form.auth_type !== 'password' || !!form.password || !!editing.value?.password_configured, message: '请填写登录密码', trigger: ['blur', 'input'] },
   };
-  const formatTime = (value?: string | null) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-';
-  const asList = <T,>(payload: unknown): T[] => { if (Array.isArray(payload)) return payload as T[]; const response = payload as { list?: T[]; results?: T[]; data?: T[] } | null; return response?.list || response?.results || response?.data || []; };
   const load = async () => { if (!canMaintain.value) return; loading.value = true; try { records.value = asList(await ServerConnectionAPI.list(selectedProject.value)); } catch (error: any) { message.error(error?.message || '获取服务器连接失败'); } finally { loading.value = false; } };
   const loadProjects = async () => { try { projects.value = asList(await projectApi.getDataList({ page: 1, pageSize: 1000 })); } catch (error: any) { projects.value = []; message.error(error?.message || '项目列表加载失败'); } finally { projectsLoaded.value = true; } };
   const resetEditorScroll = async () => {

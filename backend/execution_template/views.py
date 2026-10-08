@@ -9,6 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from account.access import is_system_admin
+from account.tenancy import TenantScopedViewSetMixin, validate_tenant_relations
 from project.access import project_access_q, require_project_access
 from project.models import Environment
 from suite.models import RunResult
@@ -19,7 +20,7 @@ from .serializers import ExecutionTemplateSerializer
 
 
 @extend_schema(tags=["ExecutionTemplate"])
-class ExecutionTemplateViewSet(viewsets.ModelViewSet):
+class ExecutionTemplateViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ExecutionTemplateSerializer
     permission_classes = [IsAuthenticated]
     queryset = ExecutionTemplate.objects.select_related("suite", "suite__environment", "project").all()
@@ -32,7 +33,7 @@ class ExecutionTemplateViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("仅管理员可以编辑模板。")
 
     def get_queryset(self):
-        queryset = self.queryset.filter(
+        queryset = self.tenant_scope(self.queryset).filter(
             project_access_q(self.request.user, "project__"),
             suite_id__in=accessible_suites(self.request.user).values("pk"),
         ).distinct()
@@ -42,13 +43,15 @@ class ExecutionTemplateViewSet(viewsets.ModelViewSet):
         self.require_admin()
         suite = serializer.validated_data["suite"]
         require_suite_access(self.request.user, suite)
-        serializer.save(project=suite.environment.project)
+        tenant = validate_tenant_relations(self.request, suite=suite, project=suite.environment.project)
+        serializer.save(tenant=tenant, project=suite.environment.project)
 
     def perform_update(self, serializer):
         self.require_admin()
         suite = serializer.validated_data.get("suite", self.get_object().suite)
         require_suite_access(self.request.user, suite)
-        serializer.save(project=suite.environment.project)
+        tenant = validate_tenant_relations(self.request, suite=suite, project=suite.environment.project)
+        serializer.save(tenant=tenant, project=suite.environment.project)
 
     def perform_destroy(self, instance):
         self.require_admin()
@@ -63,6 +66,7 @@ class ExecutionTemplateViewSet(viewsets.ModelViewSet):
             result = filter_suite_access(
                 RunResult.objects.filter(
                     project_access_q(request.user, "project__"),
+                    tenant=template.tenant,
                     pk=result_id,
                     suite_id=template.suite_id,
                 ),

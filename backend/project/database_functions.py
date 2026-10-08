@@ -23,7 +23,7 @@ LEGACY_SQL_FUNCTION_PATTERN = re.compile(
 
 
 def _validate_sql(sql):
-    """仅允许单条 SELECT 或带 WHERE 的 UPDATE。"""
+    """仅允许单条 SELECT，或带 WHERE 的 UPDATE/DELETE。"""
     normalized = re.sub(r"/\*.*?\*/|--[^\n]*", "", sql, flags=re.S).strip()
     if normalized.count(";") > 1 or (";" in normalized and not normalized.endswith(";")):
         raise ValueError("数据库函数不允许执行多条 SQL。")
@@ -34,7 +34,11 @@ def _validate_sql(sql):
         if not re.search(r"\bwhere\b", normalized, re.I):
             raise ValueError("UPDATE 必须包含 WHERE 条件。")
         return "update", normalized
-    raise ValueError("数据库函数仅支持 SELECT 或 UPDATE SQL。")
+    if re.match(r"^delete\b", normalized, re.I):
+        if not re.search(r"\bwhere\b", normalized, re.I):
+            raise ValueError("DELETE 必须包含 WHERE 条件。")
+        return "delete", normalized
+    raise ValueError("数据库函数仅支持 SELECT、UPDATE 或 DELETE SQL。")
 
 
 def _infer_parameters(sql, variables):
@@ -120,8 +124,8 @@ def _execute_select(config, password, sql, params=None, fetch_one=True):
             raise
 
 
-def _execute_update(config, password, sql, params=None):
-    """执行一次事务性 UPDATE；写操作不自动重试，避免网络异常造成重复写入。"""
+def _execute_write(config, password, sql, params=None):
+    """执行一次事务性写操作；不自动重试，避免网络异常造成重复写入。"""
     try:
         with ssh_tunnel(config) as connect_config:
             connection = _connect(connect_config, password)
@@ -155,17 +159,19 @@ def test_database_connection(config, password):
 
 
 def test_database_query(config, password, sql, confirm_write=False):
-    """在连接配置页校验 SQL；UPDATE 必须启用写权限并二次确认。"""
+    """在连接配置页校验 SQL；写操作必须启用对应权限并二次确认。"""
     operation, safe_sql = _validate_sql(sql)
     if "%s" in safe_sql:
         raise ValueError("SQL 校验不支持未绑定的 %s，请先填写固定测试条件。")
     started = time.perf_counter()
-    if operation == "update":
-        if not config.get("allow_write"):
-            raise ValueError("当前数据库连接未开启“允许执行 UPDATE”。")
+    if operation in {"update", "delete"}:
+        permission_field = "allow_write" if operation == "update" else "allow_delete"
+        operation_label = operation.upper()
+        if not config.get(permission_field):
+            raise ValueError(f"当前数据库连接未开启“允许执行 {operation_label}”。")
         if not confirm_write:
-            raise ValueError("执行 UPDATE 校验需明确确认写入操作。")
-        affected_rows = _execute_update(config, password, safe_sql)
+            raise ValueError(f"执行 {operation_label} 校验需明确确认写入操作。")
+        affected_rows = _execute_write(config, password, safe_sql)
         return {
             "operation": operation,
             "affected_rows": affected_rows,
@@ -209,10 +215,14 @@ def execute_database_query(function_name, sql, variables, project_id, environmen
         "ssh_private_key_passphrase": connection_config.ssh_private_key_passphrase,
         "ssh_strict_host_key": connection_config.ssh_strict_host_key,
     }
-    if operation == "update":
-        if not connection_config.allow_write:
-            raise ValueError(f"数据库函数「{function_name}」未开启 UPDATE 写入权限。")
-        _execute_update(config, connection_config.password, safe_sql, params)
+    if operation in {"update", "delete"}:
+        permission_enabled = (
+            connection_config.allow_write if operation == "update" else connection_config.allow_delete
+        )
+        operation_label = operation.upper()
+        if not permission_enabled:
+            raise ValueError(f"数据库函数「{function_name}」未开启 {operation_label} 写入权限。")
+        _execute_write(config, connection_config.password, safe_sql, params)
         # 后置操作只需产生副作用，不将受影响行数拼进请求内容。
         return ""
     row, _ = _execute_select(config, connection_config.password, safe_sql, params)

@@ -121,6 +121,15 @@ def execute_flow(nodes: list[dict], variables: dict, run_endpoint: Callable[[dic
     def run_nodes(items):
         nonlocal stopped
         for node in sorted(items, key=lambda item: (item.get("order", 0), item.get("id", 0))):
+            if node.get("enabled", True) is False:
+                if node.get("node_type") == "endpoint":
+                    skip_node(node, "步骤已停用。")
+                else:
+                    decisions.append({"node_id": node.get("id"), "name": node.get("name"), "status": "disabled", "branches": []})
+                    for branch in node.get("branches", []):
+                        for child in branch.get("nodes", []):
+                            skip_node(child, "所属判断节点已停用。")
+                continue
             if stopped:
                 if node.get("node_type") == "endpoint":
                     skip_node(node, "前序接口执行失败，流程已停止。")
@@ -175,14 +184,14 @@ def scenario_flow_data(scenario):
     main_nodes = scenario.flow_nodes.filter(parent_branch__isnull=True).select_related("step", "step__endpoint").prefetch_related("branches", "branches__nodes", "branches__nodes__step", "branches__nodes__step__endpoint").order_by("order", "id")
     nodes = []
     for node in main_nodes:
-        item = {"id": node.id, "node_type": node.node_type, "name": node.name, "order": node.order, "condition_logic": node.condition_logic}
+        item = {"id": node.id, "node_type": node.node_type, "name": node.name, "order": node.order, "condition_logic": node.condition_logic, "enabled": node.enabled}
         if node.step_id:
             item["step"] = node.step
         if node.node_type == "condition":
             item["branches"] = [
                 {"id": branch.id, "name": branch.name, "order": branch.order,
                  "conditions": branch.conditions or [], "nodes": [
-                    {"id": child.id, "node_type": child.node_type, "name": child.name, "order": child.order, "step": child.step}
+                    {"id": child.id, "node_type": child.node_type, "name": child.name, "order": child.order, "step": child.step, "enabled": child.enabled}
                     for child in branch.nodes.all().order_by("order", "id")
                  ]}
                 for branch in node.branches.all().order_by("order", "id")

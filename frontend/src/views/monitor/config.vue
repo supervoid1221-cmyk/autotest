@@ -3,10 +3,10 @@
   <section v-else class="monitor-config">
     <header class="monitor-header"><div><h2>监控配置</h2><p>维护 Prometheus 地址、node_exporter 目标和基础告警阈值。</p></div><div class="header-actions"><n-select v-model:value="selectedProject" clearable class="project-filter" :options="baseProjectOptions" placeholder="全部项目" @update:value="load" /><n-button v-if="isAdmin" type="primary" ghost @click="router.push({ name: 'monitor_check_settings' })">监控频率设置</n-button></div></header>
     <n-tabs v-model:value="activeTab" type="line">
-      <n-tab-pane name="prometheus" tab="Prometheus 实例"><div class="toolbar"><n-button type="primary" @click="openPrometheus()">新增 Prometheus</n-button></div><n-data-table striped :columns="prometheusColumns" :data="prometheus" :loading="loading" /></n-tab-pane>
-      <n-tab-pane name="clusters" tab="集群管理"><div class="toolbar"><n-button type="primary" @click="openCluster()">新增集群</n-button></div><n-data-table striped :columns="clusterColumns" :data="clusters" :loading="loading" /></n-tab-pane>
-      <n-tab-pane name="targets" tab="监控目标"><div class="toolbar"><n-button type="primary" @click="openTarget()">新增监控目标</n-button></div><n-data-table striped :columns="targetColumns" :data="targets" :loading="loading" /></n-tab-pane>
-      <n-tab-pane name="services" tab="服务监控"><div class="toolbar"><n-button type="primary" @click="openService()">新增服务监控</n-button></div><n-data-table striped :columns="serviceColumns" :data="services" :loading="loading" /></n-tab-pane>
+      <n-tab-pane name="prometheus" tab="Prometheus 实例"><div class="toolbar"><n-button type="primary" @click="openPrometheus()">新增 Prometheus</n-button></div><n-data-table :columns="prometheusColumns" :data="prometheus" :loading="loading" /></n-tab-pane>
+      <n-tab-pane name="clusters" tab="集群管理"><div class="toolbar"><n-button type="primary" @click="openCluster()">新增集群</n-button></div><n-data-table :columns="clusterColumns" :data="clusters" :loading="loading" /></n-tab-pane>
+      <n-tab-pane name="targets" tab="监控目标"><div class="toolbar"><n-button type="primary" @click="openTarget()">新增监控目标</n-button></div><n-data-table :columns="targetColumns" :data="targets" :loading="loading" /></n-tab-pane>
+      <n-tab-pane name="services" tab="服务监控"><div class="toolbar"><n-button type="primary" @click="openService()">新增服务监控</n-button></div><n-data-table :columns="serviceColumns" :data="services" :loading="loading" /></n-tab-pane>
     </n-tabs>
     <n-modal v-model:show="prometheusVisible" preset="card" :title="editingPrometheus?.id ? '编辑 Prometheus' : '新增 Prometheus'" class="platform-form-modal">
       <n-form :model="prometheusForm" label-placement="top"><n-form-item label="所属项目"><n-select v-model:value="prometheusForm.project" :options="formProjectOptions" placeholder="请选择所属项目" /></n-form-item><n-form-item label="名称"><n-input v-model:value="prometheusForm.name" placeholder="例如：生产 Prometheus" /></n-form-item><n-form-item label="Prometheus 地址"><n-input v-model:value="prometheusForm.base_url" placeholder="http://172.18.0.1:9090" /></n-form-item><n-form-item :label="editingPrometheus?.access_token_configured ? '访问令牌（留空保持原值）' : '访问令牌（可选）'"><n-input v-model:value="prometheusForm.access_token" type="password" :input-props="{ autocomplete: 'new-password' }" /></n-form-item><n-form-item label="备注"><n-input v-model:value="prometheusForm.description" /></n-form-item><n-switch v-model:value="prometheusForm.enabled" /> 启用实例</n-form>
@@ -26,6 +26,8 @@
 </template>
 
 <script setup lang="ts">
+import { asList } from '@/utils/list';
+
   import { computed, h, onMounted, reactive, ref, watch } from 'vue';
   import { useRouter } from 'vue-router';
   import { NButton, NPopconfirm, NSpace, NTag, useMessage } from 'naive-ui';
@@ -52,11 +54,7 @@
   const serviceServerOptions = computed(() => servers.value.filter((item) => Number(item.project) === Number(serviceForm.project)).map((item) => ({ label: `${item.name} · ${item.host}`, value: item.id })));
   const clusterPrometheusOptions = computed(() => prometheus.value.filter((item) => Number(item.project) === Number(clusterForm.project)).map((item) => ({ label: item.name, value: item.id })));
   const clusterServerOptions = computed(() => servers.value.filter((item) => Number(item.project) === Number(clusterForm.project)).map((item) => ({ label: `${item.name} · ${item.host}`, value: item.id })));
-  const asList = <T,>(payload: unknown): T[] => {
-    if (Array.isArray(payload)) return payload as T[];
-    const response = payload as { list?: T[]; results?: T[]; data?: T[] } | null;
-    return response?.list || response?.results || response?.data || [];
-  };
+  
   const load = async () => {
     if (!canMaintain.value) return;
     loading.value = true;

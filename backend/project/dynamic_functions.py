@@ -1,39 +1,53 @@
-"""动态函数的受限执行环境，供正式运行与页面调试共用。"""
-import builtins
+"""动态函数语法校验与隔离执行入口。"""
 import ast
-import hashlib
-import inspect
-import random
-import re
-import string
-import time
-import uuid
-from datetime import datetime
-
 
 ALLOWED_MODULES = ("time", "random", "hashlib", "datetime")
-ALLOWED_BUILTINS = ("str", "int", "float", "bool", "len", "min", "max", "round", "range", "enumerate", "list", "dict", "tuple", "set", "abs")
+ALLOWED_BUILTINS = ("str", "int", "float", "bool", "len", "min", "max", "round", "range", "enumerate", "list", "dict", "tuple", "set", "abs", "isinstance")
+ALLOWED_METHODS = ("hexdigest",)
 ALLOWED_HELPERS = ("random_int", "random_string", "uuid", "timestamp", "date", "md5")
-FORBIDDEN_CODE = ("__import__", "exec(", "eval(", "open(", "os.", "subprocess", "socket")
+FORBIDDEN_NODES = (ast.ClassDef, ast.Lambda, ast.Global, ast.Nonlocal, ast.With, ast.AsyncWith, ast.Await, ast.Yield, ast.YieldFrom, ast.Delete)
+FORBIDDEN_NAMES = {"breakpoint", "compile", "eval", "exec", "globals", "locals", "vars", "dir", "getattr", "setattr", "delattr", "input", "help", "memoryview", "object", "super", "type"}
+MAX_CODE_LENGTH = 50_000
+MAX_AST_NODES = 2_000
 
 
 def validate_dynamic_code(value):
-    if any(item in value for item in FORBIDDEN_CODE):
-        raise ValueError("函数代码包含不允许的操作。")
-    if not re.search(r"def\s+[A-Za-z_]\w*\s*\(", value):
+    """AST 仅负责输入校验；真正安全边界由独立执行器提供。"""
+    value = str(value or "")
+    if len(value) > MAX_CODE_LENGTH:
+        raise ValueError(f"函数代码不能超过 {MAX_CODE_LENGTH} 个字符。")
+    try:
+        tree = ast.parse(value)
+    except SyntaxError as exc:
+        raise ValueError(f"函数代码语法错误：第 {exc.lineno or 0} 行。") from exc
+    nodes = list(ast.walk(tree))
+    if len(nodes) > MAX_AST_NODES:
+        raise ValueError("函数代码结构过于复杂。")
+    if not any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) for node in nodes):
         raise ValueError("代码必须至少定义一个函数。")
-    imports = re.findall(r"^\s*import\s+([A-Za-z_]\w*)|^\s*from\s+([A-Za-z_]\w*)", value, re.M)
-    if any((left or right) not in ALLOWED_MODULES for left, right in imports):
-        raise ValueError("仅允许导入 time、random、hashlib、datetime。")
+    for node in nodes:
+        if isinstance(node, FORBIDDEN_NODES):
+            raise ValueError(f"函数代码不允许使用 {node.__class__.__name__}。")
+        if isinstance(node, ast.Attribute) and str(node.attr).startswith("_"):
+            raise ValueError("函数代码不允许访问下划线开头的属性。")
+        if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
+            raise ValueError(f"函数代码不允许使用 {node.id}。")
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            modules = [alias.name.split(".")[0] for alias in node.names] if isinstance(node, ast.Import) else [(node.module or "").split(".")[0]]
+            if any(module not in ALLOWED_MODULES for module in modules):
+                raise ValueError("仅允许导入 time、random、hashlib、datetime。")
     return value
 
 
 def function_names(code):
-    return re.findall(r"^\s*def\s+([A-Za-z_]\w*)\s*\(", code or "", re.M)
+    try:
+        tree = ast.parse(code or "")
+    except SyntaxError:
+        return []
+    return [node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
 
 def parse_dynamic_arguments(argument_text):
-    """安全解析 ${func("text", count=1)} 中的字面量参数。"""
     if not str(argument_text or "").strip():
         return (), {}
     try:
@@ -49,57 +63,11 @@ def parse_dynamic_arguments(argument_text):
         raise ValueError("函数参数仅支持字符串、数字、布尔值、列表、字典与关键字参数。") from exc
 
 
-def execute_dynamic_function(codes, name, variables=None, args=None, kwargs=None):
-    """执行指定函数；仅提供白名单模块、内置函数及平台辅助函数。"""
-    allowed_modules = {
-        "time": __import__("time"), "random": random, "hashlib": hashlib, "datetime": __import__("datetime"),
-    }
-
-    def safe_import(module, *args, **kwargs):
-        if module.split(".")[0] not in allowed_modules:
-            raise ImportError(f"不允许导入模块：{module}")
-        return builtins.__import__(module, *args, **kwargs)
-
-    safe_builtins = {"__import__": safe_import}
-    safe_builtins.update({name: getattr(builtins, name) for name in ALLOWED_BUILTINS})
-    safe_globals = {
-        "__builtins__": safe_builtins,
-        "random_int": lambda left, right: random.randint(int(left), int(right)),
-        "random_string": lambda length=8: "".join(random.choice(string.ascii_letters + string.digits) for _ in range(int(length))),
-        "uuid": lambda: str(uuid.uuid4()),
-        "timestamp": lambda: int(time.time()),
-        "date": lambda fmt="%Y-%m-%d": datetime.now().strftime(fmt),
-        "md5": lambda value: hashlib.md5(str(value).encode("utf-8")).hexdigest(),
-    }
-    scope = safe_globals
-    for code in codes:
-        validate_dynamic_code(code)
-        exec(code, safe_globals, scope)
-    function = scope.get(name)
-    if not callable(function):
-        raise ValueError(f"动态函数「{name}」未定义可执行函数")
-    context = {"timestamp": int(time.time()), "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "variables": variables or {}}
-    parameters = list(inspect.signature(function).parameters.values())
-    required = [
-        parameter for parameter in parameters
-        if parameter.default is inspect.Parameter.empty
-        and parameter.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
-    ]
-    # 只有显式声明必填 context 时才注入上下文；例如 date(format="...")
-    # 这类带默认参数的函数应直接调用，使其默认值生效。
-    args, kwargs = tuple(args or ()), dict(kwargs or {})
-    if not required:
-        return function(*args, **kwargs)
-    if len(required) == 1 and required[0].name == "context":
-        return function(context, *args, **kwargs)
-    names = "、".join(parameter.name for parameter in required)
-    raise ValueError(f"动态函数仅支持无必填参数，或一个必填 context 参数；当前必填参数：{names}")
+def execute_dynamic_function(codes, name, variables=None, args=None, kwargs=None, *, timeout_seconds=None, memory_mb=None):
+    normalized_codes = [validate_dynamic_code(code) for code in codes]
+    from .function_client import execute_isolated_function
+    return execute_isolated_function({"codes": normalized_codes, "name": name, "variables": variables or {}, "args": list(args or ()), "kwargs": dict(kwargs or {}), "timeout_seconds": timeout_seconds, "memory_mb": memory_mb})
 
 
 def whitelist():
-    return {
-        "modules": list(ALLOWED_MODULES),
-        "builtins": list(ALLOWED_BUILTINS),
-        "helpers": list(ALLOWED_HELPERS),
-        "context": ["timestamp", "datetime", "variables"],
-    }
+    return {"modules": list(ALLOWED_MODULES), "builtins": list(ALLOWED_BUILTINS + ALLOWED_METHODS), "helpers": list(ALLOWED_HELPERS), "context": ["timestamp", "datetime", "variables"], "isolation": "function-worker", "network": "disabled"}

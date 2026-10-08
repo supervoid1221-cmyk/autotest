@@ -1,6 +1,6 @@
 import { RouteRecordRaw } from 'vue-router';
 import { Layout } from '@/router/constant';
-import { PhListChecks } from '@phosphor-icons/vue';
+import { PhCheckSquare } from '@phosphor-icons/vue';
 import { renderIcon } from '@/utils/index';
 
 /**
@@ -21,16 +21,29 @@ const routes: Array<RouteRecordRaw> = [
     component: Layout,
     meta: {
       title: '测试计划',
-      icon: renderIcon(PhListChecks),
-      sort: 19,
+      icon: renderIcon(PhCheckSquare),
+      sort: 21,
+      group: '执行与报告',
     },
     children: [
+      {
+        path: 'execution-control',
+        name: 'legacy_execution_control',
+        redirect: '/execution/tasks',
+        meta: { title: '执行与报告中心', hidden: true, activeMenu: 'execution_control' },
+      },
+      {
+        path: 'execution-report/:sourceType/:id',
+        name: 'legacy_execution_report',
+        redirect: to => `/execution/report/${to.params.sourceType}/${to.params.id}`,
+        meta: { title: '执行报告', hidden: true, activeMenu: 'execution_control' },
+      },
       {
         // 套件管理就是模块首页，避免出现 /suite/suite 的重复路径。
         path: '',
         name: 'suite_suite',
         meta: {
-          title: '套件管理',
+          title: '测试计划',
         },
         component: () => import('@/views/suite/suite.vue'),
       },
@@ -48,7 +61,9 @@ const routes: Array<RouteRecordRaw> = [
         path: 'run_result',
         name: 'suite_run_result',
         meta: {
-          title: '执行结果',
+          title: '套件执行任务',
+          hidden: true,
+          activeMenu: 'execution_control',
         },
         component: () => import('@/views/suite/run_result.vue'),
       },
@@ -64,7 +79,7 @@ const routes: Array<RouteRecordRaw> = [
         meta: {
           title: '测试报告',
           hidden: true,
-          activeMenu: 'suite_result',
+          activeMenu: 'execution_control',
         },
         component: () => import('@/views/suite/report.vue'),
       },

@@ -8,11 +8,58 @@ import re
 from rest_framework import serializers
 
 from project.models import Project
+from account.tenancy import validate_tenant_relations
+from .scenario_text import parse_ui_scenarios
 
-from .models import Element, ElementModule, PlaywrightCase, PlaywrightStep, UiCase, UiStep, UiUploadedFile
+from .models import Element, PlaywrightCase, PlaywrightScenarioFile, PlaywrightStep, UiCase, UiStep, UiUploadedFile
 
 
 SENSITIVE_OCR_TARGET = re.compile(r"password|passwd|pwd|token|secret|authorization|密码|密钥", re.I)
+
+
+class PlaywrightScenarioFileSerializer(serializers.ModelSerializer):
+    project_name = serializers.CharField(source="project.name", read_only=True)
+    step_count = serializers.SerializerMethodField()
+    content = serializers.CharField(trim_whitespace=False, allow_blank=True)
+
+    class Meta:
+        model = PlaywrightScenarioFile
+        fields = "__all__"
+        read_only_fields = ("tenant", "created_by", "create_datetime", "update_datetime")
+
+    def get_step_count(self, obj):
+        try:
+            return sum(len(scene["steps"]) for scene in parse_ui_scenarios(obj.content))
+        except ValueError:
+            return 0
+
+    def validate_filename(self, value):
+        if not re.fullmatch(r"[^/\\\x00-\x1f]+\.ya?ml", value.strip(), re.I):
+            raise serializers.ValidationError("文件名必须以 .yaml 或 .yml 结尾，且不能包含路径。")
+        return value.strip()
+
+    def validate_content(self, value):
+        if len(value or "") > 100_000:
+            raise serializers.ValidationError("文件内容不能超过 100000 字符。")
+        return value
+
+    def validate(self, attrs):
+        project = attrs.get("project", getattr(self.instance, "project", None))
+        filename = attrs.get("filename", getattr(self.instance, "filename", ""))
+        if project and filename:
+            duplicate = PlaywrightScenarioFile.objects.filter(project=project, filename=filename)
+            if self.instance:
+                duplicate = duplicate.exclude(pk=self.instance.pk)
+            if duplicate.exists():
+                raise serializers.ValidationError({"filename": "当前项目已有同名 YAML 文件。"})
+        environment_name = attrs.get("environment_name", getattr(self.instance, "environment_name", ""))
+        if environment_name and project and not project.environments.filter(name=environment_name).exists():
+            raise serializers.ValidationError({"environment_name": "执行环境不属于当前项目。"})
+        browser = attrs.get("browser", getattr(self.instance, "browser", "chromium"))
+        run_mode = attrs.get("run_mode", getattr(self.instance, "run_mode", "headless"))
+        if browser not in PlaywrightCase.Browser.values or run_mode not in PlaywrightCase.RunMode.values:
+            raise serializers.ValidationError("浏览器或运行模式不受支持。")
+        return attrs
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -38,15 +85,6 @@ class ElementSerializer(serializers.ModelSerializer):
         if module and project and module.project_id != project.id:
             raise serializers.ValidationError({"module": "所选模块不属于当前项目。"})
         return attrs
-
-
-class ElementModuleSerializer(serializers.ModelSerializer):
-    project_name = serializers.CharField(source="project.name", read_only=True)
-    element_count = serializers.IntegerField(source="elements.count", read_only=True)
-
-    class Meta:
-        model = ElementModule
-        fields = "__all__"
 
 
 class UiCaseSerializer(serializers.ModelSerializer):
@@ -80,6 +118,13 @@ class UiCaseSerializer(serializers.ModelSerializer):
             keys.add(key)
             normalized.append({"key": key, "name": name, "order": index})
         return normalized
+
+    def validate(self, attrs):
+        project = attrs.get("project", getattr(self.instance, "project", None))
+        request = self.context.get("request")
+        if request and project:
+            validate_tenant_relations(request, project=project)
+        return attrs
 
 
 class UiStepSerializer(serializers.ModelSerializer):
@@ -155,6 +200,13 @@ class PlaywrightCaseSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("默认超时必须在 100～300000 毫秒之间。")
         return value
 
+    def validate(self, attrs):
+        project = attrs.get("project", getattr(self.instance, "project", None))
+        request = self.context.get("request")
+        if request and project:
+            validate_tenant_relations(request, project=project)
+        return attrs
+
 
 class PlaywrightStepSerializer(serializers.ModelSerializer):
     action_name = serializers.CharField(source="get_action_display", read_only=True)
@@ -177,6 +229,15 @@ class PlaywrightStepSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"target": "打开页面必须填写访问地址。"})
         if action != PlaywrightStep.Action.GOTO and action != PlaywrightStep.Action.SLEEP and not target:
             raise serializers.ValidationError({"target": "该操作必须填写页面元素描述。"})
+        if action == PlaywrightStep.Action.CLICK and "--" in target:
+            if not all(part.strip() for part in target.split("--")):
+                raise serializers.ValidationError({"target": "连续点击的每个页面元素都不能为空，请用 -- 分隔元素名称。"})
+            if attrs.get("locator_mode", getattr(instance, "locator_mode", "auto")) == "manual" or str(
+                attrs.get("fallback_value", getattr(instance, "fallback_value", "")) or ""
+            ).strip():
+                raise serializers.ValidationError({
+                    "target": "连续点击不能共用手动兜底表达式，请分别创建点击步骤。"
+                })
         if action in {PlaywrightStep.Action.INPUT, PlaywrightStep.Action.SELECT,
                       PlaywrightStep.Action.ASSERT_TEXT, PlaywrightStep.Action.SAVE_TEXT,
                       PlaywrightStep.Action.SLEEP} and not value:

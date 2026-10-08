@@ -1,8 +1,10 @@
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.db import connection
 from django.http import HttpResponse
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from case_api.models import Scenario
@@ -69,6 +71,30 @@ class SuiteProjectPermissionTests(TestCase):
 
         self.assertEqual(self.response_items(suite_response), [])
         self.assertEqual(self.response_items(result_response), [])
+
+    def test_result_list_project_names_do_not_add_queries_per_row(self):
+        RunResult.objects.create(
+            suite=self.suite_a, project=self.project_a, path="upload_yaml/query-count-1",
+        )
+        # 先预热鉴权和渲染器中的惰加载状态，只比较列表数量带来的查询变化。
+        self.client.get("/api/suite/run_result/?pageSize=100")
+        with CaptureQueriesContext(connection) as one_result_queries:
+            response = self.client.get("/api/suite/run_result/?pageSize=100")
+        self.assertEqual(response.status_code, 200)
+
+        for index in range(2, 8):
+            RunResult.objects.create(
+                suite=self.suite_a,
+                project=self.project_a,
+                path=f"upload_yaml/query-count-{index}",
+            )
+        with CaptureQueriesContext(connection) as many_result_queries:
+            response = self.client.get("/api/suite/run_result/?pageSize=100")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertLessEqual(len(many_result_queries), len(one_result_queries) + 1)
+        for item in self.response_items(response):
+            self.assertEqual(item["project_name"], item["project_names"])
 
     def test_notification_rule_cannot_use_shared_channel_without_all_project_access(self):
         response = self.client.post(
@@ -142,6 +168,56 @@ class SuiteProjectPermissionTests(TestCase):
         response = self.client.get(f"/api/suite/run_result/{result.id}/")
 
         self.assertEqual(response.status_code, 404)
+
+    def test_execution_log_is_visible_without_cross_project_report_access(self):
+        scenario_b = Scenario.objects.create(
+            project=self.project_b,
+            created_by=self.other_owner,
+            name="跨项目实时日志场景",
+        )
+        scenario_b.projects.add(self.project_b)
+        SuiteScenario.objects.create(suite=self.suite_a, scenario=scenario_b, order=1)
+        result = RunResult.objects.create(
+            suite=self.suite_a,
+            project=self.project_a,
+            path="upload_yaml/project-member-progress",
+        )
+
+        detail_response = self.client.get(f"/api/suite/run_result/{result.id}/")
+        progress_response = self.client.get(f"/api/suite/run_result/{result.id}/progress/")
+        log_response = self.client.get(f"/api/suite/run_result/{result.id}/execution-log/")
+
+        self.assertEqual(detail_response.status_code, 404)
+        self.assertEqual(progress_response.status_code, 404)
+        self.assertEqual(log_response.status_code, 200)
+        self.assertEqual(log_response.data["result"]["id"], result.id)
+        self.assertFalse(log_response.data["can_view_report"])
+        self.assertNotIn("native_report", log_response.data["result"])
+
+    def test_execution_log_is_hidden_without_result_project_access(self):
+        result = RunResult.objects.create(
+            suite=self.suite_b,
+            project=self.project_b,
+            path="upload_yaml/private-progress",
+        )
+
+        response = self.client.get(f"/api/suite/run_result/{result.id}/execution-log/")
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_execution_log_reports_full_report_access(self):
+        result = RunResult.objects.create(
+            suite=self.suite_a,
+            project=self.project_a,
+            path="upload_yaml/visible-progress",
+        )
+
+        progress_response = self.client.get(f"/api/suite/run_result/{result.id}/progress/")
+        log_response = self.client.get(f"/api/suite/run_result/{result.id}/execution-log/")
+
+        self.assertEqual(progress_response.status_code, 200)
+        self.assertEqual(log_response.status_code, 200)
+        self.assertTrue(log_response.data["can_view_report"])
 
     @patch("suite.views.serve", return_value=HttpResponse("private"))
     def test_static_report_file_requires_result_project_access(self, serve):

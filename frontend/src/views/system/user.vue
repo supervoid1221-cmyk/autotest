@@ -1,6 +1,6 @@
 <template>
   <n-card :bordered="false" class="proCard">
-    <BasicTable title="用户管理" :columns="columns" :request="loadData" :row-key="row => row.id" ref="actionRef" :actionColumn="actionColumn" :scroll-x="980">
+    <BasicTable title="用户管理" :columns="columns" :request="loadData" :row-key="row => row.id" ref="actionRef" :actionColumn="actionColumn" :scroll-x="isAdmin ? 980 : 800">
       <template #toolbar><n-button type="primary" @click="add">新增用户</n-button></template>
     </BasicTable>
   </n-card>
@@ -15,12 +15,14 @@ import { useUserStore } from '@/store/modules/user';
 const api = new UserManageAPI(); const router = useRouter(); const dialog = useDialog(); const message = useMessage(); const actionRef = ref(); const userStore = useUserStore();
 const isAdmin = computed(() => Boolean((userStore.info as any)?.is_admin));
 const currentUserId = computed(() => Number((userStore.info as any)?.user));
-const columns = [
+const columns = computed(() => [
   { title: '用户名', key: 'username' },
   { title: '状态', key: 'is_active', render: (row) => row.is_active ? '启用' : '禁用' },
-  { title: '管理员', key: 'is_staff', render: (row) => row.is_staff ? '是' : '否' },
+  ...(isAdmin.value
+    ? [{ title: '管理员', key: 'is_staff', render: (row) => row.is_staff ? '是' : '否' }]
+    : []),
   { title: '创建时间', key: 'date_joined', render: (row) => (row.date_joined || '').split('.')[0].replace('T', ' ') },
-];
+]);
 const loadData = (params) => api.getDataList(params);
 const actionColumn = reactive({ width: 250, title: '操作', key: 'action', fixed: 'right', render: (row) => {
   const children: any[] = [];

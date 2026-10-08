@@ -576,6 +576,7 @@ export interface components {
     Profile: {
       id: number;
       token: string;
+      token_expires_at: string;
       user: string;
       role_list: readonly components['schemas']['RoleShow'][];
       /** 昵称 */

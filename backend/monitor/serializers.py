@@ -1,25 +1,49 @@
 from rest_framework import serializers
 
+from account.tenancy import get_request_tenant
 from .models import MonitorAlertEvent, MonitorCheckSettings, MonitorCluster, MonitorNotificationDelivery, MonitorNotificationRule, MonitorTarget, PrometheusInstance, ServiceMonitor, ServiceMonitorEvent
 
 
-class MonitorClusterSerializer(serializers.ModelSerializer):
+class TenantRelationSerializerMixin:
+    tenant_relation_lookups = {}
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get("request")
+        if not request:
+            return fields
+        tenant = get_request_tenant(request)
+        for field_name, lookup in self.tenant_relation_lookups.items():
+            field = fields.get(field_name)
+            relation = getattr(field, "child_relation", field)
+            queryset = getattr(relation, "queryset", None)
+            if queryset is not None:
+                relation.queryset = queryset.filter(**{lookup: tenant}).distinct()
+        return fields
+
+
+class MonitorClusterSerializer(TenantRelationSerializerMixin, serializers.ModelSerializer):
+    tenant_relation_lookups = {
+        "project": "tenant", "prometheus": "tenant", "server": "tenant",
+    }
     project_name = serializers.CharField(source="project.name", read_only=True)
     prometheus_name = serializers.CharField(source="prometheus.name", read_only=True)
     server_name = serializers.CharField(source="server.name", read_only=True)
     target_count = serializers.IntegerField(source="targets.count", read_only=True)
     class Meta:
         model = MonitorCluster; fields = "__all__"
-        read_only_fields = ("created_by", "created_at", "updated_at", "last_synced_at", "last_sync_status", "last_sync_message")
+        read_only_fields = ("tenant", "created_by", "created_at", "updated_at", "last_synced_at", "last_sync_status", "last_sync_message")
     def validate(self, attrs):
         project = attrs.get("project", getattr(self.instance, "project", None)); prometheus = attrs.get("prometheus", getattr(self.instance, "prometheus", None)); server = attrs.get("server", getattr(self.instance, "server", None)); rules = attrs.get("label_rules", getattr(self.instance, "label_rules", {}))
+        if not project: raise serializers.ValidationError({"project": "请选择所属项目。"})
         if prometheus and prometheus.project_id != project.id: raise serializers.ValidationError({"prometheus": "Prometheus 实例必须属于当前项目。"})
         if server and server.project_id != project.id: raise serializers.ValidationError({"server": "服务器连接必须属于当前项目。"})
         if not isinstance(rules, dict): raise serializers.ValidationError({"label_rules": "标签规则必须是对象。"})
         return attrs
 
 
-class PrometheusInstanceSerializer(serializers.ModelSerializer):
+class PrometheusInstanceSerializer(TenantRelationSerializerMixin, serializers.ModelSerializer):
+    tenant_relation_lookups = {"project": "tenant"}
     access_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
     access_token_configured = serializers.SerializerMethodField()
     created_by_name = serializers.CharField(source="created_by.username", read_only=True)
@@ -29,7 +53,7 @@ class PrometheusInstanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = PrometheusInstance
         fields = "__all__"
-        read_only_fields = ("created_by", "created_at", "updated_at")
+        read_only_fields = ("tenant", "created_by", "created_at", "updated_at")
 
     def get_access_token_configured(self, obj):
         return bool(obj.access_token)
@@ -38,6 +62,14 @@ class PrometheusInstanceSerializer(serializers.ModelSerializer):
         project = attrs.get("project", getattr(self.instance, "project", None))
         if not project:
             raise serializers.ValidationError({"project": "请选择所属项目。"})
+        name = attrs.get("name", getattr(self.instance, "name", ""))
+        request = self.context.get("request")
+        tenant = get_request_tenant(request) if request else getattr(self.instance, "tenant", project.tenant)
+        duplicate = PrometheusInstance.objects.filter(tenant=tenant, name=name)
+        if self.instance:
+            duplicate = duplicate.exclude(pk=self.instance.pk)
+        if duplicate.exists():
+            raise serializers.ValidationError({"name": "当前租户已存在同名 Prometheus 实例。"})
         return attrs
 
     def update(self, instance, validated_data):
@@ -46,7 +78,10 @@ class PrometheusInstanceSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class MonitorTargetSerializer(serializers.ModelSerializer):
+class MonitorTargetSerializer(TenantRelationSerializerMixin, serializers.ModelSerializer):
+    tenant_relation_lookups = {
+        "project": "tenant", "prometheus": "tenant", "cluster": "tenant", "server": "tenant",
+    }
     prometheus_name = serializers.CharField(source="prometheus.name", read_only=True)
     project_name = serializers.CharField(source="project.name", read_only=True)
     server_name = serializers.CharField(source="server.name", read_only=True)
@@ -55,17 +90,22 @@ class MonitorTargetSerializer(serializers.ModelSerializer):
     class Meta:
         model = MonitorTarget
         fields = "__all__"
-        read_only_fields = ("created_by", "created_at", "updated_at")
+        read_only_fields = ("tenant", "created_by", "created_at", "updated_at")
 
     def validate(self, attrs):
         prometheus = attrs.get("prometheus", getattr(self.instance, "prometheus", None))
         project = attrs.get("project", getattr(self.instance, "project", None))
         server = attrs.get("server", getattr(self.instance, "server", None))
+        cluster = attrs.get("cluster", getattr(self.instance, "cluster", None))
         instance_label = attrs.get("instance_label", getattr(self.instance, "instance_label", ""))
         if not project:
             raise serializers.ValidationError({"project": "请选择所属项目。"})
         if prometheus and prometheus.project_id != project.id:
             raise serializers.ValidationError({"prometheus": "Prometheus 实例必须属于当前项目。"})
+        if cluster and cluster.project_id != project.id:
+            raise serializers.ValidationError({"cluster": "监控集群必须属于当前项目。"})
+        if cluster and cluster.prometheus_id != prometheus.id:
+            raise serializers.ValidationError({"cluster": "监控集群必须使用当前选择的 Prometheus 实例。"})
         if server and server.project_id != project.id:
             raise serializers.ValidationError({"server": "服务器连接必须属于当前项目。"})
         duplicate = MonitorTarget.objects.filter(
@@ -95,7 +135,8 @@ class MonitorAlertEventSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class ServiceMonitorSerializer(serializers.ModelSerializer):
+class ServiceMonitorSerializer(TenantRelationSerializerMixin, serializers.ModelSerializer):
+    tenant_relation_lookups = {"project": "tenant", "server": "tenant"}
     project_name = serializers.CharField(source="project.name", read_only=True)
     server_name = serializers.CharField(source="server.name", read_only=True)
     created_by_name = serializers.CharField(source="created_by.username", read_only=True)
@@ -103,7 +144,7 @@ class ServiceMonitorSerializer(serializers.ModelSerializer):
     class Meta:
         model = ServiceMonitor
         fields = "__all__"
-        read_only_fields = ("created_by", "created_at", "updated_at")
+        read_only_fields = ("tenant", "created_by", "created_at", "updated_at")
 
     def validate(self, attrs):
         monitor_type = attrs.get("monitor_type", getattr(self.instance, "monitor_type", ServiceMonitor.MonitorType.HTTP))
@@ -141,7 +182,10 @@ class ServiceMonitorEventSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class MonitorNotificationRuleSerializer(serializers.ModelSerializer):
+class MonitorNotificationRuleSerializer(TenantRelationSerializerMixin, serializers.ModelSerializer):
+    tenant_relation_lookups = {
+        "channel": "projects__tenant", "target": "tenant", "services": "tenant",
+    }
     channel_name = serializers.CharField(source="channel.name", read_only=True)
     channel_platform = serializers.CharField(source="channel.platform", read_only=True)
     target_name = serializers.CharField(source="target.name", read_only=True)

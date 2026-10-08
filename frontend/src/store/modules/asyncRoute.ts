@@ -98,18 +98,10 @@ export const useAsyncRouteStore = defineStore({
       const { permissionMode } = useProjectSetting();
       if (unref(permissionMode) === 'BACK') {
         // 动态获取菜单
-        try {
-          accessedRouters = await generateDynamicRoutes();
-        } catch (error) {
-          console.log(error);
-        }
+        accessedRouters = await generateDynamicRoutes();
       } else {
-        try {
-          //过滤账户是否拥有某一个权限，并将菜单从加载列表移除
-          accessedRouters = filter(asyncRoutes, routeFilter);
-        } catch (error) {
-          console.log(error);
-        }
+        //过滤账户是否拥有某一个权限，并将菜单从加载列表移除
+        accessedRouters = filter(asyncRoutes, routeFilter);
       }
       accessedRouters = accessedRouters.filter(routeFilter);
       this.setRouters(accessedRouters);

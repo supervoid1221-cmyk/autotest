@@ -8,6 +8,29 @@ from fullstack_framework.commons.ui_executor import (
     _capture_step_screenshot,
     _create_driver,
 )
+from case_ui.browser_token import should_inject_environment_auth
+
+
+class EnvironmentAuthScopeTests(TestCase):
+    def test_relative_navigation_uses_environment_auth(self):
+        self.assertTrue(should_inject_environment_auth("https://api.example.com", ["/login"]))
+
+    def test_same_origin_absolute_navigation_uses_environment_auth(self):
+        self.assertTrue(
+            should_inject_environment_auth(
+                "https://api.example.com/base", ["https://api.example.com/login"]
+            )
+        )
+
+    def test_external_absolute_navigation_skips_environment_auth(self):
+        self.assertFalse(
+            should_inject_environment_auth(
+                "https://api-test.helix.city", ["https://www.oishare.com/tools/cpf.html"]
+            )
+        )
+
+    def test_no_navigation_skips_environment_auth(self):
+        self.assertFalse(should_inject_environment_auth("https://api.example.com", []))
 
 
 class ChromeRunModeTests(TestCase):

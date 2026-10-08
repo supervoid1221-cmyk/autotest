@@ -21,8 +21,9 @@ from selenium.webdriver.support.ui import Select, WebDriverWait
 
 from fullstack_framework.commons.api_executor import substitute_data
 from suite.reporting import load_variable_resolution, recalculate_native_report, record_variable_resolution
+from suite.execution_log import write_execution_log
 from case_ui.models import ui_step_display_name
-from case_ui.browser_token import inject_selenium_token
+from case_ui.browser_token import inject_selenium_token, should_inject_environment_auth
 from project.models import Environment
 
 logger = logging.getLogger(__name__)
@@ -417,6 +418,10 @@ def execute_ui_case(case):
     driver = None
     failures = []
     steps = case.get("steps") or []
+    write_execution_log(
+        f"UI 用例开始：{case.get('name') or '未命名 UI 用例'} · "
+        f"浏览器 {case.get('browser', 'chrome')} · 共 {len(steps)} 步"
+    )
     try:
         try:
             driver = _create_driver(
@@ -426,13 +431,24 @@ def execute_ui_case(case):
             environment = Environment.objects.filter(
                 project_id=case.get("project_id"), name=case.get("environment_name"),
             ).first()
-            if environment:
+            base_url = str(case.get("base_url") or (environment.base_url if environment else ""))
+            navigation_targets = [
+                substitute_data(
+                    step.get("value", ""), variables,
+                    case.get("project_id"), case.get("environment_name"),
+                )
+                for step in steps
+                if step.get("action") == "goto"
+            ]
+            if environment and should_inject_environment_auth(base_url, navigation_targets):
                 inject_selenium_token(
                     driver,
                     environment.browser_token_payload(variables, Path.cwd()),
-                    case.get("base_url"),
+                    base_url,
                 )
+            write_execution_log("UI 浏览器已启动，会话准备完成")
         except Exception as exc:
+            write_execution_log(f"UI 浏览器启动失败：{exc}", "ERROR")
             if steps:
                 now = datetime.now().astimezone().isoformat()
                 _update_native_step(
@@ -447,6 +463,7 @@ def execute_ui_case(case):
             started = time.perf_counter()
             started_at = datetime.now().astimezone().isoformat()
             _update_native_step(case.get("id"), step, status="running", passed=None, started_at=started_at)
+            write_execution_log(f"UI 步骤 {index + 1}/{len(steps)} 开始：{_step_name(step)}")
             try:
                 detail = _perform(driver, case, step, variables)
                 detail.update(_page_context(driver))
@@ -475,6 +492,13 @@ def execute_ui_case(case):
                     element_name=step.get("element_name", ""), by=step.get("by"),
                     locator=step.get("locator"), action_key=step.get("action"),
                     detail=detail, assertions=assertions, errors=[], exception="",
+                )
+                duration_ms = round((time.perf_counter() - started) * 1000, 2)
+                value_summary = f" · 输入内容：{detail.get('value')}" if step.get("action") == "input" else ""
+                write_execution_log(
+                    f"UI 步骤 {index + 1}/{len(steps)} 通过：{_step_name(step)}"
+                    f"{value_summary} · {duration_ms} ms",
+                    "SUCCESS",
                 )
             except Exception as exc:
                 message = f"步骤「{_step_name(step)}」失败：{exc}"
@@ -506,6 +530,12 @@ def execute_ui_case(case):
                     detail=failure_detail, assertions=assertions,
                     errors=[message], exception=str(exc),
                 )
+                duration_ms = round((time.perf_counter() - started) * 1000, 2)
+                write_execution_log(
+                    f"UI 步骤 {index + 1}/{len(steps)} 失败：{_step_name(step)} · "
+                    f"{duration_ms} ms · {exc}",
+                    "ERROR",
+                )
                 if not step.get("continue_on_failure"):
                     _skip_steps(
                         case.get("id"), steps[index + 1:],
@@ -514,6 +544,7 @@ def execute_ui_case(case):
                     raise
         if failures:
             raise AssertionError("；".join(failures))
+        write_execution_log(f"UI 用例执行结束：{case.get('name') or '未命名 UI 用例'} · 通过", "SUCCESS")
     finally:
         if driver:
             driver.quit()

@@ -1,4 +1,8 @@
 import shutil
+import csv
+import io
+import json
+import re
 import tempfile
 import uuid
 from copy import deepcopy
@@ -15,7 +19,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status, viewsets
 
-from project.models import Environment, Project, ProjectVariable, response_indicates_expired_token
+from project.models import Environment, Module, Project, ProjectVariable, response_indicates_expired_token
 from project.runtime_token import RuntimeTokenState
 from fullstack_framework.commons.ddt_util import ddt
 from fullstack_framework.commons.api_executor import (
@@ -24,16 +28,23 @@ from fullstack_framework.commons.api_executor import (
 )
 from fullstack_framework.commons.session import BeifanSession
 from project.access import (
+    save_project_asset_update,
     filter_all_project_access,
     project_access_q,
     require_project_access,
     require_projects_access,
 )
-from .models import Endpoint, EndpointModule, Scenario, ScenarioBranch, ScenarioFlowNode, ScenarioStep
-from .recording import parse_recording_payload
+from suite.run_metrics import build_overview
+from account.tenancy import TenantScopedViewSetMixin, get_request_tenant, validate_tenant_relations
+from account.tenant_runtime import ensure_tenant_storage_capacity, tenant_path
+
+from .models import Endpoint, Scenario, ScenarioBranch, ScenarioFlowNode, ScenarioStep
+from .recording import parse_recording_payload, sanitize_recorded_headers
 from .file_utils import UPLOAD_ROOT
+from .swagger_import import parse_swagger
+from .swagger_links import selected_order, suggest_relations
 from .serializers import (
-    EndpointModuleSerializer, EndpointSerializer, ScenarioBranchSerializer, ScenarioFlowNodeSerializer,
+    EndpointSerializer, ScenarioBranchSerializer, ScenarioFlowNodeSerializer,
     ScenarioSerializer, ScenarioStepSerializer,
 )
 
@@ -149,6 +160,9 @@ def _run_step(
             "response_json": execution.response_json,
             "response_headers": dict(getattr(execution.response, "headers", {}) or {}),
             "errors": execution.errors,
+            "request": execution.request,
+            "assertions": execution.assertions,
+            "extracted": execution.extracted,
             "attempts": execution.attempts,
         }
     except Exception as exc:
@@ -165,7 +179,9 @@ class EndpointViewSet(viewsets.ModelViewSet):
     serializer_class = EndpointSerializer
 
     def get_queryset(self):
-        queryset = self.queryset.filter(project_access_q(self.request.user, "project__")).distinct()
+        queryset = self.queryset.filter(
+            project__tenant=get_request_tenant(self.request),
+        ).filter(project_access_q(self.request.user, "project__")).distinct()
         project_id = self.request.query_params.get("project")
         module_id = self.request.query_params.get("module")
         method = self.request.query_params.get("method")
@@ -183,13 +199,16 @@ class EndpointViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        require_project_access(self.request.user, serializer.validated_data["project"])
+        project = serializer.validated_data["project"]
+        require_project_access(self.request.user, project)
+        validate_tenant_relations(self.request, project=project)
         serializer.save(created_by=self.request.user)
 
     def perform_update(self, serializer):
-        require_project_access(self.request.user, self.get_object().project)
-        if "project" in serializer.validated_data:
-            require_project_access(self.request.user, serializer.validated_data["project"])
+        instance = self.get_object()
+        project = serializer.validated_data.get("project", instance.project)
+        save_project_asset_update(self.request.user, instance, serializer, commit=False)
+        validate_tenant_relations(self.request, project=project)
         serializer.save()
 
     def destroy(self, request, *args, **kwargs):
@@ -198,6 +217,130 @@ class EndpointViewSet(viewsets.ModelViewSet):
             return super().destroy(request, *args, **kwargs)
         except Http404:
             return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=["post"], url_path="import-swagger")
+    def import_swagger(self, request):
+        """预览/导入 Swagger 内容；服务端不抓取 URL，避免 SSRF。"""
+        try:
+            project_id = int(request.data.get("project"))
+        except (TypeError, ValueError):
+            return Response({"detail": "请选择所属项目。"}, status=400)
+        project = Project.objects.filter(pk=project_id, tenant=get_request_tenant(request)).first()
+        if not project:
+            return Response({"detail": "项目不存在。"}, status=400)
+        require_project_access(request.user, project)
+        module = None
+        if request.data.get("module") not in (None, ""):
+            try:
+                module_id = int(request.data["module"])
+            except (TypeError, ValueError):
+                return Response({"detail": "所属模块无效。"}, status=400)
+            module = Module.objects.filter(pk=module_id, project=project).first()
+            if not module:
+                return Response({"detail": "所选模块不属于当前项目。"}, status=400)
+        try:
+            entries = parse_swagger(request.data.get("content"))
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        suggestions = suggest_relations(entries)
+        existing = set(Endpoint.objects.filter(project=project).values_list("method", "url"))
+        seen = set()
+        for entry in entries:
+            key = (entry["method"], entry["url"])
+            entry["duplicate"] = key in existing or key in seen
+            if module:
+                entry["module_name"] = module.name
+            seen.add(key)
+        if not request.data.get("save"):
+            return Response({"count": len(entries), "new": sum(not entry["duplicate"] for entry in entries), "modules": sorted({entry["module_name"] for entry in entries if not entry["duplicate"]}), "endpoints": entries, "relations": suggestions})
+        create_scenario = request.data.get("create_scenario") is True
+        relation_ids = request.data.get("relation_ids", [])
+        if not isinstance(relation_ids, list) or any(not isinstance(item, str) for item in relation_ids):
+            return Response({"detail": "接口关联选择无效。"}, status=400)
+        selected = [item for item in suggestions if item["id"] in set(relation_ids)]
+        if create_scenario and (not selected or len(selected) != len(set(relation_ids))):
+            return Response({"detail": "请选择有效的接口关联后再生成场景。"}, status=400)
+        scenario_name = str(request.data.get("scenario_name") or "Swagger 关联场景").strip()
+        if create_scenario and (not scenario_name or len(scenario_name) > 64):
+            return Response({"detail": "场景名称不能为空且不能超过 64 个字符。"}, status=400)
+        scenario_order = []
+        step_extract, step_overrides, step_urls = {}, {}, {}
+        if create_scenario:
+            try:
+                scenario_order = selected_order(selected)
+            except ValueError as exc:
+                return Response({"detail": str(exc)}, status=400)
+            for item in selected:
+                source, target = item["source"], item["target"]
+                step_extract.setdefault(source, {})[item["variable"]] = {
+                    "mode": "jsonpath", "source": "json", "expression": item["response_path"],
+                    "index": 0, "processors": [{"type": "required"}],
+                }
+                reference = "${" + item["variable"] + "}"
+                if item["target_field"] == "path":
+                    step_urls[target] = step_urls.get(target, entries[target]["url"]).replace("{" + item["target_key"] + "}", reference)
+                else:
+                    step_overrides.setdefault(target, {}).setdefault(item["target_field"], {})[item["target_key"]] = reference
+            for index in scenario_order:
+                if re.search(r"(?<!\$)\{[^{}]+\}", step_urls.get(index, entries[index]["url"])):
+                    return Response({"detail": f"接口「{entries[index]['name']}」仍有未关联的路径参数，请补充关联后再生成场景。"}, status=400)
+        created = skipped = 0
+        with transaction.atomic():
+            # 并发导入同一项目时序列化写入，避免重复创建。
+            Project.objects.select_for_update().get(pk=project.pk)
+            if create_scenario and Scenario.objects.filter(tenant=project.tenant, project=project, name=scenario_name).exists():
+                return Response({"detail": "当前项目已有同名场景，请修改场景名称。"}, status=409)
+            existing = set(Endpoint.objects.filter(project=project).values_list("method", "url"))
+            endpoint_map = {(method, url): endpoint_id for endpoint_id, method, url in Endpoint.objects.filter(project=project).values_list("id", "method", "url")}
+            module_cache = {}
+            for entry in entries:
+                key = (entry["method"], entry["url"])
+                if key in existing:
+                    skipped += 1
+                    continue
+                entry.pop("duplicate", None)
+                module_name = entry.pop("module_name")
+                for metadata_key in ("operation_id", "response_fields", "response_links", "request_targets"):
+                    entry.pop(metadata_key, None)
+                if module is None:
+                    if module_name not in module_cache:
+                        module_cache[module_name], _ = Module.objects.get_or_create(
+                            project=project, name=module_name,
+                            defaults={"created_by": request.user},
+                        )
+                    target_module = module_cache[module_name]
+                else:
+                    target_module = module
+                serializer = self.get_serializer(data={**entry, "project": project.pk, "module": target_module.pk})
+                serializer.is_valid(raise_exception=True)
+                endpoint = serializer.save(created_by=request.user)
+                existing.add(key)
+                endpoint_map[key] = endpoint.pk
+                created += 1
+            scenario_id = None
+            if create_scenario:
+                scenario = Scenario.objects.create(
+                    tenant=project.tenant, project=project, created_by=request.user,
+                    name=scenario_name, description="由 Swagger 接口关联生成，请确认参数与断言后运行。",
+                )
+                scenario.projects.add(project)
+                for order, index in enumerate(scenario_order, start=1):
+                    entry = entries[index]
+                    endpoint = Endpoint.objects.get(pk=endpoint_map[(entry["method"], entry["url"])])
+                    step = ScenarioStep.objects.create(
+                        scenario=scenario, endpoint=endpoint, order=order,
+                        request_url=step_urls.get(index, ""),
+                        request_override=step_overrides.get(index, {}),
+                        extract={**(endpoint.extract or {}), **step_extract.get(index, {})},
+                        validate=deepcopy(endpoint.validate or {}),
+                        continue_on_failure=False,
+                    )
+                    # ScenarioStep 的 post_save 信号会按创建顺序生成主流程节点。
+                scenario_id = scenario.pk
+        result = {"created": created, "skipped": skipped}
+        if scenario_id is not None:
+            result["scenario_id"] = scenario_id
+        return Response(result)
 
     @action(detail=True, methods=["post"])
     def run(self, request, pk=None):
@@ -220,6 +363,12 @@ class EndpointViewSet(viewsets.ModelViewSet):
             )
 
         variables = ProjectVariable.values_for_projects([endpoint.project_id])
+        if "data_row" in request.data:
+            row_index = request.data["data_row"]
+            if type(row_index) is not int or row_index < 0 or row_index >= len(endpoint.parametrize or []) - 1:
+                return Response({"detail": "数据行不存在。"}, status=400)
+            endpoint.parametrize = [endpoint.parametrize[0], endpoint.parametrize[row_index + 1]]
+            endpoint.dataset_options = {"enabled": True}
         # 单接口调试不创建临时场景数据，使用未落库的步骤对象复用统一执行器。
         step = ScenarioStep(
             endpoint=endpoint,
@@ -232,67 +381,60 @@ class EndpointViewSet(viewsets.ModelViewSet):
         result = _run_step(step, environment, variables)
         return Response({"environment": environment.name, **result})
 
-
-@extend_schema(tags=["Case_API"])
-class EndpointModuleViewSet(viewsets.ModelViewSet):
-    queryset = EndpointModule.objects.select_related("project").all()
-    serializer_class = EndpointModuleSerializer
-
-    def get_queryset(self):
-        queryset = self.queryset.filter(project_access_q(self.request.user, "project__")).distinct()
-        project_id = self.request.query_params.get("project")
-        return queryset.filter(project_id=project_id) if project_id else queryset
-
-    def perform_create(self, serializer):
-        require_project_access(self.request.user, serializer.validated_data["project"])
-        serializer.save()
-
-    def perform_update(self, serializer):
-        module = self.get_object()
-        project = serializer.validated_data.get("project", module.project)
-        require_project_access(self.request.user, project)
-        serializer.save()
-
-    def destroy(self, request, *args, **kwargs):
-        """删除模块。
-
-        默认只删除模块，并将其中接口移动到“未分组”；显式传入
-        ``delete_endpoints=true`` 时，才级联删除模块下的全部接口。
-        """
-        module = self.get_object()
-        require_project_access(request.user, module.project)
-        delete_endpoints = str(request.query_params.get("delete_endpoints", "false")).lower() in {
-            "1", "true", "yes",
-        }
-        endpoint_count = module.endpoints.count()
-        with transaction.atomic():
-            if delete_endpoints:
-                module.endpoints.all().delete()
+    @action(detail=False, methods=["post"], url_path="import-dataset", parser_classes=[MultiPartParser, FormParser])
+    def import_dataset(self, request):
+        uploaded = request.FILES.get("file")
+        if not uploaded or uploaded.size > 2 * 1024 * 1024:
+            return Response({"detail": "请选择 2 MB 以内的 CSV 或 JSON 文件。"}, status=400)
+        try:
+            content = uploaded.read().decode("utf-8-sig")
+            suffix = Path(uploaded.name).suffix.lower()
+            if suffix == ".csv":
+                table = list(csv.reader(io.StringIO(content)))
+                fields, rows = table[0], table[1:]
+            elif suffix == ".json":
+                records = json.loads(content)
+                if not isinstance(records, list) or not records or any(not isinstance(item, dict) for item in records):
+                    raise ValueError("JSON 必须是对象数组。")
+                fields = list(dict.fromkeys(key for item in records for key in item))
+                rows = [[item.get(key) for key in fields] for item in records]
             else:
-                module.endpoints.update(module=None)
-            module.delete()
-        return Response(
-            {
-                "detail": "模块及模块下接口已删除。" if delete_endpoints else "模块已删除，接口已移至未分组。",
-                "deleted_endpoint_count": endpoint_count if delete_endpoints else 0,
-                "unassigned_endpoint_count": 0 if delete_endpoints else endpoint_count,
-            },
-            status=status.HTTP_200_OK,
-        )
+                raise ValueError("仅支持 CSV 和 JSON 文件。")
+            fields = [str(field).strip() for field in fields]
+            from fullstack_framework.commons.ddt_util import _validate_parametrize
+            _validate_parametrize([fields, *rows])
+            if len(rows) > 500 or len(fields) > 50:
+                raise ValueError("数据集最多支持 500 行、50 列。")
+            if any(not re.fullmatch(r'[A-Za-z_]\w*', field) for field in fields):
+                raise ValueError("字段名须以英文字母或下划线开头，只包含字母、数字、下划线。")
+            return Response({"fields": fields, "rows": rows, "filename": uploaded.name})
+        except (ValueError, IndexError, UnicodeError, csv.Error) as exc:
+            return Response({"detail": str(exc) or "数据文件为空或格式不正确。"}, status=400)
 
     @action(detail=False, methods=["post"], url_path="upload-file", parser_classes=[MultiPartParser, FormParser])
     def upload_file(self, request):
-        """上传接口测试所需的附件，返回可写入 Endpoint.files 的安全文件描述。"""
+        """上传接口测试所需的附件，返回可写入 Endpoint.files 的安全文件描述。
+
+        这个 action 原先挂在 EndpointModuleViewSet 上，而前端请求的是
+        ``/case_api/endpoint/upload-file/``，两边对不上，附件上传一直是 404。
+        目录共享改造删掉了那个 ViewSet，顺手把它挪回本类。
+        """
         uploaded_file = request.FILES.get("file")
         if not uploaded_file:
             return Response({"detail": "请选择需要上传的文件。"}, status=400)
         if uploaded_file.size > 100 * 1024 * 1024:
             return Response({"detail": "单个文件不能超过 100MB。"}, status=400)
 
-        UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+        tenant = get_request_tenant(request)
+        try:
+            ensure_tenant_storage_capacity(tenant, uploaded_file.size)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        tenant_upload_root = tenant_path(UPLOAD_ROOT, tenant.pk)
+        tenant_upload_root.mkdir(parents=True, exist_ok=True)
         original_name = Path(uploaded_file.name).name
         saved_name = f"{uuid.uuid4().hex}_{original_name}"
-        saved_path = UPLOAD_ROOT / saved_name
+        saved_path = tenant_upload_root / saved_name
         with saved_path.open("wb") as destination:
             shutil.copyfileobj(uploaded_file, destination)
         return Response({
@@ -321,11 +463,11 @@ class RecordingViewSet(viewsets.ViewSet):
         if conflict_mode not in {"skip", "overwrite", "copy"}:
             return Response({"detail": "重复处理方式不合法。"}, status=400)
         try:
-            project = Project.objects.get(pk=project_id)
+            project = Project.objects.get(pk=project_id, tenant=get_request_tenant(request))
         except (Project.DoesNotExist, TypeError, ValueError):
             return Response({"detail": "请选择有效项目。"}, status=400)
         require_project_access(request.user, project)
-        module = EndpointModule.objects.filter(pk=module_id, project=project).first()
+        module = Module.objects.filter(pk=module_id, project=project).first()
         if not module:
             return Response({"detail": "请选择当前项目下的模块。"}, status=400)
         records = [item for item in request.data.get("records", []) if isinstance(item, dict) and item.get("selected", True)]
@@ -345,7 +487,8 @@ class RecordingViewSet(viewsets.ViewSet):
                 name = str(record.get("name") or f"录制接口 {index}").strip()[:32]
                 payload = {
                     "name": name or f"录制接口 {index}", "project": project, "module": module,
-                    "method": method, "url": url, "headers": record.get("headers") or {},
+                    "method": method, "url": url,
+                    "headers": sanitize_recorded_headers(record.get("headers")),
                     "params": record.get("params") or {}, "data": record.get("data") or {},
                     "json": record.get("json") or {}, "cookies": {}, "files": {},
                 }
@@ -364,7 +507,7 @@ class RecordingViewSet(viewsets.ViewSet):
             scenario_id = None
             if create_scenario and endpoint_ids:
                 scenario = Scenario.objects.create(
-                    project=project, created_by=request.user,
+                    tenant=project.tenant, project=project, created_by=request.user,
                     name=scenario_name or "录制场景", description="由接口录制自动生成",
                 )
                 scenario.projects.add(project)
@@ -374,14 +517,15 @@ class RecordingViewSet(viewsets.ViewSet):
         return Response({"created": created, "updated": updated, "skipped": skipped, "scenario_id": scenario_id})
 
 
+
 @extend_schema(tags=["Case_API"])
-class ScenarioViewSet(viewsets.ModelViewSet):
+class ScenarioViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     queryset = Scenario.objects.select_related("project", "created_by").all()
     serializer_class = ScenarioSerializer
 
     def get_queryset(self):
         queryset = filter_all_project_access(
-            self.queryset,
+            self.tenant_scope(self.queryset),
             self.request.user,
             "project",
             "projects",
@@ -406,8 +550,10 @@ class ScenarioViewSet(viewsets.ModelViewSet):
         return queryset.order_by("-created_at", "-id")
 
     def perform_create(self, serializer):
-        require_projects_access(self.request.user, serializer.validated_data.get("projects", []))
-        serializer.save(created_by=self.request.user)
+        projects = serializer.validated_data.get("projects", [])
+        require_projects_access(self.request.user, projects)
+        tenant = validate_tenant_relations(self.request, projects=list(projects))
+        serializer.save(tenant=tenant, created_by=self.request.user)
 
     def perform_update(self, serializer):
         scenario = self.get_object()
@@ -417,7 +563,9 @@ class ScenarioViewSet(viewsets.ModelViewSet):
             self.request.user,
             serializer.validated_data.get("projects", scenario.projects.all()),
         )
-        serializer.save()
+        projects = serializer.validated_data.get("projects", scenario.projects.all())
+        validate_tenant_relations(self.request, scenario=scenario, projects=list(projects))
+        serializer.save(tenant=self.current_tenant())
 
     @action(detail=True, methods=["post"])
     def run(self, request, pk=None):
@@ -447,6 +595,29 @@ class ScenarioViewSet(viewsets.ModelViewSet):
         )
         return Response(payload)
 
+    @extend_schema(tags=["Case_API"])
+    @action(detail=False, methods=["get"])
+    def overview(self, request):
+        """场景列表页的聚合数据：平台 KPI + 每个场景的最近执行与通过率。
+
+        场景级结果只能从测试计划的执行报告里取（即席执行不落库），因此本接口
+        反映的是「场景被编排进计划后的运行情况」，不是列表页上试跑的结果。
+        聚合逻辑与 UI / 智能 / App 用例共用，见 suite/run_metrics.py。
+        """
+        tenant = get_request_tenant(request)
+        rows = list(
+            filter_all_project_access(
+                Scenario.objects.filter(tenant=tenant), request.user,
+                "project", "projects", ("steps__endpoint__project",),
+            ).values_list("id", "project_id")
+        )
+        return Response(build_overview(
+            request.user, tenant,
+            cache_scope="scenario_overview",
+            key_prefix="",  # 场景在报告里的 id 是裸整数，没有前缀。
+            case_rows=rows,
+        ))
+
 
 @extend_schema(tags=["Case_API"])
 class ScenarioStepViewSet(viewsets.ModelViewSet):
@@ -455,7 +626,7 @@ class ScenarioStepViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return filter_all_project_access(
-            self.queryset,
+            self.queryset.filter(scenario__tenant=get_request_tenant(self.request)),
             self.request.user,
             "scenario__project",
             "scenario__projects",
@@ -527,7 +698,7 @@ class ScenarioStepViewSet(viewsets.ModelViewSet):
             return Response({"detail": "请提供场景和步骤顺序。"}, status=400)
 
         scenario = filter_all_project_access(
-            Scenario.objects.all(),
+            Scenario.objects.filter(tenant=get_request_tenant(request)),
             request.user,
             "project",
             "projects",
@@ -555,7 +726,7 @@ class ScenarioFlowNodeViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = filter_all_project_access(
-            self.queryset,
+            self.queryset.filter(scenario__tenant=get_request_tenant(self.request)),
             self.request.user,
             "scenario__project",
             "scenario__projects",
@@ -609,7 +780,7 @@ class ScenarioFlowNodeViewSet(viewsets.ModelViewSet):
         if not scenario_id or not isinstance(node_ids, list) or len(node_ids) != len(set(node_ids)):
             return Response({"detail": "节点顺序格式不正确。"}, status=status.HTTP_400_BAD_REQUEST)
         scenario = filter_all_project_access(
-            Scenario.objects.all(),
+            Scenario.objects.filter(tenant=get_request_tenant(request)),
             request.user,
             "project",
             "projects",
@@ -637,7 +808,7 @@ class ScenarioBranchViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = filter_all_project_access(
-            self.queryset,
+            self.queryset.filter(condition_node__scenario__tenant=get_request_tenant(self.request)),
             self.request.user,
             "condition_node__scenario__project",
             "condition_node__scenario__projects",

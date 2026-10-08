@@ -5,6 +5,7 @@ from Tesla.model_fields import EncryptedJSONField, EncryptedTextField
 from selenium.webdriver.common.by import By
 
 from project.models import Project
+from account.models import get_default_tenant_id
 
 by_list = []
 
@@ -56,25 +57,6 @@ def ui_step_display_name(action, element_name="", value=""):
     return f"{label}：{subject}"[:64] if subject else label[:64]
 
 
-# Create your models here.
-class ElementModule(models.Model):
-    """UI 元素在项目下的功能分组。"""
-
-    project = models.ForeignKey(
-        Project, on_delete=models.CASCADE, related_name="ui_element_modules", verbose_name="所属项目"
-    )
-    name = models.CharField("模块名称", max_length=64)
-
-    class Meta:
-        ordering = ["project_id", "id"]
-        constraints = [
-            models.UniqueConstraint(fields=["project", "name"], name="unique_ui_element_module_name")
-        ]
-
-    def __str__(self):
-        return self.name
-
-
 class Element(models.Model):
     """UI元素"""
 
@@ -87,9 +69,9 @@ class Element(models.Model):
         related_name="created_ui_elements", verbose_name="创建人",
     )
     module = models.ForeignKey(
-        ElementModule,
+        "project.Module",
         on_delete=models.SET_NULL,
-        related_name="elements",
+        related_name="ui_elements",
         null=True,
         blank=True,
         verbose_name="所属模块",
@@ -113,6 +95,10 @@ class UiCase(models.Model):
         HEADLESS = "headless", "无头模式"
         HEADED = "headed", "有界面模式"
 
+    tenant = models.ForeignKey(
+        "account.Tenant", on_delete=models.PROTECT, related_name="ui_cases",
+        default=get_default_tenant_id, editable=False,
+    )
     name = models.CharField("用例名称", max_length=64)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="ui_cases")
     created_by = models.ForeignKey(
@@ -120,6 +106,7 @@ class UiCase(models.Model):
         related_name="created_ui_cases", verbose_name="创建人",
     )
     description = models.CharField("用例描述", max_length=250, blank=True)
+    environment_name = models.CharField("执行环境", max_length=64, blank=True, default="")
     browser = models.CharField("浏览器", max_length=16, choices=Browser.choices, default=Browser.CHROME)
     run_mode = models.CharField("运行模式", max_length=16, choices=RunMode.choices, default=RunMode.HEADLESS)
     tabs = models.JSONField("页签配置", default=default_ui_case_tabs, blank=True)
@@ -129,6 +116,10 @@ class UiCase(models.Model):
 
     class Meta:
         ordering = ["-id"]
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "project", "name"], name="unique_tenant_ui_case_name"),
+        ]
+        indexes = [models.Index(fields=["tenant", "project", "id"], name="ui_case_tenant_project_idx")]
 
 
 class UiUploadedFile(models.Model):
@@ -197,6 +188,10 @@ class PlaywrightCase(models.Model):
         HEADLESS = "headless", "无头模式"
         HEADED = "headed", "有界面模式"
 
+    tenant = models.ForeignKey(
+        "account.Tenant", on_delete=models.PROTECT, related_name="playwright_cases",
+        default=get_default_tenant_id, editable=False,
+    )
     name = models.CharField("用例名称", max_length=64)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="playwright_cases")
     created_by = models.ForeignKey(
@@ -207,6 +202,13 @@ class PlaywrightCase(models.Model):
     browser = models.CharField("浏览器", max_length=16, choices=Browser.choices, default=Browser.CHROMIUM)
     run_mode = models.CharField("运行模式", max_length=16, choices=RunMode.choices, default=RunMode.HEADLESS)
     environment_name = models.CharField("执行环境", max_length=64, blank=True, default="")
+    source_yaml_file = models.ForeignKey(
+        "PlaywrightScenarioFile", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="converted_cases", verbose_name="来源 YAML 文件", editable=False,
+    )
+    source_yaml_scene_key = models.CharField(
+        "来源场景标识", max_length=128, blank=True, default="", editable=False,
+    )
     default_timeout = models.PositiveIntegerField("默认超时（毫秒）", default=10000)
     viewport = models.JSONField("视口", default=default_playwright_viewport, blank=True)
     tabs = models.JSONField("页签配置", default=default_ui_case_tabs, blank=True)
@@ -216,6 +218,38 @@ class PlaywrightCase(models.Model):
 
     class Meta:
         ordering = ["-id"]
+        indexes = [models.Index(fields=["tenant", "project", "id"], name="pw_case_tenant_project_idx")]
+        constraints = [models.UniqueConstraint(
+            fields=["source_yaml_file", "source_yaml_scene_key"],
+            name="unique_playwright_yaml_scene",
+        )]
+
+
+class PlaywrightScenarioFile(models.Model):
+    """平台内创建的中文 YAML 风格场景文件，原文保存并直接解析执行。"""
+
+    tenant = models.ForeignKey(
+        "account.Tenant", on_delete=models.PROTECT, related_name="playwright_scenario_files",
+        default=get_default_tenant_id, editable=False,
+    )
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="playwright_scenario_files")
+    filename = models.CharField("文件名", max_length=128)
+    content = EncryptedTextField("场景原文")
+    environment_name = models.CharField("执行环境", max_length=64, blank=True, default="")
+    browser = models.CharField("浏览器", max_length=16, default="chromium")
+    run_mode = models.CharField("运行模式", max_length=16, default="headless")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="created_playwright_scenario_files",
+    )
+    create_datetime = models.DateTimeField(auto_now_add=True)
+    update_datetime = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-id"]
+        constraints = [models.UniqueConstraint(
+            fields=["project", "filename"], name="unique_playwright_scenario_filename",
+        )]
 
 
 class PlaywrightStep(models.Model):
@@ -273,5 +307,3 @@ class PlaywrightLocatorFingerprint(models.Model):
                 fields=["step", "environment_name"], name="unique_playwright_locator_fingerprint_environment"
             )
         ]
-
-

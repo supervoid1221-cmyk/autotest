@@ -75,6 +75,30 @@ def require_projects_access(user, projects):
         require_project_access(user, project)
 
 
+def save_project_asset_update(user, instance, serializer, *, commit=True):
+    """资产转移项目时，必须同时校验原项目和目标项目。"""
+    require_project_access(user, instance.project)
+    if "project" in serializer.validated_data:
+        require_project_access(user, serializer.validated_data["project"])
+    if commit:
+        serializer.save()
+
+
+def filter_project_cases(queryset, request):
+    """UI 与 Playwright 用例共用的项目、名称及启用状态过滤。"""
+    queryset = queryset.filter(project_access_q(request.user, "project__")).distinct()
+    name = str(request.query_params.get("name") or "").strip()
+    project_id = request.query_params.get("project")
+    enabled = request.query_params.get("enabled")
+    if name:
+        queryset = queryset.filter(name__icontains=name)
+    if project_id:
+        queryset = queryset.filter(project_id=project_id)
+    if enabled is not None:
+        queryset = queryset.filter(enabled=str(enabled).lower() in {"1", "true", "yes"})
+    return queryset
+
+
 def require_project_manager(user, project):
     if not (is_admin(user) or project.pm_id == user.id):
         raise PermissionDenied("仅项目负责人可以维护项目成员。")

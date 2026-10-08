@@ -18,7 +18,7 @@ from django.contrib import admin
 from django.conf import settings
 from django.urls import include, path
 from drf_spectacular.views import (
-    SpectacularAPIView,
+    SpectacularJSONAPIView,
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
@@ -34,11 +34,16 @@ urlpatterns = [
     path("api/ai/", include("ai_assistant.urls")),
     path("api/template/", include("execution_template.urls")),
     path("api/monitor/", include("monitor.urls")),
+    path("api/performance/", include("performance.urls")),
+    path("api/case_app/", include("case_app.urls")),
+    path("api/execution-control/", include("execution_control.urls")),
 ]
 
 if settings.API_DOCS_ENABLED:
     urlpatterns += [
-        path("api/schema/openapi.json", SpectacularAPIView.as_view(), name="schema"),
+        # 文件扩展名是 .json，必须固定 JSON renderer；默认 SpectacularAPIView
+        # 在普通浏览器请求中会优先返回 YAML（filename="schema.yaml"）。
+        path("api/schema/openapi.json", SpectacularJSONAPIView.as_view(), name="schema"),
         path(
             "api/schema/swagger/",
             SpectacularSwaggerView.as_view(url_name="schema"),

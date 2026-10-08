@@ -6,15 +6,96 @@
 
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.authtoken.models import Token
 
 from .access import is_system_admin
-from .models import Profile
+from .authentication import platform_token_expires_at
+from .models import Profile, Tenant, TenantMembership
+
+
+class TenantSerializer(serializers.ModelSerializer):
+    role = serializers.SerializerMethodField()
+    role_name = serializers.SerializerMethodField()
+    member_count = serializers.SerializerMethodField()
+    project_count = serializers.IntegerField(source="projects.count", read_only=True)
+    storage_used_bytes = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Tenant
+        fields = (
+            "id", "name", "slug", "status", "role", "role_name",
+            "member_count", "project_count", "max_regular_concurrent_executions",
+            "max_performance_concurrent_executions", "storage_quota_bytes", "storage_used_bytes",
+            "created_at", "updated_at",
+        )
+        read_only_fields = ("id", "created_at", "updated_at")
+
+    def _membership(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            return None
+        return obj.memberships.filter(
+            user=user, status=TenantMembership.Status.ACTIVE,
+        ).first()
+
+    def get_role(self, obj):
+        request = self.context.get("request")
+        if is_system_admin(getattr(request, "user", None)):
+            return "platform_admin"
+        membership = self._membership(obj)
+        return membership.role if membership else ""
+
+    def get_role_name(self, obj):
+        request = self.context.get("request")
+        if is_system_admin(getattr(request, "user", None)):
+            return "平台管理员"
+        membership = self._membership(obj)
+        return membership.get_role_display() if membership else ""
+
+    def get_member_count(self, obj):
+        return obj.memberships.filter(status=TenantMembership.Status.ACTIVE).count()
+
+    def get_storage_used_bytes(self, obj):
+        from .tenant_runtime import tenant_storage_usage
+        return tenant_storage_usage(obj.pk)
+
+    def validate_max_regular_concurrent_executions(self, value):
+        if int(value) < 1:
+            raise serializers.ValidationError("普通任务最大并发数至少为 1。")
+        return value
+
+    def validate_max_performance_concurrent_executions(self, value):
+        if not 1 <= int(value) <= 32:
+            raise serializers.ValidationError("性能任务最大并发数必须在 1 至 32 之间。")
+        return value
+
+    def validate_storage_quota_bytes(self, value):
+        if int(value) < 1:
+            raise serializers.ValidationError("存储配额必须大于 0。")
+        return value
+
+
+class TenantMembershipSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user.username", read_only=True)
+    is_active = serializers.BooleanField(source="user.is_active", read_only=True)
+    role_name = serializers.CharField(source="get_role_display", read_only=True)
+    status_name = serializers.CharField(source="get_status_display", read_only=True)
+
+    class Meta:
+        model = TenantMembership
+        fields = (
+            "id", "user", "username", "is_active", "role", "role_name",
+            "status", "status_name", "created_at", "updated_at",
+        )
+        read_only_fields = ("id", "user", "username", "is_active", "created_at", "updated_at")
 
 
 class ProfileSerializer(serializers.ModelSerializer):
     token = serializers.SerializerMethodField()
+    token_expires_at = serializers.SerializerMethodField()
     user = serializers.SerializerMethodField()
     is_admin = serializers.SerializerMethodField()
     username = serializers.CharField(source="user.username", read_only=True)
@@ -23,10 +104,19 @@ class ProfileSerializer(serializers.ModelSerializer):
         fields = "__all__"  # 使用全部字段
 
     def get_token(self, obj):
-        user = obj.user
-        token, is_create = Token.objects.get_or_create(user=user)
-
+        token = self.context.get("login_token")
+        if token is None:
+            token, _ = Token.objects.get_or_create(user=obj.user)
         return token.key
+
+    def get_token_expires_at(self, obj):
+        token = self.context.get("login_token")
+        if token is None:
+            token, _ = Token.objects.get_or_create(user=obj.user)
+        expires_at = platform_token_expires_at(token)
+        if timezone.is_naive(expires_at):
+            expires_at = timezone.make_aware(expires_at, timezone.get_current_timezone())
+        return expires_at.isoformat()
 
     def get_user(self, obj):
         return obj.user_id
@@ -39,12 +129,6 @@ class LoginSerializer(serializers.Serializer):
     username = serializers.CharField(required=True)
     password = serializers.CharField(required=True)
 
-    def validate_username(self, data):  # 只校验当前字典
-        return data
-
-    def validate_password(self, data):  # 只校验当前字典
-        return data
-
     def validate(self, attrs):  # 校验全部字段
         username = attrs["username"]
         password = attrs["password"]
@@ -53,12 +137,16 @@ class LoginSerializer(serializers.Serializer):
 
         if not user:
             raise serializers.ValidationError({"msg": "用户名或密码不正确"})
-        else:
-            Profile.objects.get_or_create(user=user)  # 为用户创建 个人资料
-            Token.objects.get_or_create(user=user)  # 为用户创建 Token
+        if not is_system_admin(user) and not TenantMembership.objects.filter(
+            user=user,
+            status=TenantMembership.Status.ACTIVE,
+            tenant__status=Tenant.Status.ACTIVE,
+        ).exists():
+            raise serializers.ValidationError({"msg": "当前账号未加入可用租户，请联系平台管理员"})
 
-            attrs["user"] = user
-            return attrs
+        Profile.objects.get_or_create(user=user)  # 为用户创建 个人资料
+        attrs["user"] = user
+        return attrs
 
 
 class ResetPassSerializer(serializers.Serializer):

@@ -23,7 +23,7 @@ const routes: Array<RouteRecordRaw> = [
     meta: {
       title: '个人中心',
       icon: renderIcon(PhUserCircle),
-      sort: 20,
+      sort: 50,
       hidden: true,
     },
     children: [

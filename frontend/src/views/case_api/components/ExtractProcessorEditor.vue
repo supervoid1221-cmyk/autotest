@@ -109,6 +109,7 @@ function updateMapping(index: number, text: string) {
 }
 function description(type: string) {
   return ({
+    required: '提取结果为空时停止执行并提示错误',
     trim: '去除字符串首尾的空格和换行', json_parse: '将 JSON 字符串转换为对象或数组',
     base64_encode: '使用 UTF-8 进行 Base64 编码', base64_decode: '解码 Base64 并转为 UTF-8 文本',
     url_encode: '对整个字符串进行 URL 编码', url_decode: '解码 URL 编码字符串',

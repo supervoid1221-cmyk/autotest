@@ -1,6 +1,5 @@
 import {
   Endpoint,
-  EndpointModule,
   EndpointRunResult,
   Scenario,
   ScenarioBranch,
@@ -9,17 +8,30 @@ import {
 } from './models';
 import { BaseModelAPI } from '../base_api';
 import { http } from '@/utils/http/axios';
+import type { CaseOverview, CaseOverviewItem } from '../case_overview';
 
 export class EndpointAPI extends BaseModelAPI<Endpoint> {
   base_url = '/case_api/endpoint/';
 
-  runById(id: number, environment: number) {
+  importSwagger(data: { project: number; module?: number | null; content: string; save?: boolean; create_scenario?: boolean; scenario_name?: string; relation_ids?: string[] }) {
+    return http.request<{ count?: number; new?: number; modules?: string[]; endpoints?: SwaggerEndpointPreview[]; relations?: SwaggerRelationPreview[]; created?: number; skipped?: number; scenario_id?: number }>({
+      url: `${this.base_url}import-swagger/`, method: 'POST', data, timeout: 2 * 60 * 1000,
+    });
+  }
+
+  runById(id: number, environment: number, dataRow?: number) {
     return http.request<EndpointRunResult>({
       url: `${this.base_url}${id}/run/`,
       method: 'POST',
-      data: { environment },
+      data: { environment, ...(dataRow === undefined ? {} : { data_row: dataRow }) },
       timeout: 30 * 60 * 1000,
     });
+  }
+
+  async importDataset(file: File) {
+    const data = new FormData(); data.append('file', file);
+    const response: any = await http.getAxios().request({ url: '/api/case_api/endpoint/import-dataset/', method: 'POST', data, headers: { 'Content-Type': undefined } });
+    return response.data.result as { fields: string[]; rows: unknown[][]; filename: string };
   }
 
   async uploadFile(file: File) {
@@ -38,23 +50,24 @@ export class EndpointAPI extends BaseModelAPI<Endpoint> {
   }
 }
 
-export class EndpointModuleAPI extends BaseModelAPI<EndpointModule> {
-  base_url = '/case_api/endpoint-module/';
+export interface SwaggerEndpointPreview {
+  name: string;
+  method: string;
+  url: string;
+  module_name: string;
+  duplicate: boolean;
+}
 
-  deleteModule(id: number, deleteEndpoints = false) {
-    return http.request<{
-      detail: string;
-      deleted_endpoint_count: number;
-      unassigned_endpoint_count: number;
-    }>(
-      {
-        url: `${this.base_url}${id}/`,
-        method: 'DELETE',
-        params: { delete_endpoints: deleteEndpoints },
-      },
-      { isShowErrorMessage: false, errorMessageMode: 'none' }
-    );
-  }
+export interface SwaggerRelationPreview {
+  id: string;
+  source_name: string;
+  target_name: string;
+  target_field: string;
+  target_key: string;
+  response_path: string;
+  variable: string;
+  score: number;
+  reason: string;
 }
 
 export class RecordingAPI {
@@ -97,6 +110,13 @@ export interface RecordedRequest {
   recommended_assertions?: Record<string, unknown>;
 }
 
+/**
+ * 场景列表页的聚合数据结构与 UI / 智能 / App 用例完全一致，
+ * 统一维护在 @/api/case_overview。这里保留旧名字，避免已有引用大范围改动。
+ */
+export type ScenarioOverviewItem = CaseOverviewItem;
+export type ScenarioOverview = CaseOverview;
+
 export class ScenarioAPI extends BaseModelAPI<Scenario> {
   base_url = '/case_api/scenario/';
   runById(id: number, environment: number) {
@@ -106,6 +126,15 @@ export class ScenarioAPI extends BaseModelAPI<Scenario> {
       method: 'POST',
       data: { environment },
       timeout: 30 * 60 * 1000,
+    });
+  }
+  /** 列表页聚合数据：平台 KPI + 每个场景的最近执行与通过率。 */
+  overview() {
+    return http.request<ScenarioOverview>({
+      url: `${this.base_url}overview/`,
+      method: 'GET',
+      params: { _t: Date.now() },
+      headers: { 'Cache-Control': 'no-cache' },
     });
   }
 }

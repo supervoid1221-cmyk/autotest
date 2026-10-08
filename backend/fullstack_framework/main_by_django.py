@@ -35,6 +35,7 @@ from suite.reporting import (
     finalize_unfinished_steps, load_variable_resolution,
     merge_ui_runtime_results, recalculate_native_report, sanitize_variable_snapshot,
 )
+from suite.execution_log import write_execution_log
 
 result: RunResult = RunResult.objects.get(id=result_id)
 
@@ -55,11 +56,13 @@ execution_error = ret_code in (pytest.ExitCode.INTERNAL_ERROR, pytest.ExitCode.U
 
 if ret_code == pytest.ExitCode.OK:
     print("测试通过")
+    write_execution_log("套件任务执行通过", "SUCCESS")
     result.is_pass = True
     # 原生报告会在 pytest 执行期间由每个接口步骤单独写入，不能用旧对象全字段保存覆盖它。
     result.save(update_fields=["is_pass", "update_datetime"])
 else:
     print("测试失败")
+    write_execution_log("套件任务执行失败，请查看上方失败步骤", "ERROR")
     result.is_pass = False
     result.save(update_fields=["is_pass", "update_datetime"])
 

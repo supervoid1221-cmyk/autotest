@@ -23,7 +23,8 @@ const routes: Array<RouteRecordRaw> = [
     meta: {
       title: '服务器配置',
       icon: renderIcon(PhHardDrives),
-      sort: 20,
+      sort: 22,
+      group: '系统',
       // 即使当前只有“服务器连接”一个子项，也保留一级菜单层级。
       alwaysShow: true,
     },
@@ -58,15 +59,24 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/system',
     name: 'System',
-    redirect: '/system/user',
+    redirect: '/system/configuration',
     component: Layout,
     meta: {
       title: '系统管理',
       icon: renderIcon(PhGearSix),
-      sort: 21,
+      sort: 23,
+      group: '系统',
       alwaysShow: true,
     },
     children: [
+      {
+        path: 'tenant', name: 'system_tenant', meta: { title: '租户管理' },
+        component: () => import('@/views/system/tenant.vue'),
+      },
+      {
+        path: 'configuration', name: 'system_configuration', meta: { title: '系统配置' },
+        component: () => import('@/views/system/configuration.vue'),
+      },
       {
         path: 'user', name: 'system_user', meta: { title: '用户管理' },
         component: () => import('@/views/system/user.vue'),

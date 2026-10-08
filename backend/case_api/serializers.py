@@ -4,11 +4,13 @@
 @Describe:    ...
 """
 
+import re
 from rest_framework import serializers
 from django.core.exceptions import ObjectDoesNotExist
 
-from .models import Endpoint, EndpointModule, Scenario, ScenarioBranch, ScenarioFlowNode, ScenarioStep
+from .models import Endpoint, Scenario, ScenarioBranch, ScenarioFlowNode, ScenarioStep
 from project.models import Project
+from account.tenancy import validate_tenant_relations
 
 
 class EndpointSerializer(serializers.ModelSerializer):
@@ -30,26 +32,33 @@ class EndpointSerializer(serializers.ModelSerializer):
         if module and module.project_id != project.id:
             raise serializers.ValidationError({"module": "所选模块不属于当前项目。"})
         parametrize = attrs.get("parametrize", getattr(self.instance, "parametrize", []))
+        if not isinstance(parametrize, list):
+            raise serializers.ValidationError({"parametrize": "数据驱动参数必须为数组。"})
+        options = attrs.get("dataset_options", getattr(self.instance, "dataset_options", {}))
+        if not isinstance(options, dict):
+            raise serializers.ValidationError({"dataset_options": "数据驱动配置必须为对象。"})
+        disabled = options.get("disabled_rows", [])
+        if not isinstance(disabled, list) or any(type(index) is not int or index < 0 or index >= max(0, len(parametrize) - 1) for index in disabled):
+            raise serializers.ValidationError({"dataset_options": "禁用行索引无效。"})
+        if "enabled" in options and type(options["enabled"]) is not bool:
+            raise serializers.ValidationError({"dataset_options": "启用状态必须为布尔值。"})
+        if options.get("enabled") and (not parametrize or len(set(disabled)) >= len(parametrize) - 1):
+            raise serializers.ValidationError({"parametrize": "请至少启用一行数据。"})
         if parametrize:
             if not isinstance(parametrize, list) or len(parametrize) < 2:
                 raise serializers.ValidationError({"parametrize": "数据驱动至少需要字段名行和一行数据。"})
             fields, rows = parametrize[0], parametrize[1:]
             if not isinstance(fields, list) or not fields or any(not isinstance(name, str) or not name.strip() for name in fields):
                 raise serializers.ValidationError({"parametrize": "数据驱动第一行必须是非空字段名数组。"})
+            if len(rows) > 500 or len(fields) > 50:
+                raise serializers.ValidationError({"parametrize": "最多支持 500 行、50 列。"})
             if len(set(fields)) != len(fields):
                 raise serializers.ValidationError({"parametrize": "数据驱动字段名不能重复。"})
+            if any(not re.fullmatch(r"[A-Za-z_]\w*", field) for field in fields):
+                raise serializers.ValidationError({"parametrize": "字段名须以英文字母或下划线开头，仅包含字母、数字及下划线。"})
             if any(not isinstance(row, list) or len(row) != len(fields) for row in rows):
                 raise serializers.ValidationError({"parametrize": "每一行数据的列数必须与字段名数量一致。"})
         return attrs
-
-
-class EndpointModuleSerializer(serializers.ModelSerializer):
-    project_name = serializers.CharField(source="project.name", read_only=True)
-    endpoint_count = serializers.IntegerField(source="endpoints.count", read_only=True)
-
-    class Meta:
-        model = EndpointModule
-        fields = "__all__"
 
 
 class ScenarioStepSerializer(serializers.ModelSerializer):
@@ -182,6 +191,9 @@ class ScenarioSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"projects": "请至少选择一个关联项目。"})
         # 保留 project 字段作为兼容旧数据的主项目；场景实际可编排所有关联项目的接口。
         attrs["project"] = projects[0]
+        request = self.context.get("request")
+        if request:
+            validate_tenant_relations(request, projects=list(projects))
         return attrs
 
     def get_project_names(self, obj):

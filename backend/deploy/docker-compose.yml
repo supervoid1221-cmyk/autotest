@@ -17,6 +17,13 @@ services:
       - ./data/upload_yaml:/app/upload_yaml
       - ./data/uploaded_api_files:/app/uploaded_api_files
       - ./data/runtime_auth_locks:/app/runtime_auth_locks
+      - ./data/performance_runs:/app/performance_runs
+      - ./data/app_uploads:/app/app_uploads
+      - ./data/app_runs:/app/app_runs
+      - dynamic-function-runtime:/run/dynamic-functions
+    depends_on:
+      function-worker:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 5).close()"]
       interval: 15s
@@ -30,11 +37,13 @@ services:
       context: ./backend
       dockerfile: deploy/backend.Dockerfile
     restart: unless-stopped
-    command: ["python", "manage.py", "qcluster"]
+    command: ["python", "manage.py", "controlled_qcluster"]
     env_file:
       - ./backend.env
     depends_on:
       backend:
+        condition: service_healthy
+      function-worker:
         condition: service_healthy
     volumes:
       - /run:/host/run:ro
@@ -44,6 +53,53 @@ services:
       - ./data/upload_yaml:/app/upload_yaml
       - ./data/uploaded_api_files:/app/uploaded_api_files
       - ./data/runtime_auth_locks:/app/runtime_auth_locks
+      - ./data/performance_runs:/app/performance_runs
+      - ./data/app_uploads:/app/app_uploads
+      - ./data/app_runs:/app/app_runs
+      - dynamic-function-runtime:/run/dynamic-functions
+
+  performance-worker:
+    image: test-platform-backend:latest
+    build:
+      context: ./backend
+      dockerfile: deploy/backend.Dockerfile
+    restart: unless-stopped
+    command: ["python", "manage.py", "performance_worker"]
+    env_file:
+      - ./backend.env
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - /run:/host/run:ro
+      - ./data/logs:/app/logs
+      - ./data/performance_runs:/app/performance_runs
+      - ./data/runtime_auth_locks:/app/runtime_auth_locks
+
+  function-worker:
+    image: test-platform-backend:latest
+    build:
+      context: ./backend
+      dockerfile: deploy/backend.Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "project.function_worker", "--socket", "/run/dynamic-functions/worker.sock"]
+    user: "65532:65532"
+    network_mode: none
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 32
+    mem_limit: 640m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    volumes:
+      - dynamic-function-runtime:/run/dynamic-functions
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; raise SystemExit(0 if os.path.exists('/run/dynamic-functions/worker.sock') else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
 
   web:
     image: docker.m.daocloud.io/library/nginx:1.27-alpine
@@ -56,3 +112,6 @@ services:
     volumes:
       - ./frontend-dist:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  dynamic-function-runtime:

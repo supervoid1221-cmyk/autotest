@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from django.conf import settings
+from account.tenant_runtime import is_managed_storage_path
 
 
 UPLOAD_ROOT = (Path(settings.BASE_DIR) / "uploaded_api_files").resolve()
@@ -15,7 +16,11 @@ def _safe_file_path(value):
         raise ValueError("上传文件配置格式不正确。")
     relative_path = str(value.get("path") or "")
     path = (Path(settings.BASE_DIR) / relative_path).resolve()
-    if not relative_path or UPLOAD_ROOT not in path.parents or not path.is_file():
+    if (
+        not relative_path
+        or not is_managed_storage_path(path, "uploaded_api_files")
+        or not path.is_file()
+    ):
         raise ValueError("上传文件不存在或不属于平台文件目录，请重新上传文件。")
     return path
 

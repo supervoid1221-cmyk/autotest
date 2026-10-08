@@ -1,6 +1,6 @@
 import { RouteRecordRaw } from 'vue-router';
 import { Layout } from '@/router/constant';
-import { PhBrowser } from '@phosphor-icons/vue';
+import { PhMonitor } from '@phosphor-icons/vue';
 import { renderIcon } from '@/utils/index';
 
 /**
@@ -22,8 +22,9 @@ const routes: Array<RouteRecordRaw> = [
     component: Layout,
     meta: {
       title: 'UI测试',
-      icon: renderIcon(PhBrowser),
+      icon: renderIcon(PhMonitor),
       sort: 18,
+      group: '测试资产',
     },
     children: [
       {
@@ -79,6 +80,12 @@ const routes: Array<RouteRecordRaw> = [
           keepAlive: true,
         },
         component: () => import('@/views/case_ui/ui_case_edit.vue'),
+      },
+      {
+        path: 'yaml-case',
+        name: 'case_ui_yaml_case',
+        meta: { title: 'YAML用例', keepAlive: true },
+        component: () => import('@/views/case_ui/yaml_case.vue'),
       },
     ],
   },

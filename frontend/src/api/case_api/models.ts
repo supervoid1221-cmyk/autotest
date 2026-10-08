@@ -2,9 +2,11 @@ import { components } from '../schema';
 
 export type UploadedEndpointFile = { name: string; path: string; size?: number };
 export type Endpoint = components['schemas']['Endpoint'] & {
+  body_type?: 'json' | 'data' | 'form_data';
   files?: Record<string, UploadedEndpointFile[]>;
   /** [[字段名...], [数据行...]]，请求中通过 $ddt{字段名} 引用。 */
   parametrize?: Array<Array<string | number | boolean | null>>;
+  dataset_options?: { enabled?: boolean; disabled_rows?: number[]; bindings?: Record<string, { section?: string; path?: string }>; filename?: string };
   module?: number | null;
   module_name?: string | null;
   extract?: Record<string, unknown>;
@@ -21,15 +23,10 @@ export interface EndpointRunResult {
   response_headers?: Record<string, string>;
   errors?: string[];
   attempts?: number;
+  request?: Record<string, unknown>;
+  assertions?: unknown[];
+  extracted?: Record<string, unknown>;
   data_driven_results?: Array<Record<string, unknown>>;
-}
-
-export interface EndpointModule {
-  id?: number;
-  project: number;
-  project_name?: string;
-  name: string;
-  endpoint_count?: number;
 }
 
 export interface Scenario {

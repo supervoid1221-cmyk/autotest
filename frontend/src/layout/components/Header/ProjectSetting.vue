@@ -7,7 +7,11 @@
         <div class="justify-center drawer-setting-item dark-switch">
           <n-tooltip placement="bottom">
             <template #trigger>
-              <n-switch v-model:value="designStore.darkTheme" class="dark-theme-switch">
+              <n-switch
+                :value="designStore.darkTheme"
+                class="dark-theme-switch"
+                @update:value="designStore.setDarkTheme"
+              >
                 <template #checked>
                   <n-icon size="14" color="#ffd93b">
                     <SunnySharp />
@@ -267,7 +271,8 @@
         () => designStore.darkTheme,
         (to) => {
           settingStore.navTheme = to ? 'header-dark' : 'dark';
-        }
+        },
+        { immediate: true }
       );
 
       const directionsOptions = computed(() => {
@@ -290,7 +295,7 @@
       }
 
       function togTheme(color) {
-        designStore.appTheme = color;
+        designStore.setAppTheme(color);
       }
 
       function togNavMode(mode) {

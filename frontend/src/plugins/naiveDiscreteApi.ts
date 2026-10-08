@@ -26,7 +26,31 @@ export function setupNaiveDiscreteApi() {
         titleFontWeight: '600',
       },
       Tag: { borderRadius: '4px' },
-      Button: { borderRadiusMedium: '6px' },
+      Button: {
+        borderRadiusMedium: '6px',
+        // 与 App.vue 的 NConfigProvider 保持一致，否则弹窗里的按钮配色和页面对不上：
+        //   ① 深色下实心主按钮用白字（naive 默认给亮底配黑字）
+        //   ② 深色下文字形态主按钮用提亮主色（#2563EB 在深色面上只有 3.16）
+        ...(designStore.darkTheme
+          ? {
+              textColorPrimary: '#FFFFFF',
+              textColorHoverPrimary: '#FFFFFF',
+              textColorPressedPrimary: '#FFFFFF',
+              textColorFocusPrimary: '#FFFFFF',
+              textColorTextPrimary: '#79b8e8',
+              textColorTextHoverPrimary: '#9ccbf0',
+              textColorTextPressedPrimary: '#9ccbf0',
+              textColorTextFocusPrimary: '#9ccbf0',
+              textColorGhostPrimary: '#79b8e8',
+              textColorGhostHoverPrimary: '#9ccbf0',
+              textColorGhostPressedPrimary: '#9ccbf0',
+              textColorGhostFocusPrimary: '#9ccbf0',
+            }
+          : {}),
+      },
+      Pagination: designStore.darkTheme
+        ? { itemTextColorActive: '#79b8e8', itemTextColorActiveHover: '#9ccbf0' }
+        : {},
       DataTable: {
         thColor: '#F9FAFB',
         thFontWeight: '600',

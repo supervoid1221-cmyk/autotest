@@ -20,7 +20,7 @@
     <n-card class="record-list-card" :bordered="false">
       <template #header><span class="card-title">录制请求</span><span class="record-count">已解析 {{ records.length }} 条，已选择 {{ selectedCount }} 条</span></template>
       <template #header-extra><div class="table-actions"><n-input v-model:value="keyword" size="small" clearable placeholder="搜索名称或路径" /><n-select v-model:value="methodFilter" size="small" :options="methodOptions" class="method-filter" /><n-button size="small" @click="toggleVisible(true)">全选</n-button><n-button size="small" @click="toggleVisible(false)">清空选择</n-button></div></template>
-      <n-data-table striped :columns="columns" :data="filteredRecords" :row-key="(row: RecordedRequest) => row.record_id" :checked-row-keys="selectedKeys" :pagination="false" @update:checked-row-keys="updateSelection" />
+      <n-data-table :columns="columns" :data="filteredRecords" :row-key="(row: RecordedRequest) => row.record_id" :checked-row-keys="selectedKeys" :pagination="false" @update:checked-row-keys="updateSelection" />
       <n-empty v-if="!records.length" description="暂无录制数据。请粘贴插件导出的数据或导入 HAR 文件。" class="record-empty" />
     </n-card>
 
@@ -38,22 +38,24 @@
 </template>
 
 <script lang="ts" setup>
+import { asList } from '@/utils/list';
+
   import { computed, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
   import { NButton, NTag, useMessage } from 'naive-ui';
   import { useRoute } from 'vue-router';
-  import { EndpointModuleAPI, RecordedRequest, RecordingAPI } from '@/api/case_api/http';
-  import { ProjectAPI } from '@/api/project/http';
+  import { RecordedRequest, RecordingAPI } from '@/api/case_api/http';
+  import { ModuleAPI, ProjectAPI } from '@/api/project/http';
 
   defineOptions({ name: 'case_api_recording' });
   const message = useMessage();
   const route = useRoute();
   const recordingApi = new RecordingAPI();
   const projectApi = new ProjectAPI();
-  const moduleApi = new EndpointModuleAPI();
+  const moduleApi = new ModuleAPI();
   const fileInput = ref<HTMLInputElement | null>(null);
   const rawInput = ref(''); const records = ref<RecordedRequest[]>([]); const keyword = ref(''); const methodFilter = ref('all'); const saving = ref(false);
   const projectOptions = ref<any[]>([]); const moduleOptions = ref<any[]>([]);
-  function asList(payload: any) { return Array.isArray(payload) ? payload : payload?.list || payload?.results || payload?.data || []; }
+  
   const form = reactive({ project: null as number | null, module: null as number | null, conflict_mode: 'skip', create_scenario: false, scenario_name: '录制场景', apply_assertions: true });
   const conflictOptions = [{ label: '忽略已存在接口', value: 'skip' }, { label: '覆盖已存在接口', value: 'overwrite' }, { label: '创建接口副本', value: 'copy' }];
   const methodOptions = [{ label: '全部方法', value: 'all' }, ...['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((value) => ({ label: value, value }))];

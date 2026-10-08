@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from django.conf import settings
+from account.tenant_runtime import is_managed_storage_path
 
 
 UPLOAD_ROOT = (Path(settings.BASE_DIR) / "uploaded_ui_files").resolve()
@@ -15,6 +16,9 @@ def resolve_uploaded_file(file_id, project_id):
     except (TypeError, ValueError, UiUploadedFile.DoesNotExist):
         raise ValueError("上传文件不存在、已删除或不属于当前项目，请重新选择文件。")
     path = (Path(settings.BASE_DIR) / uploaded.stored_path).resolve()
-    if UPLOAD_ROOT not in path.parents or not path.is_file():
+    if (
+        not is_managed_storage_path(path, "uploaded_ui_files", tenant=uploaded.project.tenant_id)
+        or not path.is_file()
+    ):
         raise ValueError("上传文件已不存在，请重新上传后再执行。")
     return path, uploaded

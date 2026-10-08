@@ -55,7 +55,8 @@ export interface MonitorNotificationDelivery { id: number; channel_name?: string
 export interface MonitorServiceEvent { id: number; service: number; service_name: string; project_name?: string; status: 'up' | 'down'; message: string; response_time_ms?: number | null; occurred_at: string; }
 export interface MonitorServiceRecovery extends MonitorServiceEvent { alert_event_id: number; started_at: string; recovered_at: string; }
 
-export interface MonitorSnapshot { current: { up: number | null; cpu: number | null; memory: number | null; disk: number | null }; series?: Record<string, Array<{ timestamp: number; value: number }>>; }
+export interface MonitorMetricRange { rangeSeconds?: number; startTime?: number; endTime?: number; }
+export interface MonitorSnapshot { current: { up: number | null; cpu: number | null; memory: number | null; disk: number | null; disk_iops: number | null; disk_read_iops: number | null; disk_write_iops: number | null }; series?: Record<string, Array<{ timestamp: number; value: number }>>; range?: { start: number; end: number }; }
 export interface MonitorOverview { targets: Array<{ target: MonitorTarget } & MonitorSnapshot>; services: Array<{ service: ServiceMonitor } & ServiceSnapshot>; service_alerts: MonitorServiceEvent[]; service_recoveries: MonitorServiceRecovery[]; errors: Array<{ target_id: number; target_name: string; message: string }>; summary: { total: number; online: number; services_total: number; services_online: number; alerts: number }; }
 export interface MonitorAlertEvent { id: number; target: number; target_name: string; project_name?: string; alert_key: string; severity: 'warning' | 'critical'; status: 'active' | 'recovered'; metric_value?: number; threshold?: number; message: string; started_at: string; recovered_at?: string; }
 export interface MonitorCheckSettings {
@@ -95,7 +96,18 @@ export const MonitorAPI = {
   updateNotificationRule: (id: number, data: MonitorNotificationRule) => http.request<MonitorNotificationRule>({ url: `${base}notification-rule/${id}/`, method: 'put', data }),
   deleteNotificationRule: (id: number) => http.request({ url: `${base}notification-rule/${id}/`, method: 'delete' }),
   notificationDeliveries: () => http.request<MonitorNotificationDelivery[]>({ url: `${base}notification-delivery/`, method: 'get' }),
-  targetMetrics: (id: number, rangeSeconds = 3600) => http.request<MonitorSnapshot & { target: MonitorTarget }>({ url: `${base}target/${id}/metrics/`, method: 'get', params: { range_seconds: rangeSeconds } }),
+  targetMetrics: (id: number, range: number | MonitorMetricRange = 3600) => {
+    const options = typeof range === 'number' ? { rangeSeconds: range } : range;
+    return http.request<MonitorSnapshot & { target: MonitorTarget }>({
+      url: `${base}target/${id}/metrics/`,
+      method: 'get',
+      params: {
+        ...(options.rangeSeconds ? { range_seconds: options.rangeSeconds } : {}),
+        ...(options.startTime ? { start_time: Math.floor(options.startTime / 1000) } : {}),
+        ...(options.endTime ? { end_time: Math.floor(options.endTime / 1000) } : {}),
+      },
+    });
+  },
   overview: (project?: number | null) => http.request<MonitorOverview>({ url: `${base}dashboard/overview/`, method: 'get', params: project ? { project } : {} }),
   alerts: () => http.request<MonitorAlertEvent[]>({ url: `${base}alert-event/`, method: 'get' }),
   serviceEvents: (project?: number | null) => http.request<MonitorServiceEvent[]>({ url: `${base}service-event/`, method: 'get', params: project ? { project } : {} }),

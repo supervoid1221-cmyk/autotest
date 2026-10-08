@@ -1,6 +1,6 @@
 // app theme preset color
 export const appThemeList: string[] = [
-  '#5B6AF0',
+  '#2563EB',
   '#3E63DD',
   '#0091FF',
   '#1D9E75',
@@ -23,8 +23,8 @@ export const appThemeList: string[] = [
 const setting = {
   //浅色主题
   darkTheme: false,
-  //系统主题色 - Linear 风格靛蓝
-  appTheme: '#5B6AF0',
+  //系统主题色 - 与左侧菜单激活色保持一致的蓝色
+  appTheme: '#2563EB',
   //系统内置主题色列表
   appThemeList,
 };

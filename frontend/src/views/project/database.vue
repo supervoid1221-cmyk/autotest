@@ -1,5 +1,5 @@
 <template>
-  <n-card :bordered="false" class="proCard" title="数据库连接">
+  <n-card :bordered="false" class="proCard database-list-page" title="数据库连接">
     <BasicTable :columns="columns" :request="loadData" :row-key="(row) => row.id" ref="actionRef" :scroll-x="1120">
       <template #toolbar>
         <n-button type="primary" @click="openEdit(0)">添加连接</n-button>

@@ -71,10 +71,14 @@ def _check_services(settings):
 
 
 def run_scheduled_monitor_checks():
-    """Django-Q 每分钟调用；两类检查按平台配置的独立频率执行。"""
+    """Django-Q 每分钟调用；同时刷新 Appium 节点心跳。"""
     settings = MonitorCheckSettings.current()
+    from case_app.health import check_appium_nodes
+    from execution_control.dispatcher import dispatch_waiting_tasks
     return {
         "targets": _check_targets(settings),
         "services": _check_services(settings),
+        "appium": check_appium_nodes(),
+        "dispatched_tasks": dispatch_waiting_tasks(),
         "finished_at": timezone.now().isoformat(),
     }

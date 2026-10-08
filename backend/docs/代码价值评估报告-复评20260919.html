@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="yaRsWFWLcr6LM51nt1R1fk">
+<head data-page-node-id="AdTdf0Yj5OogclRLdFjgzZ">
+<meta charset="UTF-8" data-page-node-id="iBuhPQYvVTD4i73nznSw5F">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="d49mU7EqgmysgTIc0feZCM">
+<title>自动化测试平台 · 代码价值复评（2026-09-19）</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:#0d1117;color:#e6edf3;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.7;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1100px;margin:0 auto;padding:56px 32px 96px}
+
+  header{border-bottom:1px solid #21262d;padding-bottom:32px;margin-bottom:40px}
+  .eyebrow{color:#8b949e;font-size:12px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:14px}
+  h1{font-size:30px;font-weight:600;letter-spacing:-.02em;line-height:1.3;margin-bottom:16px}
+  .verdict{
+    background:#161b22;border:1px solid #21262d;border-left:3px solid #58a6ff;
+    border-radius:8px;padding:18px 22px;color:#c9d1d9;font-size:15px;line-height:1.75;
+  }
+  .verdict b{color:#e6edf3;font-weight:600}
+
+  h2{font-size:19px;font-weight:600;margin:52px 0 8px;display:flex;align-items:baseline;gap:12px}
+  h2 .num{color:#484f58;font-size:14px;font-weight:500;font-variant-numeric:tabular-nums}
+  .sub{color:#8b949e;font-size:13px;margin-bottom:22px}
+  h3{font-size:15px;font-weight:600;margin:26px 0 10px;color:#e6edf3}
+
+  .grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:24px 0}
+  .stat{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:16px 18px}
+  .stat .k{color:#8b949e;font-size:12px;margin-bottom:8px}
+  .stat .v{font-size:26px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .stat .v small{font-size:13px;color:#8b949e;font-weight:400}
+  .stat .n{color:#6e7681;font-size:11.5px;margin-top:4px}
+
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:13px}
+  th{text-align:left;color:#8b949e;font-weight:500;font-size:12px;padding:9px 12px;border-bottom:1px solid #21262d;white-space:nowrap}
+  td{padding:10px 12px;border-bottom:1px solid #161b22;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.num{font-variant-numeric:tabular-nums;color:#c9d1d9;white-space:nowrap}
+  code{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:12px;background:#1c2128;color:#79c0ff;padding:1.5px 6px;border-radius:4px;word-break:break-all}
+  .tbl-wrap{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:6px 10px;overflow-x:auto}
+
+  .tier{border-radius:10px;padding:20px 22px;margin:14px 0;border:1px solid #21262d}
+  .tier-a{background:#0f2419;border-color:#1f4d33;border-left:3px solid #3fb950}
+  .tier-b{background:#1c1a10;border-color:#4d3f1f;border-left:3px solid #d29922}
+  .tier-c{background:#1a1418;border-color:#4d2530;border-left:3px solid #f85149}
+  .tier .th{font-size:15px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .tier .td{color:#8b949e;font-size:12.5px;margin-bottom:14px}
+  .tier ul{list-style:none;display:flex;flex-direction:column;gap:11px}
+  .tier li{font-size:13.5px;color:#c9d1d9;line-height:1.65}
+  .tier li b{color:#e6edf3;font-weight:600}
+  .pill{display:inline-block;font-size:11px;padding:2px 9px;border-radius:20px;background:#21262d;color:#8b949e;font-weight:500;letter-spacing:.02em}
+
+  .risk{background:#1c1618;border:1px solid #4d2530;border-radius:10px;padding:16px 20px;margin:12px 0}
+  .risk .rh{font-size:14px;font-weight:600;color:#ff7b72;margin-bottom:7px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .risk .rh .lv{font-size:11px;padding:1px 8px;border-radius:20px;background:#f85149;color:#0d1117;font-weight:600}
+  .risk .rh .lv.mid{background:#d29922}
+  .risk .rh .lv.low{background:#6e7681;color:#e6edf3}
+  .risk p{color:#c9d1d9;font-size:13.5px}
+  .risk p+p{margin-top:8px}
+
+  .ok{background:#0f2419;border:1px solid #1f4d33;border-radius:10px;padding:16px 20px;margin:12px 0}
+  .ok .rh{font-size:14px;font-weight:600;color:#3fb950;margin-bottom:7px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .ok .rh .lv{font-size:11px;padding:1px 8px;border-radius:20px;background:#3fb950;color:#0d1117;font-weight:600}
+  .ok p{color:#c9d1d9;font-size:13.5px}
+
+  .note{background:#161b22;border:1px dashed #30363d;border-radius:10px;padding:16px 20px;margin:18px 0;color:#8b949e;font-size:13px}
+  .note b{color:#c9d1d9;font-weight:600}
+  .note .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:4px;background:#21262d;color:#58a6ff;margin-right:8px;font-weight:600}
+
+  .concl{background:#161b22;border:1px solid #21262d;border-radius:12px;padding:26px 28px;margin-top:16px}
+  .concl .big{font-size:17px;font-weight:600;color:#e6edf3;margin-bottom:14px;line-height:1.6}
+  .concl ol{margin:14px 0 0 20px;display:flex;flex-direction:column;gap:11px}
+  .concl li{color:#c9d1d9;font-size:13.5px}
+  .concl li b{color:#e6edf3}
+
+  footer{margin-top:56px;padding-top:22px;border-top:1px solid #21262d;color:#6e7681;font-size:12px;line-height:1.9}
+
+  .bar{display:flex;height:26px;border-radius:6px;overflow:hidden;margin:14px 0 8px;border:1px solid #21262d}
+  .bar div{display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:600;color:#0d1117;white-space:nowrap;overflow:hidden}
+  .lg{display:flex;gap:20px;flex-wrap:wrap;font-size:12px;color:#8b949e;margin-bottom:6px}
+  .lg span{display:flex;align-items:center;gap:7px}
+  .dot{width:10px;height:10px;border-radius:3px;flex:none}
+
+  .delta{display:inline-block;font-size:11px;padding:1px 7px;border-radius:4px;font-weight:600;margin-left:6px}
+  .d-up{background:#0f2419;color:#3fb950;border:1px solid #1f4d33}
+  .d-down{background:#1c1618;color:#f85149;border:1px solid #4d2530}
+
+  @media(max-width:760px){
+    .wrap{padding:32px 18px 64px}
+    h1{font-size:23px}
+    .grid4{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .stat .v{font-size:21px}
+  }
+</style>
+</head>
+<body data-page-node-id="9r0a41draA02UXCNIDtqF3">
+<div class="wrap" data-page-node-id="HJQOPDf5d6OQhxpn7QQMu2">
+
+<header data-page-node-id="QMbV1PbIwAO3X1bZNagszW">
+  <div class="eyebrow" data-page-node-id="cbrz65fF1Tj3UMSO27H48a">代码资产复评 · 2026-09-19 · 对比基准 2026-09-12</div>
+  <h1 data-page-node-id="lOY9ujEmiKXmv01b90UhTB">自动化测试平台 · 代码价值复评</h1>
+  <div class="verdict" data-page-node-id="gEZZHetXoDiSz0BKlEZ4Pt">
+    <b data-page-node-id="lCYTIcasBoyXtiv9raf1Ve">一句话结论：</b>技术含量没有变，<b data-page-node-id="gvFYsCzjQo21lH0Peuox2B">但资产成熟度明显上了一个台阶</b>。一周内上一版报告点名的两条「严重」折价项——
+    密钥明文与零版本控制——<b data-page-node-id="ed5vH2JB56xBgZXkgzQEat">一条已彻底闭环，另一条只解决了一半且形式更割裂</b>；
+    两个「中」级缺口（模板遗留页、无多租户）<b data-page-node-id="gFUi08gR2kBjHE1Bsrtbwq">全部关闭</b>，多租户已覆盖全部 12 个业务 app。
+    重置成本从 21–32 人月升至 <b data-page-node-id="fZJeNLgUok3riFfduWz7p1">23–33 人月</b>，增量来自新增的租户体系与翻倍的测试，而非代码膨胀。
+    <b data-page-node-id="Fbd4XKn7pICRCuxjMacaKG">现在最大的单点风险已经不是「代码值多少」，而是「在用的后端目录不在版本控制里，且仓库落后它 14,544 行」</b>——
+    这意味着最近一周最有价值的改动（多租户、模块共享）目前<b data-page-node-id="NrZsgax4EykcwZuc5ItNQC">只存在于一块磁盘上</b>。
+  </div>
+</header>
+
+<h2 data-page-node-id="kmxatD7HLsf5Wb9NR8AvCk"><span class="num" data-page-node-id="aTzl6IVDiTArO374wfmWEL">01</span>规模盘点（本次实测）</h2>
+<p class="sub" data-page-node-id="IBeIQko3E0dq6TyfLMuiVO">已排除 venv / node_modules / __pycache__ / 数据库迁移，以下均为手写业务代码</p>
+
+<div class="grid4" data-page-node-id="xxHCCszimOQa6kE6Ypc6BX">
+  <div class="stat" data-page-node-id="qqMOFDrBHT4iCE4zlhohOo"><div class="k" data-page-node-id="9GbwYjmtGcoZBsQl1Kh7PE">后端代码</div><div class="v" data-page-node-id="MAFjWLTG8WUqs7UGSoLuBJ">2.98万<small data-page-node-id="nEUMY2F7U8xJbBYiipGu4X"> 行</small></div><div class="n" data-page-node-id="YmmKpMRQQwjrOeGVRuZWoH">199 个 py 文件（不含迁移）</div></div>
+  <div class="stat" data-page-node-id="IL5iYBPPoq6PaRJiCoibqW"><div class="k" data-page-node-id="57N1QfzKeorfeIP36b0hhg">前端代码</div><div class="v" data-page-node-id="gGDlMwZdw8zkIC8575obu9">5.50万<small data-page-node-id="dQ8biAnAsIB2Z4azWCDGzl"> 行</small></div><div class="n" data-page-node-id="exlP5VKX9VuHFE5aE27NWL">106 vue + 171 ts + 10 less</div></div>
+  <div class="stat" data-page-node-id="DgOvfzRXqaHhZb6RUsfYPO"><div class="k" data-page-node-id="ADqjZ1Ly7TZ3yd5tXXqGHN">接口面</div><div class="v" data-page-node-id="CHPETsS8Vl4ZeyhBQ3k2DD">356<small data-page-node-id="Ir6afbWArKohc8XSYIwdQz"> 操作</small></div><div class="n" data-page-node-id="jPrRlGaE6N2keNR9MhymX2">198 路径 / 187 数据模型组件</div></div>
+  <div class="stat" data-page-node-id="V1biAbhu9W2f8DziiXLQAB"><div class="k" data-page-node-id="cxEb96j2Jprhc00bekoLzq">后端测试</div><div class="v" data-page-node-id="H0pSKMVyShxNN1LUHtcw5r">257<small data-page-node-id="MmHnYKnbwO5TUpEdYGWkuB"> 个</small></div><div class="n" data-page-node-id="vGtMxYoJq1qXA4Pp5sJxAZ">6,406 行 · 全绿 38.5s<span class="delta d-up" data-page-node-id="UcgL3WZpyBw0gTY4eS4IQZ">+67%</span></div></div>
+</div>
+
+<div class="tbl-wrap" data-page-node-id="l4MnvWhFVgccRBUeWAeFVN">
+<table data-page-node-id="hUFQYfPoGOg80T0cZN1z9q">
+  <thead data-page-node-id="DC0WCfamuOutD5VoptmAmZ"><tr data-page-node-id="v12bZaWDYpLOFfahEpoHRa"><th data-page-node-id="qibrana1lgxONcTwrptJ7x">模块</th><th data-page-node-id="eM2FUS725xnmwqIHsyDHQ4">行数</th><th data-page-node-id="iY2pUTPUDzoI4Le11D9QgA">文件</th><th data-page-node-id="BXWU7BHWKbFzMeayb98Rdl">定位</th></tr></thead>
+  <tbody data-page-node-id="mFsLh5oCVAgH93P07LW20s">
+    <tr data-page-node-id="4uxbzeV5MJuRvqHeAdkJXN"><td data-page-node-id="WO9TuK5KyAXYlHbf6AgFqt"><code data-page-node-id="H13cipPnSfptLt6m4Y6hQQ">suite</code></td><td class="num" data-page-node-id="IQGZ0vGDDNJsFXMqzvKEmk">5,446</td><td class="num" data-page-node-id="PsXxbZFkXHSFTC4Abykbnz">28</td><td data-page-node-id="ddXmVQ6YlxuNoNkfF0Lxn7">测试套件编排与执行（最大模块）</td></tr>
+    <tr data-page-node-id="SsT722pQ6iub521MKx4RmH"><td data-page-node-id="3g8uMPJdBTaRKd9Zxs62ls"><code data-page-node-id="LnhjJTI2eZsx87R03FQkuJ">case_ui</code></td><td class="num" data-page-node-id="NxCVapJjKyHLGmLVWB6Czw">4,794</td><td class="num" data-page-node-id="ClakTRrbx4M8p1JQUczKxB">17</td><td data-page-node-id="GQ8LKSZeUqU9trV8ZBAnFC">UI 自动化 · 含自研智能定位引擎</td></tr>
+    <tr data-page-node-id="26A1GQDaSHcNiGysawDcT8"><td data-page-node-id="rA9S3blyPlNYKO9qM29eAk"><code data-page-node-id="hQI3GWGvAE4i4xpTisRgpm">fullstack_framework</code></td><td class="num" data-page-node-id="292yVlqEBWu3f5rrbIBzq4">2,820</td><td class="num" data-page-node-id="mcTVDcEFLuNwl98x2NGhQE">17</td><td data-page-node-id="EwFzLVvGFnhF3MG8FH3Abe">核心框架层 · 断言 / 变量引擎</td></tr>
+    <tr data-page-node-id="ukeyGE45ljd8kLi3aHFUQD"><td data-page-node-id="1dVLW7SB2o8sqMsIQwE3fi"><code data-page-node-id="DOgzGGpGlMC3hJYZUzmzDI">project</code></td><td class="num" data-page-node-id="57c3Czytf8UHwy2Yf9REFn">2,801</td><td class="num" data-page-node-id="Xrasv47jPmNt4mPF3xMEHD">18</td><td data-page-node-id="rhRhO4fk0Abo88zNvxckUW">项目 · 环境 · 变量 · 函数沙箱</td></tr>
+    <tr data-page-node-id="9DjS2feHuLu1NT16bGtsSH"><td data-page-node-id="1OrFIPqY9seFOjCAWHHZSt"><code data-page-node-id="FhuhCvKZN31XxsJDrXVFLc">case_app</code></td><td class="num" data-page-node-id="pMYKcRW3Qe8AROnDzwR4Jk">2,351</td><td class="num" data-page-node-id="kmc1neAOj2tCc6W5JQorzU">13</td><td data-page-node-id="L9pXzQwES7UwgjN9FZigt5">App 自动化（Appium REST 自实现）</td></tr>
+    <tr data-page-node-id="KTPMLhPTFRrrKdfYUBzba4"><td data-page-node-id="kcf81ia95L38XpOxMx6LFJ"><code data-page-node-id="AtsaloT5DCOGhgi5MTjAbF">case_api</code></td><td class="num" data-page-node-id="lTCmSx1B9pQDknTQOjHe4p">2,075</td><td class="num" data-page-node-id="AMAO1DmJDp815IIB7qDDDd">12</td><td data-page-node-id="aoAQkKJWVybZQhkpQkxFcp">接口测试 · 场景流程编排</td></tr>
+    <tr data-page-node-id="p4rpdGqBecY743eZxb6eWv"><td data-page-node-id="EWrwCKsZAmJ8UdBbRCC2w9"><code data-page-node-id="XZbWXV4ZyV3pYhh7y8orfI">account</code></td><td class="num" data-page-node-id="VI4GLMy68e7IPuVPm5C9n1">1,942</td><td class="num" data-page-node-id="ztAY93ReTq5C9ATnDUpqs9">17</td><td data-page-node-id="ahoxIa6AELTUUFCr5CDDjl">账号 · <b data-page-node-id="1QD0A43lxw6lcqtC0Ru1w6">租户体系</b><span class="delta d-up" data-page-node-id="OSZVfU7IusSudLuPPlQUkK">+1,571 行</span></td></tr>
+    <tr data-page-node-id="4ssaEnbqhEEm4TnBq5fzi0"><td data-page-node-id="QtysO9uW7u3sBlFWAo4vPd"><code data-page-node-id="ata6TrfETSf549Ap5ZpFCn">execution_control</code></td><td class="num" data-page-node-id="n0OkFrYwxvEgdPnywLj5M1">1,699</td><td class="num" data-page-node-id="9WFs9asHnj4Gd34BHgnceZ">16</td><td data-page-node-id="UQrLp7MZvkXN1GFVV9zjqJ">任务调度 · Worker 心跳 · 故障恢复</td></tr>
+    <tr data-page-node-id="vWqfxFsxAibhaKGCtXGunF"><td data-page-node-id="tFXu61gVdUDdcBA9HqA8rr"><code data-page-node-id="YUWSjcUKsRi8qEzx367WBI">monitor</code></td><td class="num" data-page-node-id="Ry4YRb1fACNVrl72N9iZdq">1,668</td><td class="num" data-page-node-id="2fTOVHuogxDUsoIE6bNtRs">10</td><td data-page-node-id="Cf0r5KEMG1asnbG7wEEYuJ">监控告警（Prometheus 数据源）</td></tr>
+    <tr data-page-node-id="15CfPTbyzObGFklWkdqHeN"><td data-page-node-id="HOkKG5yqDw58coTZFVEBid"><code data-page-node-id="69hayIJHDvH6gDJpcuPanV">performance</code></td><td class="num" data-page-node-id="mELFAh0b9V6jZs0gGtKatv">1,665</td><td class="num" data-page-node-id="1s4vNAKX5EdnR3oByXOCQ8">15</td><td data-page-node-id="zaUgIIwWo7YcKfC9OltzTa">性能测试（k6 内核 + 自研聚合）</td></tr>
+    <tr data-page-node-id="ARtDXybteCrQSP9JcIhcoJ"><td data-page-node-id="m4jU8p6tABTkzCsNw26YOU"><code data-page-node-id="Te1aBYPsBVQAbUOCJ5WTZt">system</code></td><td class="num" data-page-node-id="f4AHqn2v5ZFVstQKZUf9xc">821</td><td class="num" data-page-node-id="q6n6l9jGIo6q8GwD5r40jB">12</td><td data-page-node-id="Dsvltr0p4EgE8KQfmRlvZe">服务器 / 数据库连接管理</td></tr>
+    <tr data-page-node-id="4XhFgrHGuwHShjBghsPy9m"><td data-page-node-id="lsGdKPdpkgC9fFNZVisTK2"><code data-page-node-id="Yp1fp3oPEHjqLhTBFfEpn9">Tesla</code> + 其余 3 个</td><td class="num" data-page-node-id="bJGP0kYtLfUFyjjsYoVUF4">1,055</td><td class="num" data-page-node-id="uE7Ur30tjvs1NVaMgWiHvN">21</td><td data-page-node-id="I05otbzsNlbHm1SVScDwjp">配置 · 模板 · AI</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note" data-page-node-id="t07i56160DEDEaIolwXlki">
+  <span class="tag" data-page-node-id="QlRQ2sDG9m7Z6SLfQg87e3">口径说明</span>
+  另有 <b data-page-node-id="rD64G2ZMmu02AEBjUCthYJ">6,145 行数据库迁移</b>（184 个迁移文件）未计入。迁移行数不直接等于价值，
+  但 184 次迁移说明数据模型经过长期迭代，不是一次成型。<br data-page-node-id="9ICUD8xDkUWLsuXMwBHWUr">
+  数据模型：<b data-page-node-id="YCdh2FTnMq72e2oCzWVos0">63 个 model 类</b>，落库 <b data-page-node-id="MxaBuKD5XkRc3S9gssrhmq">86 张表，其中 74 张非空（86%）</b>。
+</div>
+
+<h2 data-page-node-id="nR6ol8ro3W134pDCEoH6nU"><span class="num" data-page-node-id="ZXWeW12XjoXSceZJQnl6Mf">02</span>与一周前对比：哪些折价项被关掉了</h2>
+<p class="sub" data-page-node-id="WPy75V7alrQFJWN31EH93q">这是本次复评最重要的部分。上一版报告列了 2 严重 + 3 中 + 若干低，逐条核对现状</p>
+
+<div class="ok" data-page-node-id="xJNyno1sm8Gwlfr9BCKmdc">
+  <div class="rh" data-page-node-id="yb2X5LCx2XkSO41slNp9JC"><span class="lv" data-page-node-id="TOEzJBfAaxBON5rkght4tq">已关闭</span>严重 · 密钥明文存在于磁盘</div>
+  <p data-page-node-id="lwSZExHkuJHuUNkCwSVYQZ"><b data-page-node-id="ciuc7ldS7eT7ZSrDePC3pD">原问题：</b><code data-page-node-id="iwTVU1UUhaoRTXkuJDeVrY">aaa.py</code> 硬编码了一个真实格式的 API Key，<code data-page-node-id="lRtxT3e5MWhcIPJ9wsjW0F">.env</code> 里还有明文 <code data-page-node-id="ptphR2LDEAwOkkxyMyZtZF">DEEPSEEK_API_KEY</code>。</p>
+  <p data-page-node-id="gQT4OqWzaKcmDtDZLNd5Mv"><b data-page-node-id="8DbEYUnKTiqSeGYvp7W19f">现状（已核实）：</b>① <code data-page-node-id="0o5gRzf6xSdRGD8H4vHA0h">aaa.py</code> 已改为 <code data-page-node-id="E4ZOaGbJxM3ugM2s09CZfc">api_key=os.environ["OPENAI_API_KEY"]</code>，并留下注释
+  「不要在这里写死密钥：本仓库有 GitHub 远端，一旦 <code data-page-node-id="bPArymF280cBLc9qUujOBG">git add .</code> 就会把密钥推上去」；
+  ② 该文件<b data-page-node-id="POcUM3jkitsf5hLRHURVuw">未被 git 跟踪</b>，也不在 <code data-page-node-id="bk95tr6ia9CTQtC7heTLyj">origin/main</code> 中，从未被推送；
+  ③ <code data-page-node-id="zJYOFq0r8DpqEZNm9bxqMH">.env</code> 已被 <code data-page-node-id="FWUYWYxuKAKBEtag0Tpkul">.gitignore:123</code> 覆盖，同样未入库；
+  ④ 密钥已轮换（指纹由 <code data-page-node-id="KwqxK1e3H21Z98dpdfuD3K">sk-6d42…</code> 变为 <code data-page-node-id="TuMHV1HGfgoilM7MAC5KkB">sk-5b6…</code>）。
+  <b data-page-node-id="2KIbkSfldDYiGNbwbzPlNp">处置干净，可以销项。</b></p>
+</div>
+
+<div class="ok" data-page-node-id="DoyMfQSWFS5Xx00wnL1z49">
+  <div class="rh" data-page-node-id="m41eIP1JswRviLDz1ETnpi"><span class="lv" data-page-node-id="GkxBgNYfUe1NNh0LEoIudA">已关闭</span>中 · 约 29% 前端页面是模板遗留</div>
+  <p data-page-node-id="Ai3xssc9smmhsvhkw85CA8"><b data-page-node-id="JB40zDGysEyN3BD2utsrgT">原问题：</b>122 个 <code data-page-node-id="k05l2oXvQHexsADGf80Tt7">.vue</code> 里 35 个是 UI 模板自带的 demo。</p>
+  <p data-page-node-id="nqXG0JfuPejipbcGEVPtBL"><b data-page-node-id="KZ3LucOAGsvlOfLkT4UFbo">现状（已核实）：</b><code data-page-node-id="W9u7ZoUiINvDgpq31QMSBX">src/views/</code> 下的 <code data-page-node-id="VBaacAtuoNDYiqSbN8ZJ7m">comp/</code> <code data-page-node-id="5jdkioKxuTpoY7RigF3f5L">form/</code> <code data-page-node-id="jocIUYWrSqqXvZxYOoFEbF">list/</code>
+  <code data-page-node-id="S7GFmxUgkpDlJSpJWL4NA1">result/</code> <code data-page-node-id="40JBEBBiUkFIx0hYL4DZZS">setting/</code> <b data-page-node-id="xoaybgnMnVrpN6Hv0n9Xve">五个模板 demo 目录全部已移除</b>；
+  前端另有本地 git 提交记录 <code data-page-node-id="AiOdUHwxRFhFcDHSgbm7V9">refactor: 清理死代码，移除 46 个无引用文件</code>。
+  <code data-page-node-id="Ua3mtRJbgYIK0vnr9Wn7Hq">.vue</code> 总数由 122 降至 <b data-page-node-id="HE08aRnKLOikjcCJkrbQbo">106</b>。<b data-page-node-id="aVxR2KdGy3rpSDNRChabra">可以销项。</b></p>
+</div>
+
+<div class="ok" data-page-node-id="Iq03CEMlpMo15NBxE3wT36">
+  <div class="rh" data-page-node-id="60nwsKADuulPb3Ad0gdP6W"><span class="lv" data-page-node-id="H96HyxrJ5T0vN1nkPoFr3m">已关闭</span>中 · 无租户概念（原估 2–4 人月缺口）</div>
+  <p data-page-node-id="mVFV2pqLIs30OkUPF54D9L"><b data-page-node-id="gHC9DXcjtyeOsUf125Dr3d">原问题：</b>单团队自用模型，<code data-page-node-id="7EumvGdKXFodiH3TlDa9SR">account</code> 模块仅 371 行。</p>
+  <p data-page-node-id="SmSOolgrDiRh20ubDo8PkD"><b data-page-node-id="Qde8QB6rHeQNDhp5IfDAx1">现状（已核实）：</b>多租户已<b data-page-node-id="7PgHm3a9DEU2CFpevurp0H">全面落地</b>——独立的 <code data-page-node-id="PDvrV8cKuagFeuhvzO9acM">account/tenancy.py</code> 模块、
+  <code data-page-node-id="z01aDkyQs1pKqTrmAlygjc">TenantScopedViewSetMixin</code> + <code data-page-node-id="Qv9eIzhVzOAs2TRJvzAd6c">get_request_tenant()</code> + <code data-page-node-id="xrOBeqn6CAnk4AY8N7OlLo">X-Tenant-ID</code> 头，
+  覆盖 <b data-page-node-id="3k4BBUDIUwvRvQnKLGB0zv">全部 12 个业务 app / 26 个文件</b>；<code data-page-node-id="Kz3zjDVTqqup6q958I5HPj">tenant</code> 外键已加到各 app 的 model 上；
+  前端有 <code data-page-node-id="rXz0X0lYD4nKVquJqJHeqj">/system/tenant</code> 管理页；OpenAPI 里有独立 <code data-page-node-id="OEwm9AroC78dPy9VxuU3D8">Tenant</code> tag（12 个操作）。
+  <code data-page-node-id="eRpjkAnKQUwpXPFRRyhs2n">account</code> 模块从 371 行涨到 <b data-page-node-id="prMWurilCF6dFnPucgmZmR">1,942 行</b>。
+  磁盘上还留有 <code data-page-node-id="Nz2ivKj2sZfWEbRaPKDhZn">tenant_migration_manifest_20260913_190533.json</code> 与
+  <code data-page-node-id="VM5RIgziLFGxkGyh1cnpK7">_backup_tenant_migration_20260913_1853/</code>，佐证 9-13 做过一次真实迁移。<b data-page-node-id="jPfD7l2bBmo1TOhEDBMDjT">可以销项。</b></p>
+</div>
+
+<div class="ok" data-page-node-id="3akZq51ey8KQUxkSNrhMGs">
+  <div class="rh" data-page-node-id="ajQdtEzadMEHcPSgio1pBZ"><span class="lv" data-page-node-id="L0MWE2WniLmH2FGucMFr1x">已关闭</span>低 · 无跨机分布式调度（原估 2–3 人月缺口）</div>
+  <p data-page-node-id="u6TLFw9gPzr9BuyYUCycYq"><b data-page-node-id="5MDeZdTP9uIAj3TR5TOHit">现状（已核实）：</b>没有盲目开工，而是写了一份 <code data-page-node-id="UZ0N2ra9vfW9JfNAiJQ9Co">docs/调度水平扩展方案.md</code>（35KB）。
+  它用<b data-page-node-id="nV04T9c4ppsW99OduQLc1h">扫描线算法</b>还原了 87 条历史任务的真实并发，得出实测结论：
+  历史最大同时运行任务数 <b data-page-node-id="mX6zxxNuQSVXW3fzRxFV98">= 1</b>、队列等待中位数 0.2 秒、<code data-page-node-id="92oNCRbFlsHh7fHZ7avBBB">waiting_reason</code> <b data-page-node-id="m5wJ3Xlr3PEXsi6Utl4a6h">0 条</b>——
+  即从未因容量排过队。文档给出的结论是<b data-page-node-id="8POlPOHFgkMVFmd2S4SuGe">「你们现在不需要做这个改造」</b>，
+  并把它定位为技术储备，同时给出 4–7 天可落地的最小改造路径（容量改读心跳实测值 → 角色拆分 → 选主）。
+  <b data-page-node-id="Qad0sYikhWcgAAEcFeywDN">不建不需要的基础设施，且用数据证明——这比真做了更值钱。</b></p>
+</div>
+
+<div class="risk" data-page-node-id="q79JQaC7DAtfpJthKUYjiS">
+  <div class="rh" data-page-node-id="a215pz2CEDkxYMJmne2J3d"><span class="lv" data-page-node-id="QLAFCe8cwsRCNiOGzUTnNs">未解决</span>严重 · 版本控制：从「完全没有」变成「有，但割裂且后端未纳管」</div>
+  <p data-page-node-id="30GFi4J7lFEDgQnwSDELeC"><b data-page-node-id="CSsABHtuoDAElxAs6N9XP0">现状（已核实，三个副本互不同步）：</b></p>
+  <table style="margin-top:10px" data-page-node-id="wBfGyACPTlEqL6Yu7yDovF">
+    <thead data-page-node-id="eeNTPtXZ8Ghczj8FB7lMfM"><tr data-page-node-id="NKQYDiwtOCpmh6g820Sfaa"><th data-page-node-id="m4nI7ld69sE3CmGsH0T6as">位置</th><th data-page-node-id="iJxhCfwNXGT0sys48x7Y1D">版本控制</th><th data-page-node-id="Bci5lA86FYCw1yWmhQs6l1">最新改动</th><th data-page-node-id="4C1p3CHryUv6npkQp1zSlV">规模</th></tr></thead>
+    <tbody data-page-node-id="yHG0WibWMNqGwOA99khaZS">
+      <tr data-page-node-id="jBnkh9baHJXhq2ZaMpfapc"><td data-page-node-id="8uVgT99QyWbT5rfBPpVW9S"><b data-page-node-id="arE3EqDGc5gR136YCmgHeu">测试平台后端/</b>（在用）</td><td style="color:#f85149" data-page-node-id="NZ86EnBwmUeHQuWCo4u5UG">无 git</td><td class="num" data-page-node-id="n4SliX8iHp7TIir706185P">2026-09-19 18:11</td><td class="num" data-page-node-id="h6cg7m9VrPz7dZqxGImDg1">383 文件 / 35,968 行</td></tr>
+      <tr data-page-node-id="3SPHWmcZzzsB4CKtp2Z2Wk"><td data-page-node-id="xqjj0YTqGdEolbgxGu1INY"><b data-page-node-id="tZavQkLFq3JSwQET4i2uHU">测试平台前端/</b>（在用）</td><td style="color:#d29922" data-page-node-id="RcEWKDyv1KyF6MyE5lEOlv">有本地 git，3 commit，<b data-page-node-id="ByZupsNmdBBYCC4xbpksB5">无 remote</b></td><td class="num" data-page-node-id="y2C4cF931nSCdnCCpbmXCC">2026-09-19 18:18</td><td class="num" data-page-node-id="Yz28QSi93DRPHfp91SEG06">287 文件 / 55,015 行</td></tr>
+      <tr data-page-node-id="5r1vJSjbCOAagGzW6MPuN9"><td data-page-node-id="lnYOTerfpRvEECBEQWyY5n"><b data-page-node-id="Q6YAGC6iPGrieuwtvWAIkZ">autotest/</b>（GitHub 仓库副本）</td><td style="color:#3fb950" data-page-node-id="rM7otUR4QyLWUmxGoQ11fw">有 git，5 commit，已推 origin/main</td><td class="num" data-page-node-id="uWUxCCXv0MKjPYyTkNO5gV">2026-09-12 20:50</td><td class="num" data-page-node-id="UFTK5taahhS7VW5CUINYJ5">backend 258 文件 / 21,424 行</td></tr>
+    </tbody>
+  </table>
+  <p data-page-node-id="nO7HpEOADKtD1xD9dTLj9u"><b data-page-node-id="uLLysZX0WHdCNvjzDEs0qp">关键风险：</b>在用后端比 GitHub 仓库<b data-page-node-id="3iS6ZdvyLHeR7pzJydFusY">多 125 个文件、14,544 行（+68%）</b>，且落后 7 天。
+  也就是说——<b data-page-node-id="COJP7iAPAGfklCtIlXcmQE">多租户体系、模块共享改造、本周所有后端改动，目前只存在于这一块磁盘上</b>，
+  既没有历史、也不能回滚、更没有异地副本。对一份要评估或交付的代码资产而言，这仍是最重的一条折价项。</p>
+</div>
+
+<div class="risk" data-page-node-id="XJYlDFRuALWoFhRTXE2nnB">
+  <div class="rh" data-page-node-id="boEDjeqrTndvPFzGt9uiJw"><span class="lv mid" data-page-node-id="0zHUnjaAH8SpNuDDCnRFLS">中</span>类型安全：缺口比上一版报告<b data-page-node-id="XCFfWmwSB9k2CALmig9YZh">大一个数量级</b></div>
+  <p data-page-node-id="F29z65JlEHE3bNVrOfZvDk"><b data-page-node-id="fqTThisFRjDT40AwA1pwrI">上一版报告说「109 处 any」——本次实测该数字是错的（严重低估）。</b>重新按四种写法分别统计：</p>
+  <table style="margin-top:10px" data-page-node-id="PQjfkPoc1P3WQMwJ1T6UwI">
+    <tbody data-page-node-id="QklxSlfA1ZmeSqNw6k6eVb">
+      <tr data-page-node-id="pl8fJoW6EtlIMwhZ5rpZ1O"><td data-page-node-id="9JjPFvvXzhl99lCMjuf3Tb"><code data-page-node-id="HRQAgPniTGItnx8wqjhXWY">: any</code> 类型标注</td><td class="num" data-page-node-id="UguEaNlmyDg4FRUE9uNhR4">932</td><td data-page-node-id="dscUJe4Ehlg1CL63P7iFI2">单 <code data-page-node-id="VYfXTDhN7yFf5ycpGxyAoc">scenario_edit.vue</code> 就有 <b data-page-node-id="aHf6tdxIW9jEGaAP1UnErs">173</b> 处</td></tr>
+      <tr data-page-node-id="f9EWPZyeNMA5MT2FdmEYxt"><td data-page-node-id="4W6dGmBjmVr6oobxXwqThL"><code data-page-node-id="TZNu5KrhddjT9N0LUhgePo">as any</code> 断言</td><td class="num" data-page-node-id="xgbeEcGvZnXKXpxYy9vOwT">79</td><td data-page-node-id="t4MWOqEsZeN8tL1hv2hDsX"></td></tr>
+      <tr data-page-node-id="56Kb9vFZDSwcrmlPJu1cX1"><td data-page-node-id="WPHGGfdPDcO4GrMoABsoB3"><code data-page-node-id="CNk3KTIzNkqufcpqCsoDpi">any[]</code> 数组</td><td class="num" data-page-node-id="duVR7qL9SQn8LfTfbL1332">189</td><td data-page-node-id="ntAPznJNsLQSWv1MoW7zJJ"></td></tr>
+      <tr data-page-node-id="ca3vnGvha1XXHTuZzHwTts"><td data-page-node-id="W8tXWhFnvoWltflWbk2ls0"><code data-page-node-id="yDOBAHNtdRhqKfrBWbjr7Z">&lt;any&gt;</code> 泛型</td><td class="num" data-page-node-id="t8XB2ZU9DS8EncvJmoKAtb">79</td><td data-page-node-id="fHLdb8787LLTaxcavCibIU"></td></tr>
+      <tr data-page-node-id="AF1kVP8pgDCyowPKyRnN2F"><td data-page-node-id="PIlaN5t2s2iOK8CngQJBeE"><b data-page-node-id="r3jVWGUd05WrZeiDlpClwa">合计</b></td><td class="num" style="color:#ff7b72" data-page-node-id="wAXcTCsSbAKungObtHD36J"><b data-page-node-id="TEopuPXFNOrngc7pMEx7lj">1,279</b></td><td data-page-node-id="s85BeXzfrmHwgAa3lV7cjN">涉及 125 个文件</td></tr>
+    </tbody>
+  </table>
+  <p data-page-node-id="1XY2L6DZkDDuV1KAi9u7wf"><b data-page-node-id="pBa5j4kT2GrGhsPixmCMSB">且阻断机制仍未建立：</b><code data-page-node-id="rTw2LMFbECtAdgkAoCMuHM">package.json</code> 的 <code data-page-node-id="YfIUyBkKWGxjB23fyBJBMy">build</code> 脚本仍只是 <code data-page-node-id="L9VwGSzuGDXd4MHLHht07W">vite build</code>，
+  <b data-page-node-id="U9lgS6YRUQrAufmcg5tZVM">没有 <code data-page-node-id="rBjsADVUuphgJPKBhAUy6F">vue-tsc</code></b>；<code data-page-node-id="SdLSmmxXYTCEc6VzZoEQFJ">tsconfig.json</code> 仍为 <code data-page-node-id="SeBsM8tb4EqiyKTDZdIAON">noImplicitAny: false</code>、
+  <code data-page-node-id="PbFtmWNshYEVO11LkPo6gh">strictFunctionTypes: false</code>。所以这 1,279 处 any 不会阻断任何一次构建，可以无限增长。</p>
+</div>
+
+<div class="risk" data-page-node-id="VYZHn8fsHi1q4SeHNEg7zA">
+  <div class="rh" data-page-node-id="i2Hsu7KGyOooWwfRVJt2pT"><span class="lv mid" data-page-node-id="z79iPCzxCMTLPSzn5Zf1ML">中</span>超大文件与压缩代码（未改善）</div>
+  <p data-page-node-id="HLTj2cqENxEWnRii02H8eQ">前端<b data-page-node-id="tzNi1zFiO1zSCDdSOaAico">19 个文件存在超过 1,500 字符的单行</b>，最长 <b data-page-node-id="mxYlcB9CDqHAFPg6mA8YY7">9,271 字符</b>
+  （<code data-page-node-id="gGbLcdQRNvWrIkBxMxeVZ9">views/monitor/overview.vue</code>，其次 <code data-page-node-id="sSnXb28zAGiPAYXz170w9b">case_app/case_edit.vue</code> 8,254）。
+  源码被压成一整行后，Code Review、diff、合并冲突都基本失效。
+  后端 <code data-page-node-id="606Nq1SYyKWpvLroHG0BmF">case_ui/smart_locator/engine.py</code> 已达 <b data-page-node-id="v8W64FAzlQT2G2cupakIhL">66KB</b>，
+  <code data-page-node-id="gwu1J1qYgdddhxEjVyEtXm">suite/models.py</code> 的 <code data-page-node-id="BI2eBpbeJRv1L5lPgLxBri">run()</code> 单函数仍约 447 行。</p>
+</div>
+
+<div class="risk" data-page-node-id="9E7At6muib1GkhUmzIL0SN">
+  <div class="rh" data-page-node-id="o6LPucXzDKU4KcMlrl6zmo"><span class="lv low" data-page-node-id="cRvoEiIXLE7KaXLlvE88Tk">低</span>其他技术债（部分未动）</div>
+  <p data-page-node-id="u5Bhnq9LIoszTal6Cf7Sfl">① 后端 <b data-page-node-id="1jFaIMpR3wIyv4qKboGu1F">121 处 <code data-page-node-id="Zy1DFDli1bFW0PHzI5Ob1f">except Exception</code></b>，其中 <b data-page-node-id="4GL5aTQ9ZSqu10LAPmQQ6p">16 处直接静默 <code data-page-node-id="SvX2TbNJxQj4EcngowkkGk">pass</code></b>——故障会被吞掉，难以定位；<br data-page-node-id="toCQTNACDAEAyaeGMcO1mX">
+  ② <b data-page-node-id="LwQhPuGweA7Hy3VhaApshF">前端测试几乎为零</b>：<code data-page-node-id="EzmaZXHSWkMpglOeHgSzhI">src</code> 下测试仅 256 行 / 1 个文件，而后端有 6,406 行 / 257 个测试，严重不对称；<br data-page-node-id="dKG5JYzHAANWyo0tvm8Sj9">
+  ③ 仓库根目录残留 <code data-page-node-id="9FiXHrGLWGKX4DaCB9utxR">.codex_tmp/</code>：含 7 个版本的 <code data-page-node-id="RvTvBsBCBvn6SXRQ2WYx2C">rendered_monitor_manual</code>、
+  47KB 的 <code data-page-node-id="e7c2BWolNBITptLv7j5wmW">build_epay_testcases.mjs</code>、35KB 的 <code data-page-node-id="qG0hUtUdrDWBbbUYlWHfQe">epay_doc.json</code>、
+  以及一个指向全局缓存的 <code data-page-node-id="L0ZPRJ5XslCeeWbng5JM6W">node_modules</code> 软链——属构建垃圾混入源码树；<br data-page-node-id="FIxFH6HvrkLBmzy6QUm2FW">
+  ④ <code data-page-node-id="KOGSBA6mL9dZuwhEvj10GX">ai_assistant</code> 仍仅 96 行，是 DeepSeek 的<b data-page-node-id="GTxzrI7fLAbHJNxQ9mgQ9D">薄转发</b>：无平台上下文注入、无工具调用。
+  前端 AI 洞察已接入执行报告，但「AI 驱动测试」这个差异化并未真正做出来。</p>
+</div>
+
+<h2 data-page-node-id="rPxif21het1DOxXd82rfP5"><span class="num" data-page-node-id="9jEq9LLHrqY50DemoKiO04">03</span>技术含量分层</h2>
+<p class="sub" data-page-node-id="AHB5CqAKohvx8u9MsmtXNE">同样 8 万行代码，含金量差异可以到 10 倍。这一层判断与上一版一致，未发生变化</p>
+
+<div class="bar" data-page-node-id="96pUIKkizkB1Use1DXnTyq">
+  <div style="width:34%;background:#3fb950" data-page-node-id="jEHvwWspLisYLqwjle6grE">真自研 34%</div>
+  <div style="width:31%;background:#d29922" data-page-node-id="6fFGpxH8fd44WSfxkxQu8t">半自研整合 31%</div>
+  <div style="width:35%;background:#6e7681;color:#e6edf3" data-page-node-id="cWqvTKDq14LpxrDRCKk25f">依赖外包 / 胶水 35%</div>
+</div>
+<div class="lg" data-page-node-id="5jmvo1UnibkwheyKCEFdXz">
+  <span data-page-node-id="6FMrCZCFPKCH2SyOc6GJbT"><i class="dot" style="background:#3fb950" data-page-node-id="09pxCcKAxNnj4UxafwEqqb"></i>真自研 — 自己解决的技术难题</span>
+  <span data-page-node-id="MeuSaYaA4QY8ejecJE62n2"><i class="dot" style="background:#d29922" data-page-node-id="fxxaQDcphGal7W3BpijK5l"></i>半自研 — 在开源内核上做实质改造</span>
+  <span data-page-node-id="JO4RHFuzlFNfbtpm3zDMJj"><i class="dot" style="background:#6e7681" data-page-node-id="QzZPTw08plxsemiXmabTMM"></i>胶水 — 包一层或直接调用</span>
+</div>
+
+<div class="tier tier-a" data-page-node-id="8i1ASJ9gByAvTai8e8IsS9">
+  <div class="th" data-page-node-id="hEwGt8uqcuMOkXIeT23V9u">第一层 · 真自研 <span class="pill" data-page-node-id="WkBCtmDafVTQJc2D6NP1sF">护城河在这里</span></div>
+  <div class="td" data-page-node-id="ISAZEF2NFs5j0dW3Ei3FD4">解决了非平凡的技术问题，且有非平凡的算法或状态机</div>
+  <ul data-page-node-id="DdGPmBf1caXacTThfOeGbU">
+    <li data-page-node-id="CKxEfubT6KGutEEuYS2MqJ"><b data-page-node-id="EvvsD9C3LTyYoTbmV9jdXq">UI 智能定位引擎</b> <code data-page-node-id="icwZOHThSCwjZQDcDPZ8r1">case_ui/smart_locator/engine.py</code>（<b data-page-node-id="JRO5Hy7DtARWCtfbJna7ub">66KB</b>，全项目最大单文件）——
+    编辑距离模糊匹配、DOM 作用域隔离、跨 UI 框架弹窗识别（同时兼容 dialog / ant-modal / el-dialog / v-dialog / drawer）、
+    按列名匹配表格行、滚动区域搜索、UI 过渡状态等待；<b data-page-node-id="1B8AkKkq1hY6boLDcPLzvq">11 种回退策略加权评分 + 歧义保护</b>。</li>
+    <li data-page-node-id="sDw62UWaoM6f8vEUuSAikd"><b data-page-node-id="9JqYG5PA7FyzbpcbZKNyF0">定位自愈能力</b> <code data-page-node-id="YBTUFXH95EGxU1bRk1Hxh9">smart_locator/fingerprints.py</code> —— 定位成功的元素生成可复用表达式并持久化指纹，
+    后续失败时先走指纹回退。<b data-page-node-id="mlHOgIMqoR7nLbHh6yJEsK">这是商业 UI 自动化工具的收费卖点，这里自己做出来了。</b></li>
+    <li data-page-node-id="xq2vecpMBjPZ6bK5CiCm4V"><b data-page-node-id="2Eu2KofkERvYeDDWlUk89x">断言与变量引擎</b> <code data-page-node-id="rC3M9iDa3Cv69I6BbjNj9l">fullstack_framework/commons/api_executor.py</code> ——
+    自建 <code data-page-node-id="TERC1GbEdmTuwEHb0cMPc8">${}</code> / <code data-page-node-id="H59FfwBcJDInU79Fq1ImUw">{{}}</code> 双语法变量解析、15+ 提取器白名单、轮询与失败重试状态机，不是包 requests。</li>
+    <li data-page-node-id="NSHyfSnaixy1rW2NgZzMEq"><b data-page-node-id="0UVESDFhHEK9pirYVOW8nL">任务调度与故障恢复</b> <code data-page-node-id="ts42BdENuHfMRS3nQvhyKY">execution_control/dispatcher.py</code> ——
+    基于 <code data-page-node-id="ZLnK779S2uJpbo43yu8JgS">select_for_update</code> 的 FIFO 资源预留、资源冲突检测、Worker 心跳存活判定、离线任务自动恢复。</li>
+    <li data-page-node-id="HQnslcub12EctKRunb5o5N"><b data-page-node-id="gAN5Y9RPnbWU7HrxYW4DS5">动态函数安全沙箱</b> <code data-page-node-id="APdDOib1vfdZcP4qG3bAY3">project/function_sandbox.py</code> —— AST 白名单 + <code data-page-node-id="LzHVPMzi6uQMlOvNijQb4c">resource</code> 限额，
+    且独立跑在 <code data-page-node-id="9QBX5JSaXenGN1UPBGtLfg">network_mode: none</code> / <code data-page-node-id="B5LtKG4opM0VJJecFxj8Ne">read_only</code> / <code data-page-node-id="ABzyItBQxifseHyRtir7WB">cap_drop: ALL</code> /
+    <code data-page-node-id="5ukVArBkGkQlk3nQ83rPTZ">pids_limit: 32</code> / 非 root UID 的容器里。<b data-page-node-id="DWcEyz0QpNyM4fvNx7gkRQ">安全设计有诚意。</b></li>
+    <li data-page-node-id="DLGuug6TDGNW8JmEwk1D2a"><b data-page-node-id="ASA1hT0Me8dq8wH51Z3bgE">密钥轮换</b> <code data-page-node-id="NU47GZWlVoT4eCQrab3OXQ">Tesla/encryption.py</code> —— MultiFernet 多密钥，首密钥负责写、其余用于读历史密文，
+    不是简单 AES 一把梭；且有配套的 <code data-page-node-id="WbqtRYY32hRaUDvm8Qh1ve">rotate_data_encryption --dry-run</code> 运维命令。</li>
+  </ul>
+</div>
+
+<div class="tier tier-b" data-page-node-id="tUYtSLUEdK2Rf3JruW7feN">
+  <div class="th" data-page-node-id="fyP0KxGdmBJGvDTyQJ1KkN">第二层 · 半自研 <span class="pill" data-page-node-id="WvEmSPYIRHDj68w7lJsVHc">在开源内核上做了实质改造</span></div>
+  <div class="td" data-page-node-id="2L0FQYYLdKEyPpO7DaOvPX">底层能力来自第三方，但上层有大量自研改造</div>
+  <ul data-page-node-id="EJYMhnNwDao3ESZ7Oirt7H">
+    <li data-page-node-id="PPjGZv6GP5Wq3YRIdvnu7B"><b data-page-node-id="JTrQYp0x2zvkUZkAYSKvED">Playwright 执行器</b> <code data-page-node-id="tHVKaJrZfYtVLMgAOwh4Qx">case_ui/playwright_executor.py</code>（1,027 行）——引擎是 Playwright，定位回退、自愈锚点、OCR 兜底是自己加的。</li>
+    <li data-page-node-id="6Wiyx2W1wTCYv9nFGGFCNR"><b data-page-node-id="wjaDlVfnFcwnOuom0XmIEz">统一执行编排</b> <code data-page-node-id="xoqQLCrAb40B3dRYTHx7T9">suite/models.py</code> 的 <code data-page-node-id="KRrBrUxFjNj6xK4GLRzGiC">Suite.run()</code> ——支持 API / UI / Playwright / App 四类步骤交错执行、变量优先级、失败重试、<code data-page-node-id="aUavEwIeesCGjDsR2y64rT">continue_on_failure</code>、DDT 数据驱动、条件分支、cron / webhook 触发。</li>
+    <li data-page-node-id="OG2D0tbRnaPx4A1SNjqRDK"><b data-page-node-id="KokAkOSDX7B6fgZRAFJ2Dx">性能测试</b> <code data-page-node-id="zmvfQ1BQAgENnhnvTbs455">performance/runner.py</code> ——压测内核是 k6 二进制，但 k6 脚本由自研代码生成，且自研了 5 秒桶聚合、p50–p99 百分位、实时增量消费。</li>
+    <li data-page-node-id="NhcFkPa4CcNYHFuVF0hTPh"><b data-page-node-id="AGNTOjO1G18wMeLnAU6B9Y">Appium 客户端</b> <code data-page-node-id="wd1D2wdrsPzqfEGm2KUGc2">case_app/appium_client.py</code> ——手写 Appium REST 协议调用，非官方 SDK。</li>
+    <li data-page-node-id="8S8cVWllMpEzHCL6K5Xshm"><b data-page-node-id="ufua2zFNhrJdWwtuqIgz9C">监控告警状态机</b> <code data-page-node-id="uZWgQ8wmvRMIKF47dMuUGJ">monitor/services.py</code> ——数据源是 Prometheus HTTP API，但 warning / critical / recovered 状态流转与去重是自己写的。</li>
+    <li data-page-node-id="EY3S4VkmKCOWIkJEWwfE0f"><b data-page-node-id="nUICF02POEuQvePsLl1bh7">环境认证</b> <code data-page-node-id="DHboGmAUoEeQJGeT6kU6QZ">project/models.py</code> ——自动登录 + Token 缓存 + 跨进程文件锁（<code data-page-node-id="L8yyTDcIvvY3NI4NGgU2Ww">runtime_auth_locks/</code>），解决并发执行时重复登录的真实痛点。</li>
+  </ul>
+</div>
+
+<div class="tier tier-c" data-page-node-id="7qi7SiUWi4M9IyEXC0HGDN">
+  <div class="th" data-page-node-id="C93uGmaTj2B3fnvflITRm2">第三层 · 胶水与外包 <span class="pill" data-page-node-id="UPDBMVOkcpjIgPtVBMnAt8">价值在于整合，不在于技术</span></div>
+  <div class="td" data-page-node-id="JLaM72HC6INimYZOpFXc9B">「把它们接起来」的工程劳动，可替代性高</div>
+  <ul data-page-node-id="deuzTbHjikmbGDqjHvXLe8">
+    <li data-page-node-id="f3L7dLIUAwAu8CXqEWIddA"><code data-page-node-id="4gX6aIsZMVv6iGdRV8uXvv">fullstack_framework/commons/session.py</code> ——<code data-page-node-id="AvioJ6GeZb5ILjCZ2HntmK">BeifanSession(requests.Session)</code>，本质是包了一层 requests。</li>
+    <li data-page-node-id="2GqxaOZ6mnNUj8o9K9FSZ9">套件执行依赖 <b data-page-node-id="zd6UcdblfhL1W0gD2Bl0ob">pytest 子进程</b> + <b data-page-node-id="YbHRQpWdtwbcmDyOxRABqA">Django-Q2</b> 队列，没有自研执行器。</li>
+    <li data-page-node-id="mGZk4jAzwqfrL7dSYonW4A">压测依赖 <b data-page-node-id="QoPc14LDaRbzhwKaFtj61y">k6</b> 二进制；监控依赖 <b data-page-node-id="U1kSWsL1QLI9ysmAXL8CcX">Prometheus / node_exporter</b>。</li>
+    <li data-page-node-id="y8uJC3sYXVOMoSm6zB1HYR"><code data-page-node-id="BPdrxzexljAHtKtFJlwp4O">ai_assistant</code> 仅 96 行——真接了 DeepSeek，但是薄转发。</li>
+    <li data-page-node-id="4Nxa3PFmEukNqJ4f6YulNz">前端脚手架来自 MIT 许可的开源模板 <code data-page-node-id="ZqXY2UHrnC46vkVNtEHBQF">naive-ui-admin</code>（<code data-page-node-id="r5C9x3GuwlEOu8NVuIDW5m">package.json</code> 仍保留原作者与仓库地址）。
+    <b data-page-node-id="JA4MyZtW3TsOjFjHdL0eUl">这部分是「合法可用」但「非原创」</b>——布局、通用组件、Table/Form 封装都不是自研，评估时应当扣除。</li>
+  </ul>
+</div>
+
+<h2 data-page-node-id="hAkGPCqpYTfd1fPPXGa6iM"><span class="num" data-page-node-id="Ux0lMpilp16NpAiGklLFqp">04</span>完成度与真实使用证据</h2>
+<p class="sub" data-page-node-id="4SjyYGdbvkF5H36OCKzcP5">代码写得再多，跑不起来就是零</p>
+
+<div class="tbl-wrap" data-page-node-id="opAna0Rrthh0koGfXScaFw">
+<table data-page-node-id="pkGG9sZG8BcDqdJ13YHQMs">
+  <thead data-page-node-id="ZFXrZKpJmhpjY9bGyWRHvx"><tr data-page-node-id="pj7GJmRGzgKUWibOJXiywC"><th data-page-node-id="emFhcHEWQLgAy93CNYM2uT">证据</th><th data-page-node-id="oATBnycwrVbwIoj6akrEAi">本次实测</th><th data-page-node-id="R3oyZWFDT1dMQOuimgdFIj">含义</th></tr></thead>
+  <tbody data-page-node-id="1bkkAT4vz5eIrw6OUs4Bx9">
+    <tr data-page-node-id="nvKFiLjSINFbVDinAltRW9"><td data-page-node-id="xn6iHbO9vCS55ZMwcdYVCB">后端测试</td><td class="num" data-page-node-id="wG2pKudqD5eDcskseDuzgp">257 个全绿 / 38.5s</td><td data-page-node-id="wL0vkCkf3nIfgnFRqVERtb"><code data-page-node-id="tWG4GUasbuBKsFuo32tcz4">manage.py test</code> 无 skip、无失败<span class="delta d-up" data-page-node-id="HFxCMCoXogja8ZEEvhSj0Q">+67%</span></td></tr>
+    <tr data-page-node-id="NCOG8CHE0nLW2PT2dJq6GO"><td data-page-node-id="E2wyvCJrMDiTuLIYsNYpQ3">数据库真实数据</td><td class="num" data-page-node-id="ofekm9kpaQXqfBrHzB92Py">74 / 86 张表非空（86%）</td><td data-page-node-id="TbvdRyYRyDy3ChwE03YA6z">不是空壳项目</td></tr>
+    <tr data-page-node-id="6pO6GDVpoOIzXn61nu4Ekh"><td data-page-node-id="C3NHE1TZfIkCN09xRA1fAL">执行任务记录</td><td class="num" data-page-node-id="4CuyQGxR6cEJAeJIuk3DNx">80 条</td><td data-page-node-id="EzOsRrEHYhZeyBWD5RTHUc">调度链路真的跑通过</td></tr>
+    <tr data-page-node-id="SVy6Jxf47IcGAmNhYzW6Dh"><td data-page-node-id="OcTxSH5lhluUvdlgwY2sgC">套件运行结果</td><td class="num" data-page-node-id="nyOtYcdrSvGgSF99kv7vUF">66 条</td><td data-page-node-id="p0IdTQTgYNE77rRYi2oxHL">编排能力被真实使用</td></tr>
+    <tr data-page-node-id="hHfsPRANetzPsKUGts5x98"><td data-page-node-id="lrjDyk0YKwECMoqw368LCh">Playwright 步骤</td><td class="num" data-page-node-id="m68k6IDHaSjnBr63ndwhC0">73 条</td><td data-page-node-id="KOi8DZk5ScOxo3F6BE2fTf">智能定位引擎有真实执行痕迹</td></tr>
+    <tr data-page-node-id="11A2NQc5yuBkhxr5GhuNkL"><td data-page-node-id="A33MWJqhfpTJm601rpF5J1">性能指标桶</td><td class="num" data-page-node-id="cHGs16OkAWPGB6K2p7dzjE">218 个</td><td data-page-node-id="6cR3zwj7J5lDPG089U3ivy">压测与聚合链路完整跑通</td></tr>
+    <tr data-page-node-id="aAEhwCChCsKQtUj122hYBH"><td data-page-node-id="FN6Fo301mIjoOGdCG3iiqP">任务队列活动</td><td class="num" data-page-node-id="CmcN8EM9EuuXNzKolDDPyr">252 条 <code data-page-node-id="0yBsSL6lbBk1v2Fwr7ySqe">django_q_task</code></td><td data-page-node-id="abrSlh8N15JUydawzB6Bwr">调度器长期在跑</td></tr>
+    <tr data-page-node-id="CaAxWeJIJJPUpNLaOalSSw"><td data-page-node-id="n5DfxwtjeWWGGCcVlwPbqX">接口契约</td><td class="num" data-page-node-id="dh0JCprSYJKhsjQaTRVxgM">198 路径 / 356 操作</td><td data-page-node-id="48R3DPovP5SPnCqCxGi26b">drf-spectacular 生成的 OpenAPI 完整可用</td></tr>
+    <tr data-page-node-id="jVJyU2oRWioSQJFeGt0cqc"><td data-page-node-id="0skdUav3B1MfWj2Nnyieke">生产部署编排</td><td class="num" data-page-node-id="at9xMDN5qgK1UNtxl6f03b">5 个服务（1 个为强隔离沙箱）</td><td data-page-node-id="aJN2st5Z6SRvTMVvmlyBHR">backend / scheduler / performance-worker / function-worker / nginx</td></tr>
+    <tr data-page-node-id="5BidXvS5TxH2DyS9aHlER1"><td data-page-node-id="AR6w2gUtmToHH0YQbFS2df">运维文档</td><td class="num" data-page-node-id="E8QtFT95HWiwxyF0rWOPFz">8 篇 / 约 95KB</td><td data-page-node-id="fosDz9qjc14CbEIOAxk6z3">部署、迭代、回滚、动态函数隔离、调度扩展、App 测试<span class="delta d-up" data-page-node-id="oRLEhWvPvCDXUdEdKIWwHV">+3 篇</span></td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note" data-page-node-id="h7lQeXRFiC4VRo7uXz1Aip">
+  <span class="tag" data-page-node-id="JSjTwWqWCtPrjRLoJW6GI1">值得单独说</span>
+  <code data-page-node-id="uYxwW7z1cExzoiPwo1tYIq">Tesla/settings.py</code> 是全项目最能体现作者水平的一个文件。它做了很多「普通项目不会做」的事：
+  ① 用显式 <code data-page-node-id="GO0xiLsscDwAhPxNRTtWqy">DJANGO_ENV</code> 而非隐式推断 DEBUG；
+  ② 生产环境<b data-page-node-id="NuuuYN4ZWQJFHtH9pVw6xI">主动拒绝启动</b>——弱密钥（&lt;50 位）、空或通配 ALLOWED_HOSTS、开启 DEBUG、全开放 CORS，任一命中即抛 <code data-page-node-id="MOTfTt34XKMWCspCKN1Lkr">ImproperlyConfigured</code>；
+  ③ 生产默认关闭 OpenAPI 文档；
+  ④ Django-Q 的 <code data-page-node-id="YZDV454bBAt3sQUj7Mwa1X">retry</code> 必须大于 <code data-page-node-id="YF9oKzUkGdBybAWhqksdd5">timeout</code> 并<b data-page-node-id="jvLbAKvMPDjFi6uYIGzTpR">写了注释解释为什么</b>（否则长任务会被重复投递、同一设备被重复占用）；
+  ⑤ 显式修正时区为 <code data-page-node-id="4uhbCrCYDCqgSdRmrKB1Cc">Asia/Shanghai</code> 并注明是为了避免默认 <code data-page-node-id="JIE8iwAWWCFmG94fnHO1Db">America/Chicago</code> 造成触发时间偏移。
+  <b data-page-node-id="Qg8gWjfRWFJJRnqjA7lUl3">这些是踩过坑、并且踩过之后把坑写进配置里的痕迹。</b>
+</div>
+
+<h2 data-page-node-id="PKOxgBpf8Mmjo9UaQRCIer"><span class="num" data-page-node-id="2HiPug2ibNAIyApWZrHHhs">05</span>价值估算</h2>
+<p class="sub" data-page-node-id="qilZnXVBkcktR3fhx0rN6l">沿用「重置成本法」：把这份代码从零重做需要多少投入。这比拍一个金额更有依据</p>
+
+<div class="tbl-wrap" data-page-node-id="jDUFuNxFEfBLiBXmHvYO5H">
+<table data-page-node-id="AoMQDgifF7iqPp8gMqqz6F">
+  <thead data-page-node-id="CfqxKuEpWs0lrBJJJEsir1"><tr data-page-node-id="DwEAjJ4fr6ZkoBZ9e0ZGN9"><th data-page-node-id="e7VSc13M6y7RT01qLTDwCi">估算步骤</th><th data-page-node-id="tXXOtPjY20McmN6tXq86El">口径</th><th data-page-node-id="qa1VzEOQnEIocvvaV15kpp">结果</th></tr></thead>
+  <tbody data-page-node-id="IgBrGpo65jVdBzXxlWesXX">
+    <tr data-page-node-id="gjEBZ5aDfS5PPSJ2nnVxUd"><td data-page-node-id="9AThYkZcgYuJQnTye6S9Sh">① 代码总规模</td><td data-page-node-id="mIJFC4o1V8VqEFX6k2FVWU">前后端手写代码（实测）</td><td class="num" data-page-node-id="Hg9q8RyE8gafK8fU2IpCTe">约 84,800 行</td></tr>
+    <tr data-page-node-id="xeoF41tDSBAQxWPJEGxbJX"><td data-page-node-id="XLd84rYL28AlYHfQ3LSmLO">② 扣除死代码与模板遗留</td><td data-page-node-id="FqzCMvGlemFHptGFGcTWVo">模板 demo 已清，剩余约 10–12%</td><td class="num" data-page-node-id="i2smXYrCU2toTeGcN3tTqD">有效代码 约 75,000 行</td></tr>
+    <tr data-page-node-id="W69j2igpD3ShwCzGs0qaFl"><td data-page-node-id="Rb0DbeXUv2mB8mKD022J55">③ 按熟练全栈产出折算</td><td data-page-node-id="YKxjXksFFwoKwjfl29eAEJ">日均 150–200 行有效代码<br data-page-node-id="2B8GoJc9CKSXAQxEUhnLoN"><span style="color:#6e7681;font-size:12px" data-page-node-id="q0rTHkRYSr0yiVhe4osxEN">需同时具备 Django + Vue3 + 自动化测试领域经验</span></td><td class="num" data-page-node-id="PgUkx9tij93PaCRIrsCaPp">375–500 人天</td></tr>
+    <tr data-page-node-id="uuQPh6DNVyLYBAQfLGEwoP"><td data-page-node-id="qyyUc6S0B70tBA5CVJpV5Z">④ 计入架构设计与踩坑调试</td><td data-page-node-id="XTi1TePBIAH8jT2HTU9Qoe">不体现在行数上，但恰是 smart_locator 这类模块的核心成本<br data-page-node-id="etLdB90WxIjWVADBWsihIC">上浮 30–50%</td><td class="num" data-page-node-id="jATGA6jEg8viQvpbMWemz0">≈ 17–23 人月<br data-page-node-id="h7NFAe6wvmOxTp5kGkBgew">→ <b data-page-node-id="gwHl2pSKhRnceuTmcO2UcO">23–33 人月</b></td></tr>
+    <tr data-page-node-id="B2MQYACUU3yzSMohed2BNQ"><td data-page-node-id="sjLYyBno4flTe5PEjLcv01">⑤ 折算人力成本</td><td data-page-node-id="WsV42go9aVaMPPOaSb1EuA">一线城市资深全栈 + 测试开发，综合成本 2.5–3.75 万元/人月</td><td class="num" data-page-node-id="yw09PJHk5TangyVPobKdiF"><b data-page-node-id="iQ6bcGEPNDGOXefDjvjQeZ">约 58–124 万元</b></td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note" data-page-node-id="0y06P0K8e1Q6xdDTsO6zvx">
+  <span class="tag" data-page-node-id="6kY3vZiCACktBoU6em6wKz">结论</span>
+  <b data-page-node-id="PvBgBDQVetnTxDuL0rpPb6">代码重置成本约 23–33 人月</b>，即 2–2.8 个熟练工程师做一年；按国内一线城市综合人力成本折算，
+  <b data-page-node-id="scf4GKytd3meDxmRZyGvFq">重建成本约 58–124 万元</b>。<br data-page-node-id="UhEYUZ6LARCRiWe7PElCFJ"><br data-page-node-id="8xaPYla6eHrqLVqKqFVvMC">
+  与一周前（21–32 人月）相比略升，但<b data-page-node-id="psFr47iXGrWuakFQqbIX12">增量不是来自代码膨胀</b>——新增 4,800 行里，
+  多租户体系（<code data-page-node-id="k9JlvmOmarQjgTBHdZPCIb">account</code> +1,571 行、12 个 app 全线改造）与翻倍的测试是净增值，
+  同时模板遗留与死代码被清掉了，有效代码占比反而提高。这是<b data-page-node-id="OOlvxJDToivH8ThMjqmJ6t">质量与规模同向改善</b>，不是单纯堆量。<br data-page-node-id="1rBrEC6fEOMHz7KVGzzeBk"><br data-page-node-id="wS2Gy25SDA24AKh75Cliq1">
+  <b data-page-node-id="bYU4FBCQT4IoQvWBAODrz9">关键变量（我的判断，非事实）：</b>这个数字的上限主要来自 <code data-page-node-id="OA6871lYIBb1h0ukq3FAg1">smart_locator</code>。
+  多策略回退定位 + 自愈指纹这类东西，写出来的时间可能只占 5%，但「知道要这么写」需要真实踩过大量网站的坑。
+  这部分经验成本很难用行数衡量，实际比估算值更值钱。<br data-page-node-id="rFSKkjzyop7Qtnl5Y0I78x">
+  反之，前端 5.5 万行里有相当比例是<b data-page-node-id="4Q3ZWYIb9BgRBLlS3Yi4lQ">开源模板改造</b>（脚手架来自 MIT 许可的 <code data-page-node-id="vinPd1a8rseAZ2oL0CzIet">naive-ui-admin</code>）
+  和压缩成单行的代码，含金量低于行数暗示的水平——估算时已按 ② 折价。
+</div>
+
+<h3 data-page-node-id="b4R4KxLZ3WmsUgcNFsazdH">如果要对外变现，还差什么</h3>
+<div class="tbl-wrap" data-page-node-id="ax7JF5JZTMDgfDNigRx6K9">
+<table data-page-node-id="hqARIUpXr1fl1q0bGQOvpE">
+  <thead data-page-node-id="Mn7IGS8faqekWMHh9fSpdv"><tr data-page-node-id="oZf7bC9kmPzFF4SKKwXuMq"><th data-page-node-id="7N2DwHo8KkiTyGHwIAFv55">缺口</th><th data-page-node-id="OYxTHBeQOgaxjCTPQXVKlz">工作量</th><th data-page-node-id="7bZf0FruEaf2B6ELxoWlAk">说明</th><th data-page-node-id="IiAJtat8hUOVDltC4dCzpK">状态</th></tr></thead>
+  <tbody data-page-node-id="DiVmZleF1fhg4FMdYHpeip">
+    <tr data-page-node-id="wXTJTtRXxBmBBITq93FnqA"><td data-page-node-id="JJrpu0NV4Li7kkSehborQk">多租户与租户隔离</td><td class="num" data-page-node-id="WIyAqT5FQAvk2COxE7wa5l">2–4 人月</td><td data-page-node-id="ZbPCMEQ4QAOYj48mgpJjZ8">当前是单团队自用模型，无租户概念</td><td style="color:#3fb950" data-page-node-id="s6ywgQfnrvGEpIbjit34by">已补齐</td></tr>
+    <tr data-page-node-id="AGCa2zfJqU5YkXTVr4NPA7"><td data-page-node-id="O9y0mynsrds0676jnpWEQQ">版本控制与可交付性</td><td class="num" data-page-node-id="PJpZN4w0iWRgP3sX3Wks6s">0.5–1 人月</td><td data-page-node-id="nBKEY75zvemFE5GFIXdQQo">后端纳入 git、三个副本归一、补 README 与 API 契约</td><td style="color:#f85149" data-page-node-id="ycEzwB4NeY6UpVtdnDDAnV">未做（最高优先）</td></tr>
+    <tr data-page-node-id="NfmViaSYgnTKfpRUmVXCvc"><td data-page-node-id="rduOmY8BXd7MK6p76amkuR">前端治理与重构</td><td class="num" data-page-node-id="sfxekqXPtWBAtxWlEmyiqQ">2–3 人月</td><td data-page-node-id="V44pWDfuLbmJGEgF8DzGde">拆超大文件、接类型检查、收敛 1,279 处 any</td><td style="color:#d29922" data-page-node-id="VlUW3jtOp4UdW1j2WDWqje">部分（死代码已清）</td></tr>
+    <tr data-page-node-id="s302MomVJ0OKgwIOhqPnqD"><td data-page-node-id="JSlEQAKElFA1V3SsPACJZU">测试补齐（前端）</td><td class="num" data-page-node-id="QSjGruQZCx66sMb7Dx051N">1–2 人月</td><td data-page-node-id="pWN3BE3ZcEkZuqJ5I81Bz0">后端 257 个测试 vs 前端 1 个文件</td><td style="color:#d29922" data-page-node-id="QK5cFB5LKg7MGeaX9m5E7E">未做</td></tr>
+    <tr data-page-node-id="xXYnrY9nJ1Sda404xLtkHT"><td data-page-node-id="O9xZ4xoQl7gpyKPXYWrVSm">权限与计费体系</td><td class="num" data-page-node-id="1JnOMCDPWFZmkDHiKnhPtD">1–2 人月</td><td data-page-node-id="wYJjwRLgFCgKQIOrEHzrzq"><code data-page-node-id="9RfW4TuGmRfbb3MSlHUwct">account</code> 已涨到 1,942 行，租户有了，计费仍无</td><td style="color:#d29922" data-page-node-id="CK8n9fTWOIMcikQ3eeFJtS">部分</td></tr>
+    <tr data-page-node-id="RP3l3zdBvkF2asVEC5GtKN"><td data-page-node-id="jXqJskzDS81fkBm39KQ0p0">跨机分布式执行</td><td class="num" data-page-node-id="ozsE9QP8bDspjAlBnJLtJr">4–7 天</td><td data-page-node-id="rdixEuCvJz50atJluN9RI2">方案已论证「现在不需要」，留了最小改造路径</td><td style="color:#3fb950" data-page-node-id="iDCJBERtNxvAk392GsintD">已论证暂缓</td></tr>
+    <tr data-page-node-id="AdTJMZuGiHaHTzWH1aw3fE"><td colspan="2" style="text-align:right;color:#8b949e" data-page-node-id="aoX9cAcVXa01uwf7eydAXT">剩余合计</td><td class="num" data-page-node-id="6eEBEjqTJYzS3Sd2X335rO"><b style="color:#d29922" data-page-node-id="DSqbLrr0M3jTPTGjE8ifBU">4–8 人月</b></td><td data-page-node-id="wdyTaW6h4WfEH3K5TsG7Re">（原 8–13 人月）</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 data-page-node-id="Fbp2zSHXW2sHtLj0DOyWKT"><span class="num" data-page-node-id="houPGMMNrT1sjklBckl7hM">06</span>待完善清单</h2>
+<p class="sub" data-page-node-id="8bRYFfDylaoj5lI6jTjj5t">按「不做的代价」排序，不按工作量排序</p>
+
+<div class="risk" data-page-node-id="DAs7NB6ajVZuXxrB3wm433">
+  <div class="rh" data-page-node-id="RJJU7JupOoR4LMkEhobayN"><span class="lv" data-page-node-id="W3WBuMCGQIdrpp8xQFwgJv">P0</span>把在用的后端纳入版本控制，并把三个副本归一</div>
+  <p data-page-node-id="JukLKOI9GOVf08HeoDNzyT"><b data-page-node-id="Tb3tup6QceE7LaqPEKELRu">为什么最优先：</b>这是当前唯一可能造成<b data-page-node-id="7xDhj5rUKCIAyF3D9e39Cp">不可逆损失</b>的一项。
+  在用后端比 GitHub 仓库多 14,544 行，且完全无历史——一次误删、一次磁盘故障，本周的多租户改造就没有了。</p>
+  <p data-page-node-id="pxoZZZoRnkU9VfzGeZIWIU"><b data-page-node-id="jTo8gmEH8zCBZ2iNAmnIdz">动作：</b>① 在 <code data-page-node-id="shzrERsyzTA5xy97qRkW0l">测试平台后端/</code> 执行 <code data-page-node-id="Iy7HaS8EdD959v9DAfkBMd">git init</code> 并提交全量（<code data-page-node-id="SCWR4sKK1YiSXFLfBMLbOI">.gitignore</code> 已就绪，会正确排除 <code data-page-node-id="e85QChoWiBdZFGZawV90wg">.env</code> / <code data-page-node-id="T7ULXJE8V7epzMqLFf14JI">venv</code> / <code data-page-node-id="e3hJuuk6DM69M0jj0xd7Yx">db.sqlite3</code>）；
+  ② 给 <code data-page-node-id="2pV4dojzL4iMrLFyYvP112">测试平台前端/</code> 的本地仓库加 remote 并推送（当前 3 commit / <b data-page-node-id="GPgpFVgd1TsVadb6uxxJXh">69 个未提交文件</b>）；
+  ③ 决定 <code data-page-node-id="wMdGtiK8ty5ntNvKMjcU2X">autotest/</code> 与在用目录的关系——要么把它当唯一工作副本，要么废弃它。<b data-page-node-id="qYT5nEu3fYS4cUbEG5TEhi">三个副本并存是最坏的状态。</b></p>
+</div>
+
+<div class="risk" data-page-node-id="oSAgKSF2hKDWgspselYLZ3">
+  <div class="rh" data-page-node-id="hBQed7NaUJMM6YhnF14oHc"><span class="lv" data-page-node-id="YByfdEewG0cZEJth6gxp2B">P0</span>清理源码树里的构建垃圾与残留文件</div>
+  <p data-page-node-id="iRFPAlOGOKNnBfpWhfv7Im">① <code data-page-node-id="lfzl3YlP9fUHRBC6tgQGzM">.codex_tmp/</code>：7 个版本的 <code data-page-node-id="ncfBQcTqNkMuNm3NO1OB97">rendered_monitor_manual</code>、47KB 的 <code data-page-node-id="FBvrL1QDX0MPtVmiokoNyl">build_epay_testcases.mjs</code>、
+  35KB 的 <code data-page-node-id="ZZBvX07TIanvQfqU3SuYJg">epay_doc.json</code>、以及指向全局缓存的 <code data-page-node-id="WLCGj17bLzt6czE5ut2VBT">node_modules</code> 软链——<b data-page-node-id="sfEsC40YEKAuxUi3T04X1L">整目录应删除或移出仓库</b>；<br data-page-node-id="X6wtnhM3xDqsrC3x5nVWLz">
+  ② <code data-page-node-id="OSvRP0qflrNvIg75lMcrhC">autotest/backend/aaa.py</code>：密钥已改为读环境变量，文件本身已无用途，且未被 git 跟踪，<b data-page-node-id="mGY32ceNwZ2N73TvXRYbap">可直接删除</b>；<br data-page-node-id="ctoPJEY5i5AwF7IQStfhca">
+  ③ 仓库根目录的 <code data-page-node-id="pEwjdDD6IecQSHfx00skSN">playwright_native_result_*.json</code>（6 个）等运行产物，确认是否应进 <code data-page-node-id="YDULEQAgcuoYG9aEzLedCK">.gitignore</code>。</p>
+</div>
+
+<div class="risk" data-page-node-id="adGJLBrJjDH1BzD5iEgBwy">
+  <div class="rh" data-page-node-id="EL5Qd1jHni0tSy7jwhCnYe"><span class="lv mid" data-page-node-id="PfEkWEwuraHTcEFIl09Q9U">P1</span>核实第三方签名密钥的合规风险</div>
+  <p data-page-node-id="fJUc0KyERx76IPmhdETBql"><code data-page-node-id="70sh2dcYoC6ff3XBeD9cqa">fullstack_framework/commons/helix_signature.py:21</code> 里有一个硬编码值
+  <code data-page-node-id="2EFHaEhyhSF8m0MozFl3I2">_WEB_DEFAULT_SECRET = "9697761f6c77"</code>，注释说明它来自
+  「MXN WEB 0.2.277 初始化签名 Store 时使用的默认值」、可从浏览器抓包复算。</p>
+  <p data-page-node-id="4BEt96KwEyXVFM0LKj82oz"><b data-page-node-id="b4Z2anrmll0GBrxb8PyiaT">性质说明：</b>这不是平台自身的密钥泄漏，而是一段<b data-page-node-id="LVPJVah6xDZuVR3PC6mbjJ">为兼容某个第三方 Web 应用而逆向出来的前端签名密钥</b>。
+  两个风险：① 技术上——对方一旦轮换该值，抓包导入功能会静默失效；
+  ② 合规上——逆向并使用第三方应用的私有签名机制，在对外商业化时可能构成争议点。<b data-page-node-id="bDyBFB6BgHoXLAmsQpg3E8">建议在做技术输出或融资前先明确这一条的法律边界。</b></p>
+</div>
+
+<div class="risk" data-page-node-id="3jcfsLD2yo4BA1iUQY8xMv">
+  <div class="rh" data-page-node-id="KK9xoxxEmdE4FzwkzBm8lo"><span class="lv mid" data-page-node-id="7TvMCaMD2rCa1Lcyzdq4Zr">P1</span>把类型检查接进构建，然后按模块收敛 any</div>
+  <p data-page-node-id="C2GMpYT859NTGnq0XvZxvv"><b data-page-node-id="EQkGVORd9NU97LoQA0Qq57">第一步（半天）：</b><code data-page-node-id="kENy4Ar9gsnWBeRkibF1ON">package.json</code> 的 <code data-page-node-id="VcxH5ift4sgrrveLj6cds2">build</code> 加上 <code data-page-node-id="zjq4gJIeXk0aEvTh1GXT17">vue-tsc --noEmit &amp;&amp; vite build</code>，
+  打开 <code data-page-node-id="ZC4hkDGuIiGK2zQDh07YNO">tsconfig.json</code> 的 <code data-page-node-id="51GWElKTqGewhgtln1098Z">noImplicitAny</code>。
+  <b data-page-node-id="wrWFGPKIxs2WVdxVH3DJqG">不要试图一次修完 1,279 处</b>——先让它能报错，再用 <code data-page-node-id="dXbEdTAcXkl6C26DvKHbhz">// @ts-expect-error</code> 逐模块收敛，
+  否则一次性改造会引入大量回归。</p>
+  <p data-page-node-id="UlAOLgS9Tx5z3qQ737ub7C"><b data-page-node-id="RwSmkrvQBXjcZyuKGnePbc">优先级顺序（按密度）：</b><code data-page-node-id="Z6410NDR7vd6liihTEfREZ">case_api/scenario_edit.vue</code>（173）→
+  <code data-page-node-id="3GYDVilNO8IxQ2yG9BmT2z">suite/report.vue</code>（73）→ <code data-page-node-id="69ZqChUNgiwNUqaB7tBHFR">performance/report.vue</code>（45）→
+  <code data-page-node-id="lgW8DsY53xdWE1NFQETGhs">suite/notifications.vue</code>（44）。这 4 个文件占全部 any 的约 26%。</p>
+</div>
+
+<div class="risk" data-page-node-id="DbFDwmVzhDGHNEgHXpXAgh">
+  <div class="rh" data-page-node-id="YCmeNIYod3ycC0D7finAGz"><span class="lv mid" data-page-node-id="BDHiVDcG5nKjKfQIdIwZ24">P1</span>拆分超大文件与压缩单行</div>
+  <p data-page-node-id="TG3lwAnCR1Vh19AJ6J7YB8">① 后端优先 <code data-page-node-id="abjeU8NAGQPnhfZwoSanwP">suite/models.py</code> 的 <code data-page-node-id="cDr3mDZKYFHJhuwicKHRKu">run()</code>（447 行）与 <code data-page-node-id="I9Dmd9CXRxz4Kqcec4kBor">smart_locator/engine.py</code>（66KB）——
+  这两个是全平台最核心也最难改的地方，<b data-page-node-id="Kw4aL2FALLoOrximzoeXH8">改之前务必先补测试覆盖</b>（suite 模块已有 8 个测试文件，基础不错）；<br data-page-node-id="rTnIBByHQr80ZH0kwnNqo7">
+  ② 前端 <b data-page-node-id="ppg2s4BbfV90xBG0AWEHKX">19 个文件存在 &gt;1,500 字符的单行</b>（最长 9,271 字符），建议先加一条 Prettier 规则强制换行，
+  再逐个格式化——这一步不改逻辑，风险低但能立刻恢复 diff 与 Code Review 的能力。</p>
+</div>
+
+<div class="risk" data-page-node-id="FNRy6Ryrjtr2ChMeif7xB2">
+  <div class="rh" data-page-node-id="vxgzHRPBG8E18oSyQN0z9R"><span class="lv low" data-page-node-id="PFEH54RweqPVjcemzT5kpK">P2</span>补前端测试与错误处理</div>
+  <p data-page-node-id="v5GjCCZbu3V8WjbO8tZVMx">① 前端测试仅 256 行 / 1 个文件，与后端 257 个测试严重不对称。建议优先给
+  <b data-page-node-id="7VxyXKcBrdhAeodfzLMZX3">纯函数工具</b>（变量解析、格式化、权限判断）和 <b data-page-node-id="jcciIANPO9KkmENkuwPFMo">关键编排页的状态计算</b>补单测，不必追求覆盖率数字；<br data-page-node-id="UDbeWig7GZMQs5ozrWaQkF">
+  ② 后端 121 处 <code data-page-node-id="sfiUhXMEVu8cg4yFGvg25d">except Exception</code> 中有 <b data-page-node-id="uPuDFtwCiSEFAh7h8FGbHx">16 处静默 <code data-page-node-id="jg2neA6Nt6AkkEf0FVQtFw">pass</code></b>。
+  至少改成 <code data-page-node-id="cwaE2ynDzbklgixJEHFVK2">logger.warning(..., exc_info=True)</code>——静默吞异常会让线上故障无法定位。</p>
+</div>
+
+<div class="risk" data-page-node-id="a9uQmfYNOeYQJHMQART2Uv">
+  <div class="rh" data-page-node-id="VJjaJh3MMD3tSnrMPaUiYv"><span class="lv low" data-page-node-id="0489T14zJBYdtSZqE1ry4C">P2</span>浅色模式的可读性（本次深色适配时顺带发现）</div>
+  <p data-page-node-id="Iu6x5dcxzu51rYeDrxZtfb">深色侧已经调好（跨 19 条路由普查后仅剩 1 处装饰性元素），但<b data-page-node-id="PpEGq04GJJylVJdItRXfB7">浅色才是长期没被量过的那一边</b>。
+  同一套对比度审计换成浅色后命中 288 处，按选择器聚合后是 18 类，其中真问题集中在：</p>
+  <table style="margin-top:10px" data-page-node-id="UDtSZiNLoV9ILoaFODhAEA">
+    <thead data-page-node-id="waO7sMFQ7vpiZ1KUHOd7F7"><tr data-page-node-id="q2QTMG7gkIjlYuLsW2rOJU"><th data-page-node-id="1UwOKgUnMzVXFof2pXvZVF">元素</th><th data-page-node-id="4CmUE8YT71sca1auIKOOnv">对比度</th><th data-page-node-id="1gKumm3cNU3LfSF2yuwmRb">问题</th></tr></thead>
+    <tbody data-page-node-id="9Yeiw8XnsWtnUIdsCGgC3D">
+      <tr data-page-node-id="fpqIWdSDZbbQYqUiY5PZHy"><td data-page-node-id="D46ubFlRSd6k5nPZawsRTG">侧栏菜单搜索框 placeholder <code data-page-node-id="xaEMEAHwUXRz8efhvkq5PH">#C2C2C2</code></td><td class="num" style="color:#ff7b72" data-page-node-id="9DTgAlfMINDVD7WuBt66aM">1.63</td><td data-page-node-id="YyHni2x2dNsl34yCjjvvDB">每页都出现；项目自己在 <code data-page-node-id="CdUXMFK8xeoqHKesijPbWn">suite.vue</code> 已修过同类问题，但只修了那一页</td></tr>
+      <tr data-page-node-id="ouXpS6ir3x3ylKgRNwq1gq"><td data-page-node-id="K8gFxLpzqkg6vrnVaHKFUz">弱化文字 token <code data-page-node-id="ce8HXYdjYe5bHdM5r8sz9K">--ink-400</code>（<code data-page-node-id="GeTDGLIZHrj2FF0t2DKFpK">#93a3b3</code>，11~11.5px）</td><td class="num" style="color:#ff7b72" data-page-node-id="A6m9Ud33HvjKEAQfOFQ2U5">2.58</td><td data-page-node-id="I1UDXE8yL8m2VoF6U6HCeJ">改一处 token 即全站生效，建议压到 <code data-page-node-id="qubbWJBvBT1EEKcWXaHF5C">#71829b</code>（3.91）或 <code data-page-node-id="zRVuI7MA4bmQBBCIlz00In">#6b7c94</code>（4.25）</td></tr>
+      <tr data-page-node-id="W1jd9o30TIfXJ5OAn62RiQ"><td data-page-node-id="AlmNwK7LvLAi9TtEDKr0N0">项目头像白字（4 色取模）</td><td class="num" style="color:#ff7b72" data-page-node-id="uqZnTl6VF1bunW06ejtGfg">2.74 / 3.24 / 3.91</td><td data-page-node-id="BEnGcx1YeRCl5awKBAQQGt">4 个配色里 <b data-page-node-id="Jqcn80oEhF6Le5tAHdeiHX">3 个不达标</b>，需品牌色微调</td></tr>
+    </tbody>
+  </table>
+  <p data-page-node-id="h0WXFPZTRVogSTl3A5CivN"><b data-page-node-id="83pXYg4o63mpVUo3O7JDMI">注意：</b>菜单分组标题的 2.97 属于阈值噪音（离 3.0 只差 0.03），<b data-page-node-id="PphnojueLIT25Z2mfqZZjV">不建议动</b>。</p>
+</div>
+
+<div class="risk" data-page-node-id="zFLo1DpDEBiYP9W8XyxlRW">
+  <div class="rh" data-page-node-id="oFFYdFEaucobxAOxS74wRs"><span class="lv low" data-page-node-id="7BAA3MCZCMquaMI8JCgtVC">P2</span>其他增强项</div>
+  <p data-page-node-id="gWVzuWM2UHIbxLuBo7xJCv">① <code data-page-node-id="2hvBtBAMN2yj5Rfx2nEqSU">ai_assistant</code> 仅 96 行，是薄转发。若「AI 驱动测试」是产品定位的一部分，
+  需要补平台上下文注入（用例、失败原因、历史执行）+ 工具调用，否则与直接用 DeepSeek 网页版无差别；<br data-page-node-id="DsbvlRRLWDxRDP3bTleWCL">
+  ② 数据库 86 张表里 12 张为空（14%），可评估是否属于废弃结构；<br data-page-node-id="RgjpXvfWeLWNg1Ds9LCuvc">
+  ③ 调度水平扩展：方案已论证「现在不需要」，按文档 ①②③ 阶段预留即可（4–7 天），
+  <b data-page-node-id="XJTQ5McCgK67vykywRkPib">等并发持续打满或真的发生任务丢失再动手</b>；<br data-page-node-id="V61t239DwfM7Ey2mQBqwHY">
+  ④ 文档已从 5 篇增至 8 篇，可再补 API 契约说明与模块级设计说明，便于交接。</p>
+</div>
+
+<h2 data-page-node-id="86x2H2niiu3qBu9amhffGU"><span class="num" data-page-node-id="GVbGHKTlLhMRlTVsSlhYzU">07</span>结论</h2>
+
+<div class="concl" data-page-node-id="QDMqPMnsDLxOktk571570F">
+  <div class="big" data-page-node-id="nlwW3soEkDajgcv8oDlQHm">技术价值真实且在提升，资产成熟度仍是短板——但短板的位置变了。</div>
+  <p style="color:#8b949e;font-size:13px;margin-bottom:4px" data-page-node-id="TUN2T8bHh1zq9kvBXDHapo">建议按以下顺序推进：</p>
+  <ol data-page-node-id="A0gEog7IKBiB7wZlkozWWv">
+    <li data-page-node-id="9BbHwqtXWi5QqYbHzLWosm"><b data-page-node-id="2mc3U0qd5mSRsukpAgQXDF">立刻做（半天内）：</b>给在用后端 <code data-page-node-id="efYHtyTTiLXSUtuMDxieNJ">git init</code> 并提交全量；给前端本地仓库加 remote 并推送；
+    删除 <code data-page-node-id="j000Mnro3oz6fsc5EOiqhH">.codex_tmp/</code> 与 <code data-page-node-id="sTzP7Gc2NyhEIpvWHCJPVB">autotest/backend/aaa.py</code>。
+    <b data-page-node-id="7GCHzlfYLZBSioilWxpVCq">这一步把「本周的多租户改造只存在一块磁盘上」的风险直接消掉，成本几乎为零。</b></li>
+    <li data-page-node-id="XgrTdPLasBg2a49b1Pcz8P"><b data-page-node-id="3C8Vg664cmhg5FwU6w4qmV">本周做：</b>决定 <code data-page-node-id="qrmlMI4b6qwwzK3wXkuFnL">autotest/</code> 与在用目录的关系，<b data-page-node-id="LsHAQDh6Ofqdtw8iAjYfXr">消除三副本并存</b>。
+    当前状态是最坏的：既不是「没版本控制」（那至少只有一份），也不是「有版本控制」（那三份应该一致）。</li>
+    <li data-page-node-id="XKveHuhmqpIiqj662fPpzf"><b data-page-node-id="OLa2h6ilZc3BzqQGdEYFvc">本月做：</b>类型检查接进构建（先能报错，再收敛 1,279 处 any）；给 19 个超长单行文件加格式化规则；
+    把 16 处静默 <code data-page-node-id="j1K6sUBZSGvtVJl9NuI3id">except: pass</code> 补上日志。</li>
+    <li data-page-node-id="CfOrVMdQQqcatjfp7h7Ynh"><b data-page-node-id="SYHr8jyz7wImXr8qJSsFPy">把 <code data-page-node-id="A1abKnmaOJyqlcvRTy1MRh">smart_locator</code> 当成核心资产单独对待：</b>补测试、补文档、把定位策略做成可配置项。
+    这是全项目唯一具备差异化壁垒的部分——<b data-page-node-id="d6Yh2aDqYpmaWu60ywa4IG">如果未来要做技术输出或融资，这是唯一需要重点讲的东西</b>，
+    其余（套件编排、接口测试、性能测试）都属红海。</li>
+    <li data-page-node-id="d366SFq7kISeJ2O0fqOmDW"><b data-page-node-id="6ybTDyrxml8rZL3FHzM2KH">拆长函数前先补测试：</b><code data-page-node-id="iHOl5XWqxdGyt6tdXybkYZ">suite/models.py</code> 的 <code data-page-node-id="4NeaQH2nn7PwIRBHLpQSPL">run()</code> 与
+    <code data-page-node-id="BDlOXU31c2aNMTXyoFJ5zc">smart_locator/engine.py</code> 是全平台最核心也最难改的地方，没有测试覆盖时不要动。</li>
+  </ol>
+</div>
+
+<footer data-page-node-id="2hUwgAkiTei2TBmRvmHKXF">
+  <b data-page-node-id="RFtCpo2vCDShxwvcr9PpLp">评估方法说明</b><br data-page-node-id="DGLTdowAcpbhGfziUHNMrh">
+  本报告基于对代码库的静态分析与运行时实测：文件与行数统计（排除 venv / node_modules / migrations / __pycache__）、
+  依赖清单核对、OpenAPI 契约拉取（198 路径 / 356 操作）、数据库表数据量查询、
+  后端测试套件实跑（257 tests）、git 仓库状态与提交历史核对、关键模块源码审阅、部署配置检查。<br data-page-node-id="ZiLKuhZewS1SPa2FaLfw0G">
+  报告中标注为「事实 / 已核实」的内容均有文件路径、行号或命令输出支撑；
+  涉及价值判断、工作量估算、市场定位的部分属于<b data-page-node-id="4qK9o4gk89E1R8GJz8Zxam">推测</b>，已在文中明确区分。<br data-page-node-id="VsM4iDBjeqrVxCHkpY7oBx"><br data-page-node-id="yK6mVQPZrHE7asWakHIV9T">
+  工作量估算采用重置成本法，未计入沟通、需求变更、环境搭建等间接成本，实际可能上浮。
+  货币折算基于「一线城市资深全栈 + 测试开发」的综合人力成本区间，<b data-page-node-id="upc3nl33gdY8V0f6LbQBYP">该区间为估计值，非报价</b>。<br data-page-node-id="ppxJXk5JA9ffXJdiY7TKhq"><br data-page-node-id="X8uziAxlXiIbOoqmAFfJTW">
+  复评时间：2026-09-19 · 对比基准：2026-09-12 版报告 · 分析范围：后端 199 个 py + 前端 287 个 vue/ts/less
+</footer>
+
+</div>
+</body>
+</html>

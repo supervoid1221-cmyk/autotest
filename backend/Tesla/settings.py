@@ -15,6 +15,7 @@ import hashlib
 import os
 from pathlib import Path
 
+from corsheaders.defaults import default_headers
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
@@ -89,11 +90,23 @@ try:
 except (TypeError, ValueError):
     WEBHOOK_SIGNATURE_TOLERANCE_SECONDS = 300
 
-# 执行目录与本地日志的保留天数。数据库中的执行记录和原生报告不受影响。
+# 接口执行文件与性能报告的保留天数。性能报告过期后会连同指标明细和运行产物自动删除。
 try:
     FILE_RETENTION_DAYS = max(1, int(os.getenv("FILE_RETENTION_DAYS", "15")))
 except (TypeError, ValueError):
     FILE_RETENTION_DAYS = 15
+
+# 动态函数通过 Unix Socket 交给无网络执行器；开发环境可在执行器未启动时使用隔离子进程。
+DYNAMIC_FUNCTION_SOCKET = os.getenv("DYNAMIC_FUNCTION_SOCKET", "/run/dynamic-functions/worker.sock")
+try:
+    DYNAMIC_FUNCTION_TIMEOUT_SECONDS = max(1, min(10, int(os.getenv("DYNAMIC_FUNCTION_TIMEOUT_SECONDS", "3"))))
+except (TypeError, ValueError):
+    DYNAMIC_FUNCTION_TIMEOUT_SECONDS = 3
+try:
+    DYNAMIC_FUNCTION_MEMORY_MB = max(64, min(512, int(os.getenv("DYNAMIC_FUNCTION_MEMORY_MB", "128"))))
+except (TypeError, ValueError):
+    DYNAMIC_FUNCTION_MEMORY_MB = 128
+DYNAMIC_FUNCTION_ALLOW_LOCAL_FALLBACK = env_bool("DYNAMIC_FUNCTION_ALLOW_LOCAL_FALLBACK", default=not IS_PRODUCTION)
 
 # Application definition
 
@@ -119,7 +132,26 @@ INSTALLED_APPS = [
     "ai_assistant",
     "execution_template",
     "monitor",
+    "performance",
+    "case_app",
+    "execution_control.apps.ExecutionControlConfig",
 ]
+
+# 统一执行控制中心：心跳超过该时间未更新即认为执行器离线。
+EXECUTION_WORKER_OFFLINE_SECONDS = max(
+    15, int(os.getenv("EXECUTION_WORKER_OFFLINE_SECONDS", "45"))
+)
+# 等待任务超过该时间后才进行执行器诊断，避免刚入队时误报。
+EXECUTION_QUEUE_DIAGNOSIS_SECONDS = max(
+    10, int(os.getenv("EXECUTION_QUEUE_DIAGNOSIS_SECONDS", "30"))
+)
+# Appium 节点由 Django-Q 每分钟探活；超过两个检查周期仍无成功心跳则离线。
+APPIUM_HEALTH_CHECK_TIMEOUT_SECONDS = max(
+    1, int(os.getenv("APPIUM_HEALTH_CHECK_TIMEOUT_SECONDS", "5"))
+)
+APPIUM_NODE_OFFLINE_SECONDS = max(
+    30, int(os.getenv("APPIUM_NODE_OFFLINE_SECONDS", "120"))
+)
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -225,6 +257,7 @@ USE_TZ = False
 
 STATIC_URL = "static/"
 MEDIA_URL = "api/"  # 显示文件资源的前缀
+MEDIA_ROOT = BASE_DIR / "media"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
@@ -238,11 +271,14 @@ REST_FRAMEWORK = {  # DRF的设置  让DRF 使用drf_spectacular生成OPENAPI
         "rest_framework.permissions.IsAuthenticated",
     ],
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.TokenAuthentication",
+        "account.authentication.ExpiringTokenAuthentication",
     ],
     "DEFAULT_RENDERER_CLASSES": ["Tesla.renderer.CodeResultMessageRenderer"],
     "DEFAULT_PAGINATION_CLASS": "Tesla.pagination.PageNumberPagination",
 }
+
+# 平台登录令牌固定有效 1 小时。该限制由服务端强制执行，不依赖前端缓存。
+PLATFORM_TOKEN_TTL_SECONDS = 60 * 60
 
 SPECTACULAR_SETTINGS = {  # drf_spectacular的设置
     "SWAGGER_UI_DIST": "SIDECAR",
@@ -254,10 +290,19 @@ SPECTACULAR_SETTINGS = {  # drf_spectacular的设置
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_MODEL = "deepseek-chat"
 
+MAX_SUITE_EXECUTION_TIMEOUT_SECONDS = 86400
+EXECUTION_TASK_FINISHING_GRACE_SECONDS = 300
+execution_task_timeout_seconds = max(
+    MAX_SUITE_EXECUTION_TIMEOUT_SECONDS + EXECUTION_TASK_FINISHING_GRACE_SECONDS,
+    int(os.getenv("EXECUTION_TASK_TIMEOUT_SECONDS", "86700")),
+)
+
 Q_CLUSTER = {
     "orm": "default",
-    "timeout": 60 * 10,
-    "retry": 60 * 10 * 2,
+    # UI/App 执行可能超过 10 分钟。retry 必须大于 timeout，否则长任务
+    # 会被队列重复投递，造成同一设备被重复占用。
+    "timeout": execution_task_timeout_seconds,
+    "retry": execution_task_timeout_seconds + 60,
     "workers": max(1, int(os.getenv("DJANGO_Q_WORKERS", "2"))),
 }
 
@@ -271,6 +316,7 @@ if IS_PRODUCTION and CORS_ALLOW_ALL_ORIGINS:
     raise ImproperlyConfigured("生产环境禁止开启 DJANGO_CORS_ALLOW_ALL。")
 CORS_ALLOWED_ORIGINS = env_list("DJANGO_CORS_ALLOWED_ORIGINS")
 CORS_ALLOW_CREDENTIALS = env_bool("DJANGO_CORS_ALLOW_CREDENTIALS", default=False)
+CORS_ALLOW_HEADERS = (*default_headers, "x-tenant-id")
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 
 # Nginx/Ingress 应传递 X-Forwarded-Proto。HTTPS 生产部署保持以下安全默认值；

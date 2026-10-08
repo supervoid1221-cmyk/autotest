@@ -4,12 +4,21 @@
       <div>
         <h2>动态函数详情</h2>
         <p>集中维护测试数据生成函数，并在保存前即时验证结果</p>
+        <div v-if="id" class="version-meta">
+          <n-tag size="small" :bordered="false">v{{ form.version || 1 }}</n-tag>
+          <n-tag size="small" :bordered="false" :type="approvalState.type">{{ approvalState.label }}</n-tag>
+          <code v-if="form.code_hash">{{ form.code_hash.slice(0, 12) }}</code>
+        </div>
       </div>
       <n-space
         ><n-button @click="router.back()">返回</n-button
         ><n-button type="primary" @click="submit">保存</n-button></n-space
       >
     </header>
+
+    <n-alert class="isolation-alert" type="info" :show-icon="true">
+      Python 在无网络隔离执行器中运行。保存新代码，或调整所属项目、超时和内存上限后，会立即停止用于正式执行，并进入“待审批”。
+    </n-alert>
 
     <div class="editor-layout">
       <!-- 左栏：函数代码 -->
@@ -34,6 +43,14 @@
                 placeholder="请选择一个或多个项目"
               />
             </n-form-item>
+            <div class="resource-fields">
+              <n-form-item label="执行超时（秒）">
+                <n-input-number v-model:value="form.timeout_seconds" :min="1" :max="10" />
+              </n-form-item>
+              <n-form-item label="内存上限（MB）">
+                <n-input-number v-model:value="form.memory_mb" :min="64" :max="512" :step="64" />
+              </n-form-item>
+            </div>
             <n-form-item path="code" :show-label="false">
               <div class="editor">
                 <div class="editor-bar">
@@ -196,6 +213,8 @@
   const form = reactive<any>({
     projects: [],
     enabled: true,
+    timeout_seconds: 3,
+    memory_mb: 128,
     code: 'def build_order_no(context):\n    return f"TEST_{context[\'timestamp\']}"',
   });
   const rules = {
@@ -210,6 +229,7 @@
   const testResult = ref('');
   const testError = ref('');
   const copied = ref(false);
+  const requiredBuiltinWhitelist = ['isinstance', 'hexdigest'];
   const whitelist = reactive({
     modules: [] as string[],
     builtins: [] as string[],
@@ -222,6 +242,11 @@
       value: match[1],
     }))
   );
+  const approvalState = computed(() => ({
+    draft: { label: '待审批', type: 'warning' as const },
+    approved: { label: '已审批', type: 'success' as const },
+    rejected: { label: '已驳回', type: 'error' as const },
+  }[form.approval_status] || { label: '待审批', type: 'warning' as const }));
   watch(
     functionOptions,
     (options) => {
@@ -256,8 +281,13 @@
       Object.assign(form, detail, { projects: (detail.projects || []).map(Number) });
     }
     try {
-      Object.assign(whitelist, await api.getWhitelist());
+      const payload = await api.getWhitelist();
+      Object.assign(whitelist, payload);
+      whitelist.builtins = Array.from(
+        new Set([...(payload?.builtins || []), ...requiredBuiltinWhitelist])
+      );
     } catch {
+      whitelist.builtins = [...requiredBuiltinWhitelist];
       /* 白名单使用后端默认校验，加载失败不阻断编辑。 */
     }
   });
@@ -358,7 +388,7 @@
     testError.value = '';
     testResult.value = '';
     try {
-      const response = await api.test(form.code, functionCall.name, functionCall.arguments);
+      const response = await api.test(form.code, functionCall.name, functionCall.arguments, form.timeout_seconds, form.memory_mb);
       selectedFunction.value = functionCall.name;
       testResult.value = response.display ?? String(response.result ?? '');
     } catch (error: any) {
@@ -391,9 +421,8 @@
       });
       return;
     }
-    if (id) await api.update(id, form);
-    else await api.createData(form);
-    message.success('保存成功');
+    const saved: any = id ? await api.update(id, form) : await api.createData(form);
+    message.success(saved?.approval_status === 'approved' ? '保存成功' : '已保存，待管理员审批');
     redirectAfterSubmit({ name: 'project_dynamic_function' });
   }
 </script>
@@ -421,6 +450,11 @@
     color: #6b7280;
     font-size: 13px;
   }
+  .version-meta { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+  .version-meta code { color: #6b7280; font: 12px/1.4 'JetBrains Mono', ui-monospace, monospace; }
+  .isolation-alert { margin-bottom: 16px; }
+  .resource-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .resource-fields :deep(.n-input-number) { width: 100%; }
 
   .editor-layout {
     display: grid;

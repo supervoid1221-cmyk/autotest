@@ -30,11 +30,14 @@
 </template>
 
 <script setup lang="ts">
+import { asList } from '@/utils/list';
+
   import { computed, h, onMounted, reactive, ref } from 'vue';
   import { BasicTable } from '@/components/Table';
   import { NButton, NSelect, NTag, useDialog, useMessage } from 'naive-ui';
   import { useRouter } from 'vue-router';
   import { DynamicFunctionAPI, ProjectAPI } from '@/api/project/http';
+  import { useUserStore } from '@/store/modules/user';
 
   const api = new DynamicFunctionAPI();
   const projectApi = new ProjectAPI();
@@ -44,11 +47,10 @@
   const actionRef = ref<any>();
   const projects = ref<any[]>([]);
   const selectedProjects = ref<number[]>([]);
+  const userStore = useUserStore();
+  const isAdmin = computed(() => Boolean((userStore.info as any)?.is_admin));
 
-  const asList = (payload: any): any[] => {
-    if (Array.isArray(payload)) return payload;
-    return payload?.results || payload?.list || payload?.data || [];
-  };
+  
   const projectOptions = computed(() =>
     projects.value.map((project) => ({ label: project.name, value: project.id }))
   );
@@ -74,6 +76,23 @@
       render: (row: any) => (row.function_names || []).join('、') || '-',
     },
     {
+      title: '版本',
+      key: 'version',
+      width: 90,
+      render: (row: any) => `v${row.version || 1}`,
+    },
+    {
+      title: '审批',
+      key: 'approval_status',
+      width: 110,
+      render: (row: any) => {
+        const state: any = {
+          draft: ['待审批', 'warning'], approved: ['已审批', 'success'], rejected: ['已驳回', 'error'],
+        }[row.approval_status] || ['待审批', 'warning'];
+        return h(NTag, { size: 'small', bordered: false, type: state[1] }, { default: () => state[0] });
+      },
+    },
+    {
       title: '状态',
       key: 'enabled',
       width: 100,
@@ -91,7 +110,7 @@
       projects: selectedProjects.value.length ? selectedProjects.value.join(',') : undefined,
     });
   const actionColumn = reactive({
-    width: 150,
+    width: 280,
     title: '操作',
     key: 'action',
     render: (row: any) =>
@@ -106,6 +125,30 @@
           },
           { default: () => '编辑' }
         ),
+        ...(isAdmin.value && row.approval_status !== 'approved' ? [h(
+          NButton,
+          { text: true, type: 'success', onClick: async () => { await api.approve(row.id); message.success('审批通过'); reload(); } },
+          { default: () => '审批' }
+        )] : []),
+        ...(isAdmin.value && row.approval_status !== 'rejected' ? [h(
+          NButton,
+          {
+            text: true,
+            type: 'warning',
+            onClick: () => dialog.warning({
+              title: '确认驳回',
+              content: '驳回后该版本将立即停止用于正式执行。',
+              positiveText: '确认驳回',
+              negativeText: '取消',
+              onPositiveClick: async () => {
+                await api.reject(row.id);
+                message.success('已驳回');
+                reload();
+              },
+            }),
+          },
+          { default: () => '驳回' }
+        )] : []),
         h(
           NButton,
           {

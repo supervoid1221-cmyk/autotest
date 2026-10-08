@@ -158,6 +158,41 @@ class SharedApiExecutorTests(unittest.TestCase):
         self.assertEqual(api_session.request.call_count, 2)
         self.assertEqual(api_session.request.call_args_list[1].kwargs["headers"]["Authorization"], "Bearer refreshed")
 
+    @patch("fullstack_framework.commons.case_util.write_execution_log")
+    @patch("fullstack_framework.commons.case_util._append_native_step")
+    @patch("fullstack_framework.commons.case_util._mark_native_step_running")
+    @patch("fullstack_framework.commons.case_util.Environment")
+    @patch("fullstack_framework.commons.case_util.session")
+    def test_api_realtime_log_contains_resolved_endpoint_and_parameters(
+        self, api_session, environment_model, _mark_running, _append_step, write_log
+    ):
+        api_session.request.return_value = FakeResponse({"code": 0})
+        environment_model.objects.filter.return_value.first.return_value = None
+        case = CaseInfo(
+            test_name="查询用户",
+            request={
+                "method": "POST",
+                "url": "https://example.com/users",
+                "headers": {"Authorization": "Bearer secret", "X-Trace": "trace-1"},
+                "params": {"page": 2},
+                "json": {"name": "张三"},
+            },
+            validate={},
+        )
+
+        result = _execute_case_info(case)
+        messages = [call.args[0] for call in write_log.call_args_list]
+
+        self.assertTrue(result.passed)
+        self.assertIn("请求接口：POST https://example.com/users", messages)
+        self.assertIn('请求 params：{"page":2}', messages)
+        self.assertIn('请求 json：{"name":"张三"}', messages)
+        header_message = next(message for message in messages if message.startswith("请求 headers："))
+        self.assertIn('"Authorization":"***"', header_message)
+        self.assertNotIn("Bearer secret", header_message)
+        self.assertIn("响应状态：HTTP 200", messages)
+        self.assertIn('响应结果：{"code":0}', messages)
+
     @patch("fullstack_framework.commons.api_executor.run_dynamic_function")
     def test_unresolved_variable_fails_before_request(self, dynamic_function):
         dynamic_function.side_effect = ValueError("不存在")
@@ -189,6 +224,58 @@ class SharedApiExecutorTests(unittest.TestCase):
         self.assertEqual(variables["result_id"], 123)
         self.assertEqual(result.request["url"], "https://example.com/member/123")
         self.assertEqual(result.assertions[0]["passed"], True)
+
+    def test_polling_without_assertions_uses_successful_http_status_as_condition(self):
+        request_func = Mock(return_value=FakeResponse({"ready": True}, status_code=200))
+
+        result = execute_api_step(
+            request_template={"method": "GET", "url": "https://example.com/users"},
+            validate={},
+            polling={"enabled": True, "timeout": 5, "interval": 1},
+            request_func=request_func,
+        )
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.assertions, [])
+        request_func.assert_called_once()
+
+    @patch("fullstack_framework.commons.api_executor.time.sleep")
+    def test_polling_without_assertions_retries_http_error_until_success(self, sleep):
+        request_func = Mock(side_effect=[
+            FakeResponse({"ready": False}, status_code=503),
+            FakeResponse({"ready": True}, status_code=200),
+        ])
+
+        result = execute_api_step(
+            request_template={"method": "GET", "url": "https://example.com/users"},
+            validate={},
+            polling={
+                "enabled": True, "timeout": 5, "interval": 1,
+                "retry_http_error": True,
+            },
+            request_func=request_func,
+        )
+
+        self.assertTrue(result.passed)
+        self.assertEqual(request_func.call_count, 2)
+        sleep.assert_called_once()
+
+    def test_polling_without_assertions_can_stop_on_first_http_error(self):
+        request_func = Mock(return_value=FakeResponse({"ready": False}, status_code=503))
+
+        result = execute_api_step(
+            request_template={"method": "GET", "url": "https://example.com/users"},
+            validate={},
+            polling={
+                "enabled": True, "timeout": 5, "interval": 1,
+                "retry_http_error": False,
+            },
+            request_func=request_func,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.errors, ["HTTP 503"])
+        request_func.assert_called_once()
 
     def test_legacy_variable_syntax_fails_with_migration_hint(self):
         request_func = Mock()

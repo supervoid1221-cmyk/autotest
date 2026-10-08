@@ -725,6 +725,72 @@ def _summaries(items):
     } for item in items]
 
 
+def _compact_candidate_text(value, limit=72):
+    text = " / ".join(part.strip() for part in str(value or "").splitlines() if part.strip())
+    return f"{text[:limit - 1]}…" if len(text) > limit else text
+
+
+def _candidate_description(item):
+    """将定位候选转成面向使用者的位置摘要，避免暴露策略名和内部分数。"""
+    info = item.get("info") or {}
+    tag = str(info.get("tag") or "").lower()
+    role = str(info.get("role") or "").lower()
+    kind = {
+        "button": "按钮", "a": "链接", "input": "输入框", "select": "下拉框",
+        "textarea": "文本框",
+    }.get(tag) or {
+        "button": "按钮", "link": "链接", "menuitem": "菜单项", "tab": "页签",
+    }.get(role) or "元素"
+    label = _compact_candidate_text(
+        info.get("text") or info.get("ariaLabel") or info.get("value") or info.get("placeholder")
+    )
+    if info.get("inDialog"):
+        region = "弹窗内"
+    elif info.get("inTableRow"):
+        region = "表格行内"
+    elif info.get("region") == "page_top" or float(info.get("y") or 9999) <= 180:
+        region = "页面顶部"
+    else:
+        region = "页面内"
+    description = f"{region}的{kind}"
+    if label:
+        description += f"「{label}」"
+    row_text = _compact_candidate_text(info.get("rowText"))
+    if row_text:
+        description += f"，所在行「{row_text}」"
+    else:
+        nearby = []
+        for label_info in info.get("nearbyLabels") or []:
+            value = _compact_candidate_text(label_info.get("text") if isinstance(label_info, dict) else "", 48)
+            if value and value not in nearby and value != label:
+                nearby.append(value)
+        if nearby:
+            description += f"，附近「{' / '.join(nearby[:2])}」"
+    x, y = info.get("x"), info.get("y")
+    if x is not None and y is not None:
+        description += f"（坐标 {round(float(x))}, {round(float(y))}）"
+    return description
+
+
+def _ambiguity_message(target, ranked):
+    """只描述与最高候选分数接近的元素，不把弱匹配误报为同名候选。"""
+    competitive = [item for item in ranked if ranked[0]["score"] - item["score"] < 15]
+    ordinals = ["第一个", "第二个", "第三个", "第四个", "第五个"]
+    descriptions = [
+        f"{ordinals[index]}：{_candidate_description(item)}"
+        for index, item in enumerate(competitive[:len(ordinals)])
+    ]
+    remainder = len(competitive) - len(descriptions)
+    if remainder > 0:
+        descriptions.append(f"另有 {remainder} 个相似元素")
+    lines = [
+        f"无法唯一定位“{target}”：共有 {len(competitive)} 个匹配元素，无法判断应操作哪一个。",
+        *[f"{description}；" for description in descriptions],
+        "请补充元素所在区域、数据行特征，或配置手动兜底表达式。",
+    ]
+    return "\n".join(lines)
+
+
 def _context_bonus(info, context_tokens):
     """优先操作当前弹层内、且具备更明确可访问上下文的元素。"""
     bonus = 18 if info.get("inDialog") else 0
@@ -973,6 +1039,7 @@ def _build_dom_index(page, action, scope_token=""):
         return indexedElements.slice(0, 500).map((element, index) => {
           element.setAttribute('data-pw-smart-index', `${token}-${index}`);
           const box = element.getBoundingClientRect();
+          const tableRow = element.closest('tr, [role="row"]');
           const nearbyLabels = labels.map(label => {
             const vertical = box.top - label.box.bottom;
             const horizontal = Math.max(0, Math.max(label.box.left, box.left) - Math.min(label.box.right, box.right));
@@ -997,6 +1064,9 @@ def _build_dom_index(page, action, scope_token=""):
             x:box.x, y:box.y,
             inDialog:!!element.closest('[role="dialog"], dialog, [aria-modal="true"]'),
             dialogLabel:(element.closest('[role="dialog"], dialog, [aria-modal="true"]')?.getAttribute('aria-label') || ''),
+            inTableRow:!!tableRow,
+            rowText:tableRow ? (tableRow.innerText || '').trim().slice(0,160) : '',
+            region:tableRow ? 'table_row' : (box.y <= 180 ? 'page_top' : 'page_body'),
             nearbyLabels
           };
         });
@@ -1204,8 +1274,7 @@ def resolve(page, step, timeout, fingerprint=None):
     elif _is_ambiguous(ranked):
         details = _summaries(ranked[:5])
         raise SmartLocatorError(
-            f"无法唯一定位“{target}”：最高候选 {best['strategy']}（{best['score']} 分），"
-            f"请补充元素描述、角色或手动兜底表达式。候选：{details}",
+            _ambiguity_message(target, ranked),
             details,
         )
     # 显式滚入视区：既让后续操作稳定，也使运行截图/有头浏览器能看到当前目标。

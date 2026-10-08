@@ -148,12 +148,14 @@
 </template>
 
 <script lang="ts" setup>
+import { asList } from '@/utils/list';
+
   import { computed, onMounted, reactive, ref } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import { useMessage } from 'naive-ui';
   import { useSubmitRedirect } from '@/hooks/web/useSubmitRedirect';
-  import { ProjectAPI } from '@/api/project/http';
-  import { ElementAPI, ElementModuleAPI } from '@/api/case_ui/http';
+  import { ModuleAPI, ProjectAPI } from '@/api/project/http';
+  import { ElementAPI } from '@/api/case_ui/http';
 
   const route = useRoute();
   const router = useRouter();
@@ -166,7 +168,7 @@
   const elementHtml = ref('');
   const recognitionPreview = ref<{ by: string; value: string } | null>(null);
   const api = new ElementAPI();
-  const moduleApi = new ElementModuleAPI();
+  const moduleApi = new ModuleAPI();
   const projectApi = new ProjectAPI();
   const projects = ref<any[]>([]);
   const modules = ref<any[]>([]);
@@ -222,11 +224,7 @@
       .map((item) => ({ label: item.name, value: item.id }))
   );
 
-  function asList(payload: any): any[] {
-    return Array.isArray(payload)
-      ? payload
-      : payload?.list || payload?.results || payload?.data || [];
-  }
+  
   function handleProjectChange() {
     if (!moduleOptions.value.some((item) => item.value === formValue.module))
       formValue.module = null;

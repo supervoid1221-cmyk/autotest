@@ -7,7 +7,7 @@
             <nav class="breadcrumb" aria-label="面包屑">
               <span>执行</span>
               <span>/</span>
-              <button type="button" class="breadcrumb-link" @click="router.back()">模块管理</button>
+              <button type="button" class="breadcrumb-link" @click="router.push({ name: 'template_list' })">模块管理</button>
               <span>/</span>
               <strong>执行详情</strong>
             </nav>
@@ -18,14 +18,14 @@
               }}</p
             >
           </div>
-          <n-button class="back-button" size="large" @click="router.back()">
+          <n-button class="back-button" @click="router.push({ name: 'template_list' })">
             <template #icon><PhArrowLeft :size="18" /></template>
-            返回模板管理
+            返回模块管理
           </n-button>
         </header>
 
         <main class="workspace">
-          <n-form label-placement="top" class="run-form">
+          <n-form label-placement="top" class="run-form" :disabled="running || outputActive">
             <section class="execution-card">
               <div class="card-head">
                 <div class="card-icon"><PhSlidersHorizontal :size="28" weight="bold" /></div>
@@ -92,9 +92,9 @@
                 <span class="run-hint"
                   ><PhInfo :size="18" weight="fill" />将使用本次填写的参数运行关联套件</span
                 >
-                <n-button type="primary" size="large" :loading="running" @click="run">
+                <n-button type="primary" size="large" :loading="running" :disabled="outputActive || !environmentId || !template.enabled" @click="run">
                   <template #icon><PhPlay :size="18" weight="fill" /></template>
-                  执行
+                  {{ outputActive ? '正在执行' : resultId ? '再次执行' : '开始执行' }}
                 </n-button>
               </footer>
             </section>
@@ -106,16 +106,20 @@
                 ><PhDatabase :size="28" weight="bold" /><h3>输出结果</h3></div
               >
               <n-tag
-                :type="resultId ? (outputActive ? 'info' : 'success') : 'default'"
+                :type="statusType"
                 size="small"
                 round
               >
-                {{ resultId ? (outputActive ? '执行中' : outputStatus || '执行完成') : '等待执行' }}
+                {{ outputError ? '结果读取失败' : resultId ? (outputStatus || '已提交') : '等待执行' }}
               </n-tag>
             </div>
 
             <div class="output-content">
               <div v-if="resultId" class="result-meta">执行编号 #{{ resultId }}</div>
+              <n-alert v-if="outputError" type="error" class="output-error">
+                {{ outputError }}
+                <template #action><n-button size="small" @click="refreshOutput">重新读取</n-button></template>
+              </n-alert>
               <n-spin v-if="outputActive" size="small" class="output-spinner" />
               <div v-if="resultId && outputFields.length" class="output-grid">
                 <template v-for="field in outputFields" :key="field.key">
@@ -133,9 +137,9 @@
                 <div class="empty-illustration"
                   ><PhFileText :size="72" weight="light" /><span>•••</span></div
                 >
-                <h4>{{ resultId ? '暂无输出字段' : '暂无执行结果' }}</h4>
+                <h4>{{ outputActive ? '正在生成结果' : resultId ? '暂无输出字段' : '准备好后开始执行' }}</h4>
                 <p>{{
-                  resultId ? '当前模板未配置输出字段' : '执行完成后将在这里展示配置的输出字段'
+                  outputActive ? '结果会自动更新，请稍候' : resultId ? '本次尚未返回输出字段' : '选择环境并填写参数，输出结果将在此展示'
                 }}</p>
               </div>
 
@@ -169,6 +173,7 @@
   import { useRoute, useRouter } from 'vue-router';
   import { ExecutionTemplateAPI } from '@/api/execution_template/http';
   import { EnvironmentAPI } from '@/api/project/http';
+  import { asList } from '@/utils/list';
   import {
     PhArrowLeft,
     PhDatabase,
@@ -197,7 +202,15 @@
   const outputFields = ref<any[]>([]);
   const outputStatus = ref('');
   const outputActive = ref(false);
-  let outputPollTimer: ReturnType<typeof setInterval> | null = null;
+  const outputError = ref('');
+  const statusType = computed(() => {
+    if (outputError.value || outputStatus.value === '执行出错') return 'error';
+    if (outputActive.value) return 'info';
+    if (['已取消', '已暂停'].includes(outputStatus.value)) return 'warning';
+    return 'default';
+  });
+  let outputPollTimer: ReturnType<typeof setTimeout> | null = null;
+  let disposed = false;
 
   const environmentNames = ['Dev', 'Test', 'Pre', 'Prod'];
 
@@ -217,9 +230,7 @@
       }
       // 环境列表：仅套件环境所在项目
       const environmentResponse: any = await environmentApi.getDataList({ page: 1, pageSize: 999 });
-      const environments = Array.isArray(environmentResponse)
-        ? environmentResponse
-        : environmentResponse?.list || [];
+      const environments = asList<any>(environmentResponse);
       const projectId = template.value.project;
       environmentOptions.value = environments
         .filter((e) => Number(e.project) === Number(projectId) && environmentNames.includes(e.name))
@@ -236,6 +247,7 @@
   }
 
   async function run() {
+    if (running.value || outputActive.value) return;
     const missing = (template.value.parameters || []).filter(
       (p: any) => p.required && !String(params[p.key] ?? '').trim()
     );
@@ -248,10 +260,11 @@
       const resp = await api.runById(id, { ...params }, environmentId.value);
       resultId.value = resp.result_id;
       outputFields.value = [];
-      message.success(`任务已提交，结果ID: ${resp.result_id}`);
+      outputStatus.value = '准备开始';
+      outputActive.value = true;
+      outputError.value = '';
+      message.success(`任务已提交，执行编号：${resp.result_id}`);
       await refreshOutput();
-      if (outputPollTimer) clearInterval(outputPollTimer);
-      outputPollTimer = setInterval(refreshOutput, 1500);
     } catch (error: any) {
       message.error(error?.message || '执行失败');
     } finally {
@@ -260,21 +273,19 @@
   }
 
   async function refreshOutput() {
-    if (!resultId.value) return;
+    if (!resultId.value || disposed) return;
+    if (outputPollTimer) clearTimeout(outputPollTimer);
+    outputPollTimer = null;
     try {
       const output = await api.getOutput(id, resultId.value);
+      if (disposed) return;
+      outputError.value = '';
       outputFields.value = output.fields || [];
       outputStatus.value = output.status;
       outputActive.value = output.active;
-      if (!output.active && outputPollTimer) {
-        clearInterval(outputPollTimer);
-        outputPollTimer = null;
-      }
+      if (output.active) outputPollTimer = setTimeout(refreshOutput, 1500);
     } catch (error: any) {
-      outputActive.value = false;
-      if (outputPollTimer) clearInterval(outputPollTimer);
-      outputPollTimer = null;
-      message.error(error?.message || '输出结果加载失败');
+      if (!disposed) outputError.value = error?.message || '输出结果加载失败，请重新读取';
     }
   }
 
@@ -285,21 +296,22 @@
 
   onMounted(load);
   onBeforeUnmount(() => {
-    if (outputPollTimer) clearInterval(outputPollTimer);
+    disposed = true;
+    if (outputPollTimer) clearTimeout(outputPollTimer);
   });
 </script>
 
 <style lang="less" scoped>
   .run-page {
     min-height: 100%;
-    padding: 28px 34px 34px;
+    padding: 24px 28px 32px;
     background: #f7f9fc;
   }
 
   .page-header,
   .workspace,
   .page-note {
-    max-width: 1280px;
+    max-width: 1440px;
     margin-right: auto;
     margin-left: auto;
   }
@@ -309,7 +321,7 @@
     align-items: flex-end;
     justify-content: space-between;
     gap: 32px;
-    margin-bottom: 24px;
+    margin-bottom: 18px;
   }
 
   .page-heading {
@@ -346,7 +358,7 @@
   .page-header h2 {
     margin: 0;
     color: #182338;
-    font-size: 30px;
+    font-size: 24px;
     font-weight: 700;
     letter-spacing: -0.025em;
   }
@@ -376,9 +388,9 @@
 
   .workspace {
     display: grid;
-    grid-template-columns: minmax(0, 1.62fr) minmax(390px, 1fr);
-    gap: 24px;
-    align-items: stretch;
+    grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.2fr);
+    gap: 20px;
+    align-items: start;
   }
 
   .run-form {
@@ -397,14 +409,16 @@
   .execution-card {
     display: flex;
     flex-direction: column;
-    min-height: 572px;
+    min-height: 400px;
   }
 
   .card-head {
     display: flex;
     align-items: center;
     gap: 15px;
-    padding: 28px 28px 24px;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e7ecf3;
+    margin-bottom: 20px;
   }
 
   .card-icon {
@@ -420,7 +434,7 @@
   .output-head h3 {
     margin: 0;
     color: #182438;
-    font-size: 20px;
+    font-size: 16px;
     font-weight: 700;
   }
 
@@ -517,9 +531,9 @@
 
   .parameter-row {
     display: grid;
-    grid-template-columns: minmax(150px, 36%) minmax(0, 1fr);
+    grid-template-columns: minmax(100px, 32%) minmax(0, 1fr);
     align-items: center;
-    min-height: 74px;
+    min-height: 64px;
     padding: 12px 16px;
     border-bottom: 1px solid #e8edf3;
   }
@@ -592,14 +606,15 @@
   .output-card {
     display: flex;
     flex-direction: column;
-    min-height: 572px;
+    min-width: 0;
+    min-height: 400px;
   }
 
   .output-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    min-height: 88px;
+    min-height: 76px;
     padding: 0 26px;
     border-bottom: 1px solid #e7ecf3;
   }
@@ -627,7 +642,7 @@
 
   .output-grid {
     display: grid;
-    grid-template-columns: 40% minmax(0, 1fr);
+    grid-template-columns: minmax(100px, 26%) minmax(0, 1fr);
     overflow: hidden;
     margin-bottom: 20px;
     border: 1px solid #e3e8f0;
@@ -665,6 +680,8 @@
   }
 
   .output-value pre {
+    max-height: 360px;
+    overflow: auto;
     margin: 0;
     white-space: pre-wrap;
     font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -676,17 +693,17 @@
     align-items: center;
     flex-direction: column;
     justify-content: center;
-    min-height: 270px;
-    padding: 36px 16px 28px;
+    min-height: 210px;
+    padding: 24px 16px;
     text-align: center;
   }
 
   .empty-illustration {
     position: relative;
     display: grid;
-    width: 126px;
-    height: 126px;
-    margin-bottom: 22px;
+    width: 88px;
+    height: 88px;
+    margin-bottom: 16px;
     place-items: center;
     border-radius: 50%;
     color: #2f67f4;
@@ -728,7 +745,7 @@
   }
 
   .configured-output {
-    margin-top: auto;
+    margin-top: 16px;
     padding: 18px;
     border: 1px solid #dce5f3;
     border-radius: 8px;
@@ -777,13 +794,19 @@
     padding: 80px 0;
   }
 
+  .output-error { margin-bottom: 16px; }
+  .parameter-control :deep(.n-input-number) { width: 100%; }
+  .parameter-label, .output-label { overflow-wrap: anywhere; }
+  .result-meta { font-variant-numeric: tabular-nums; }
+  .breadcrumb-link:focus-visible { outline: 2px solid #3d63f3; outline-offset: 4px; }
+
   @media (max-width: 1000px) {
     .workspace {
       grid-template-columns: 1fr;
     }
 
     .output-card {
-      min-height: 500px;
+      min-height: 320px;
     }
   }
 

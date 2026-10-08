@@ -27,6 +27,8 @@ def filter_suite_access(queryset, user, prefix=""):
     ).exclude(
         **{f"{prefix}playwright_cases__project__in": invisible_projects}
     ).exclude(
+        **{f"{prefix}app_cases__project__in": invisible_projects}
+    ).exclude(
         **{f"{prefix}execution_items__scenario__project__in": invisible_projects}
     ).exclude(
         **{f"{prefix}execution_items__scenario__projects__in": invisible_projects}
@@ -39,6 +41,10 @@ def filter_suite_access(queryset, user, prefix=""):
         **{f"{prefix}execution_items__ui_case__project__in": invisible_projects}
     ).exclude(
         **{f"{prefix}execution_items__playwright_case__project__in": invisible_projects}
+    ).exclude(
+        **{f"{prefix}execution_items__yaml_case__project__in": invisible_projects}
+    ).exclude(
+        **{f"{prefix}execution_items__app_case__project__in": invisible_projects}
     ).distinct()
 
 
@@ -62,11 +68,14 @@ def filter_suite_project(queryset, project_id, prefix=""):
         | Q(**{f"{prefix}scenarios__steps__endpoint__project_id": project_id})
         | Q(**{f"{prefix}ui_cases__project_id": project_id})
         | Q(**{f"{prefix}playwright_cases__project_id": project_id})
+        | Q(**{f"{prefix}app_cases__project_id": project_id})
         | Q(**{f"{prefix}execution_items__scenario__project_id": project_id})
         | Q(**{f"{prefix}execution_items__scenario__projects__id": project_id})
         | Q(**{f"{prefix}execution_items__scenario__steps__endpoint__project_id": project_id})
         | Q(**{f"{prefix}execution_items__ui_case__project_id": project_id})
         | Q(**{f"{prefix}execution_items__playwright_case__project_id": project_id})
+        | Q(**{f"{prefix}execution_items__yaml_case__project_id": project_id})
+        | Q(**{f"{prefix}execution_items__app_case__project_id": project_id})
     ).distinct()
 
 
@@ -82,3 +91,9 @@ def require_suite_access(user, suite):
     require_projects_access(
         user, (case.project for case in suite.playwright_cases.select_related("project")),
     )
+    require_projects_access(
+        user, (item.yaml_case.project for item in suite.execution_items.filter(
+            item_type="yaml_ui",
+        ).select_related("yaml_case__project") if item.yaml_case),
+    )
+    require_projects_access(user, (case.project for case in suite.app_cases.select_related("project")))

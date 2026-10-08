@@ -66,66 +66,21 @@
 </template>
 
 <script lang="ts" setup>
+import { methodStyle, stepStatus, formatTime, formatDuration, formatJson, formatRequest, formatResponse } from '@/utils/report';
+
   defineProps<{
     steps: any[];
     groupKey: string;
   }>();
 
-  const methodStyle = (method?: string) =>
-    ({
-      GET: { color: '#1677ff', background: '#eaf3ff' },
-      POST: { color: '#20a162', background: '#ebf8f0' },
-      PUT: { color: '#d97706', background: '#fff5e6' },
-      PATCH: { color: '#7c3aed', background: '#f3edff' },
-      DELETE: { color: '#dc2626', background: '#fff0f0' },
-    }[String(method || '').toUpperCase()] || { color: '#667085', background: '#f2f4f7' });
-  const stepStatus = (step: any) => {
-    const status =
-      step?.status ||
-      (step?.passed === true ? 'passed' : step?.passed === false ? 'failed' : 'pending');
-    return (
-      (
-        {
-          passed: { label: '通过', type: 'success' },
-          failed: { label: '失败', type: 'error' },
-          running: { label: '执行中', type: 'warning' },
-          pending: { label: '待执行', type: 'default' },
-          skipped: { label: '已跳过', type: 'warning' },
-        } as any
-      )[status] || { label: '待执行', type: 'default' }
-    );
-  };
-  const formatTime = (value?: string) => {
-    if (!value) return '-';
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
-  };
-  const formatDuration = (value?: number, step?: any) => {
-    let milliseconds = Number(value);
-    if (!Number.isFinite(milliseconds) && step?.started_at && step?.finished_at) {
-      milliseconds = new Date(step.finished_at).getTime() - new Date(step.started_at).getTime();
-    }
-    if (!Number.isFinite(milliseconds)) return '-';
-    milliseconds = Math.max(0, milliseconds);
-    return milliseconds >= 1000
-      ? `${(milliseconds / 1000).toFixed(2)} 秒`
-      : `${milliseconds.toFixed(0)} ms`;
-  };
-  const formatJson = (data: unknown) => JSON.stringify(data || {}, null, 2);
-  const isEmpty = (value: unknown) =>
-    value == null ||
-    (typeof value === 'string' && value.trim() === '') ||
-    (Array.isArray(value) && value.length === 0) ||
-    (typeof value === 'object' && Object.keys(value).length === 0);
-  const formatRequest = (request: any) => {
-    const clone = { ...(request || {}) };
-    (['params', 'data', 'json'] as const).forEach((key) => {
-      if (isEmpty(clone[key])) delete clone[key];
-    });
-    return JSON.stringify(clone, null, 2);
-  };
-  const formatResponse = (data: any) =>
-    JSON.stringify({ headers: data?.headers || {}, body: data?.body || '' }, null, 2);
+  
+  
+  
+  
+  
+  
+  
+  
 </script>
 
 <style scoped>
@@ -203,6 +158,8 @@
   }
   .errors {
     margin-bottom: 10px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .detail-block {
     min-width: 0;

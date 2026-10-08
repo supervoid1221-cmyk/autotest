@@ -14,6 +14,7 @@ export type ExtractRule = {
 };
 
 export const extractProcessorOptions = [
+  { label: '必填校验', value: 'required' },
   { label: '去除首尾空格', value: 'trim' },
   { label: '添加字符串前缀', value: 'prefix' },
   { label: '添加字符串后缀', value: 'suffix' },
@@ -36,6 +37,7 @@ export const extractProcessorOptions = [
 
 export function defaultProcessor(type: string): ExtractProcessor {
   const defaults: Record<string, ExtractProcessor> = {
+    required: { type: 'required' },
     trim: { type: 'trim' },
     prefix: { type: 'prefix', value: '' },
     suffix: { type: 'suffix', value: '' },

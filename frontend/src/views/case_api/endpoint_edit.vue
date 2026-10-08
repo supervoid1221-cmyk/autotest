@@ -1,20 +1,35 @@
 <template>
-  <div class="endpoint-page">
+  <div class="endpoint-page api-workbench">
+    <nav class="endpoint-directory">
+      <n-button text class="directory-back" @click="back">← 返回接口列表</n-button>
+      <n-input v-model:value="directorySearch" placeholder="搜索接口" clearable>
+        <template #prefix><PhMagnifyingGlass /></template>
+      </n-input>
+      <section v-for="group in directoryGroups" :key="group.name" class="directory-group">
+        <button type="button" class="directory-group-header" @click="toggleDirectoryGroup(group.name)">
+          <PhFolderSimple :size="17" />
+          <span>{{ group.name }}</span>
+          <PhCaretDown :size="15" :class="{ collapsed: collapsedDirectoryGroups.has(group.name) }" />
+        </button>
+        <div v-show="!collapsedDirectoryGroups.has(group.name)" class="directory-items">
+          <button
+            v-for="item in group.items"
+            :key="item.id"
+            type="button"
+            :class="{ selected: Number(item.id) === endpointId }"
+            @click="switchEndpoint(item)"
+          >
+            <b :class="String(item.method).toLowerCase()">{{ item.method }}</b>
+            <span>{{ item.name }}</span>
+          </button>
+        </div>
+      </section>
+    </nav>
     <div class="endpoint-page-inner">
       <div class="page-toolbar">
         <div class="breadcrumb-row"
           ><span>API测试</span><i>/</i><span>接口管理</span><i>/</i><b>接口详情</b></div
         >
-        <div class="page-actions">
-          <n-button @click="back">返回</n-button>
-          <n-button
-            class="save-button"
-            :loading="submitMode === 'save'"
-            :disabled="submitMode !== null"
-            @click="formSubmit(false)"
-            >保存</n-button
-          >
-        </div>
       </div>
 
       <n-form
@@ -26,19 +41,35 @@
         class="endpoint-form"
       >
         <section class="basic-card">
-          <h2>基本信息</h2>
-          <div class="basic-grid">
-            <n-form-item label="接口名称" path="name"
-              ><n-input v-model:value="formValue.name" size="small" placeholder="请输入接口名称"
-            /></n-form-item>
-            <n-form-item label="关联项目" path="project"
+          <div class="endpoint-title-row">
+            <div class="endpoint-title-editor">
+              <n-input ref="titleInputRef" v-model:value="formValue.name" placeholder="新建接口" />
+              <button type="button" aria-label="编辑接口名称" @click="focusEndpointTitle"><PhPencilSimple /></button>
+            </div>
+            <div class="page-actions">
+              <n-button
+                class="save-button"
+                :loading="submitMode === 'save'"
+                :disabled="submitMode !== null"
+                @click="formSubmit(false)"
+                >保存</n-button
+              >
+              <n-select class="environment-selector" v-model:value="debugEnvironmentId" :options="debugEnvironmentOptions" :disabled="debugRunning" placeholder="选择执行环境" />
+            </div>
+          </div>
+        </section>
+
+        <div class="endpoint-workspace">
+          <main class="workspace-main">
+            <div class="basic-grid">
+            <n-form-item label="项目" path="project"
               ><n-select
                 v-model:value="formValue.project"
                 size="small"
                 :options="project_list"
                 @update:value="handleProjectChange"
             /></n-form-item>
-            <n-form-item label="所属模块" path="module"
+            <n-form-item label="模块" path="module"
               ><n-select
                 v-model:value="formValue.module"
                 size="small"
@@ -46,24 +77,33 @@
                 :disabled="!formValue.project"
                 placeholder="请先选择项目"
             /></n-form-item>
-          </div>
-        </section>
-
-        <div class="endpoint-workspace">
-          <main class="workspace-main">
+            </div>
             <section class="request-card">
               <div class="request-card-head">
                 <h2>请求配置</h2>
-                <n-button
-                  type="primary"
-                  class="request-debug-button"
-                  :loading="submitMode === 'debug'"
-                  :disabled="submitMode !== null"
-                  @click="formSubmit(true)"
-                >
-                  <template #icon><PhPlay :size="16" weight="fill" /></template>
-                  调试
-                </n-button>
+                <div class="request-run-control">
+                  <n-button
+                    type="primary"
+                    class="request-debug-button"
+                    :loading="submitMode === 'debug'"
+                    :disabled="submitMode !== null"
+                    @click="formSubmit(true)"
+                  >
+                    <template #icon><PhPlay :size="16" weight="fill" /></template>
+                    {{ dataDrivenEnabled ? '运行数据集' : '发送请求' }}
+                  </n-button>
+                  <n-dropdown trigger="click" :options="runModeOptions" @select="selectRunMode">
+                    <n-button
+                      type="primary"
+                      class="request-run-menu"
+                      :disabled="submitMode !== null"
+                      aria-label="选择执行模式"
+                      title="选择执行模式"
+                    >
+                      <template #icon><PhCaretDown :size="17" /></template>
+                    </n-button>
+                  </n-dropdown>
+                </div>
               </div>
               <div class="request-target">
                 <n-form-item path="url" :show-label="false">
@@ -72,7 +112,9 @@
                       v-model:value="formValue.method"
                       size="small"
                       :options="methodOptions"
+                      :render-label="renderMethodOption"
                       class="request-method-select"
+                      :class="`method-${String(formValue.method || 'get').toLowerCase()}`"
                     />
                     <n-input
                       v-model:value="formValue.url"
@@ -87,42 +129,49 @@
                   v-for="tab in requestTabs"
                   :key="tab.value"
                   type="button"
-                  :class="{ active: requestTab === tab.value }"
+                  :class="{ active: requestTab === tab.value, 'request-parameter-tab': ['params', 'headers'].includes(tab.value) }"
                   @click="selectRequestTab(tab.value)"
                 >
-                  <component :is="tab.icon" :size="18" /><span>{{ tab.label }}</span
+                  <component v-if="!['params', 'headers'].includes(tab.value)" :is="tab.icon" :size="18" /><span>{{ tab.label }}</span
                   ><b v-if="typeof tab.count === 'number'">{{ tab.count }}</b>
                 </button>
               </div>
 
-              <template v-if="requestTab !== 'files'">
+              <template v-if="requestTab === 'headers' || requestTab === 'params'">
+                <EndpointParameterTable
+                  :key="requestTab"
+                  ref="parameterTableRef"
+                  :model-value="activeEditorText"
+                  @update:model-value="updateActiveEditor"
+                />
+                <div class="editor-note"><span>i</span>逐行编辑参数，点击 + 添加；支持 <code>${变量名}</code>，修改后保存接口生效。</div>
+              </template>
+              <template v-else-if="requestTab === 'body'">
                 <div class="editor-toolbar">
                   <div v-if="requestTab === 'body'" class="body-kind-tabs">
                     <button
                       type="button"
                       :class="{ active: bodyType === 'json' }"
-                      @click="bodyType = 'json'"
+                      @click="selectBodyType('json')"
                       >JSON</button
                     >
                     <button
                       type="button"
                       :class="{ active: bodyType === 'data' }"
-                      @click="bodyType = 'data'"
-                      >Data</button
+                      @click="selectBodyType('data')"
+                      >x-www-form-urlencoded</button
                     >
                     <button
                       type="button"
                       :class="{ active: bodyType === 'files' }"
-                      @click="
-                        bodyType = 'files';
-                        requestTab = 'files';
-                      "
-                      >Form-data</button
+                      @click="selectBodyType('files')"
+                      >form-data</button
                     >
                   </div>
                   <strong v-else>{{ requestTab === 'headers' ? 'Headers' : 'Params' }}</strong>
                   <div class="editor-actions"
-                    ><n-button text size="small" @click="formatActiveJson">✨ 格式化</n-button></div
+                    ><n-button text size="small" @click="formatActiveJson"><template #icon><PhSparkle /></template>格式化</n-button
+                    ><n-button text circle size="small" aria-label="复制请求内容" @click="copyActiveEditor"><template #icon><PhCopy /></template></n-button></div
                   >
                 </div>
                 <div class="json-editor">
@@ -144,32 +193,49 @@
                 >
               </template>
 
-              <section v-else class="files-panel">
+              <section v-else-if="requestTab === 'files'" class="files-panel">
                 <div class="files-panel-head"
                   ><div
-                    ><strong>Form-data 文件</strong
-                    ><p>文本字段与文件会以 multipart/form-data 发送</p></div
+                    ><strong>Form-data</strong
+                    ><p>每行可选择 Text 或 File，统一以 multipart/form-data 发送</p></div
+                  ><n-button secondary @click="addFormDataTextEntry">添加 Text</n-button
                   ><n-upload :show-file-list="false" :custom-request="uploadEndpointFile"
-                    ><n-button type="primary" secondary>选择并上传文件</n-button></n-upload
+                    ><n-button type="primary" secondary>添加 File</n-button></n-upload
                   ></div
                 >
                 <n-empty
-                  v-if="!fileEntries.length"
+                  v-if="!formDataTextEntries.length && !fileEntries.length"
                   size="small"
-                  description="暂无文件，可上传一个或多个文件"
+                  description="暂无 form-data 字段，请添加 Text 或 File"
                   class="file-empty"
                 />
+                <div v-else class="form-data-table-head">
+                  <span>字段名</span><span>类型</span><span>值</span><span>操作</span>
+                </div>
+                <div
+                  v-for="(entry, index) in formDataTextEntries"
+                  :key="`text-${index}`"
+                  class="file-entry form-data-entry"
+                >
+                  <n-input v-model:value="entry.field" size="small" placeholder="字段名" />
+                  <n-tag size="small" :bordered="false">Text</n-tag>
+                  <n-input v-model:value="entry.value" size="small" placeholder="文本值，支持变量引用" />
+                  <n-button text type="error" size="small" @click="formDataTextEntries.splice(index, 1)">删除</n-button>
+                </div>
                 <div
                   v-for="(entry, index) in fileEntries"
                   :key="`${entry.path}-${index}`"
-                  class="file-entry"
+                  class="file-entry form-data-entry"
                 >
                   <n-input
                     v-model:value="entry.field"
                     size="small"
                     placeholder="文件字段名，如 file"
-                  /><span class="file-name" :title="entry.name">{{ entry.name }}</span
-                  ><span class="file-size">{{ formatFileSize(entry.size) }}</span
+                  />
+                  <n-tag size="small" type="info" :bordered="false">File</n-tag>
+                  <span class="form-data-file-value"
+                    ><span class="file-name" :title="entry.name">{{ entry.name }}</span
+                    ><span class="file-size">{{ formatFileSize(entry.size) }}</span></span
                   ><n-button text type="error" size="small" @click="fileEntries.splice(index, 1)"
                     >删除</n-button
                   >
@@ -177,8 +243,8 @@
               </section>
             </section>
 
-            <section class="response-rules-card">
-              <n-tabs v-model:value="responseRuleTab" type="line" animated class="response-rule-tabs">
+            <section v-show="['extract', 'validate'].includes(requestTab)" class="response-rules-card">
+              <n-tabs v-model:value="requestTab" type="line" animated class="response-rule-tabs">
                 <n-tab-pane name="extract" :tab="`数据提取 ${extractRules.length}`">
                   <div class="rule-actions">
                     <span>执行成功后提取响应数据，供请求参数或断言引用。</span>
@@ -233,11 +299,10 @@
               </n-tabs>
             </section>
 
-            <section class="data-drive-card">
+            <section v-if="dataDrivenEnabled" class="data-drive-card">
               <div class="data-drive-title"
                 ><div><h2>数据驱动</h2><p>每行数据独立执行并生成单独结果</p></div
-                ><n-switch v-model:value="dataDrivenEnabled"
-              /></div>
+                ><div class="dataset-tools"><input ref="datasetInput" type="file" accept=".csv,.json,text/csv,application/json" hidden @change="importDataset" /><n-button size="small" :loading="importingDataset" @click="datasetInput?.click()">导入 CSV / JSON</n-button><span>{{ datasetFilename }}</span></div></div>
               <div v-if="dataDrivenEnabled" class="data-drive-content">
                 <label class="data-drive-field-label"
                   ><span>字段名（英文逗号分隔）</span
@@ -250,7 +315,7 @@
                 <div v-if="dataDriveFields.length" class="data-drive-table-wrap">
                   <div class="data-drive-table">
                     <div class="data-drive-row data-drive-header" :style="dataDriveGridStyle"
-                      ><span>#</span
+                      ><span>启用</span
                       ><span v-for="field in dataDriveFields" :key="field">{{ field }}</span
                       ><span>操作</span></div
                     >
@@ -259,7 +324,7 @@
                       :key="rowIndex"
                       class="data-drive-row"
                       :style="dataDriveGridStyle"
-                      ><span class="data-drive-index">{{ rowIndex + 1 }}</span
+                      ><n-checkbox :checked="!disabledRows.includes(rowIndex)" @update:checked="toggleDataRow(rowIndex, $event)">{{ rowIndex + 1 }}</n-checkbox>
                       ><n-input
                         v-for="(_, columnIndex) in dataDriveFields"
                         :key="columnIndex"
@@ -271,13 +336,16 @@
                           text
                           type="primary"
                           size="small"
+                          circle
+                          :aria-label="`复制第 ${rowIndex + 1} 行数据`"
+                          title="复制数据"
                           @click="copyDataDriveRow(rowIndex)"
-                          >复制</n-button
+                          ><template #icon><PhCopy /></template></n-button
                         ><n-button
                           text
                           type="error"
                           size="small"
-                          @click="dataDriveRows.splice(rowIndex, 1)"
+                          @click="removeDataRow(rowIndex)"
                           >删除</n-button
                         ></div
                       ></div
@@ -290,25 +358,18 @@
                 <n-alert v-else type="warning" :show-icon="false" class="data-drive-warning"
                   >请先输入字段名，多个字段使用英文逗号分隔。</n-alert
                 >
+<div class="dataset-bindings"><h3>字段绑定</h3><p>数据列可绑定到请求字段；预期值请在断言中使用 <code>$ddt{expected_code}</code>。</p><div v-for="field in dataDriveFields" :key="field" class="binding-row"><code>{{ field }}</code><n-select :value="bindings[field]?.section || null" :options="bindingSections" placeholder="仅作为变量" clearable @update:value="setBinding(field, 'section', $event)" /><n-input :value="bindings[field]?.path || ''" placeholder="字段路径，如 user.email" @update:value="setBinding(field, 'path', $event)" /><n-button size="small" text @click="insertDatasetVariable(field)">引用</n-button></div></div>
               </div>
             </section>
+<section class="inline-response">
+<header class="response-heading"><h2>响应结果</h2><n-tag v-if="debugResult" :type="debugResult.passed ? 'success' : 'error'">{{ debugResult.status_code || (debugResult.passed ? '通过' : '失败') }}</n-tag><span v-if="debugResult">{{ debugResult.duration_ms }} ms</span><span v-if="debugResult">{{ responseSize }}</span><div class="response-heading-actions"><n-button text circle aria-label="复制响应内容" :disabled="!debugResult" @click="copyResponse"><template #icon><PhCopy /></template></n-button><n-button text circle aria-label="放大响应结果" @click="debugDialogVisible = true"><template #icon><PhArrowsOut /></template></n-button></div></header>
+<n-spin :show="debugRunning"><div v-if="batchResults.length" class="batch-results"><div class="batch-summary">数据集执行：{{ batchResults.length }} / {{ batchTotal }} 行 · 通过 {{ batchResults.filter(r => r.result.passed).length }} 行</div><button v-for="(row, index) in batchResults" :key="row.row" :class="{ selected: selectedBatchRow === index }" @click="selectBatchRow(index)"><span>数据 {{ row.row + 1 }}</span><strong :class="row.result.passed ? 'passed' : 'failed'">{{ row.result.passed ? '通过' : '失败' }}</strong><span>{{ row.result.duration_ms || 0 }} ms</span></button></div>
+<n-tabs v-model:value="resultTab" type="line"><n-tab-pane name="body" tab="响应体"><pre v-if="debugResult" class="response-code">{{ prettyResult(debugResult.response_json ?? debugResult.response_body) }}</pre><n-empty v-else description="发送请求后，响应结果将在这里展示" /></n-tab-pane><n-tab-pane name="headers" tab="响应头"><pre class="response-code">{{ prettyResult(debugResult?.response_headers) }}</pre></n-tab-pane><n-tab-pane name="assertions" tab="断言结果"><pre class="response-code">{{ prettyResult(debugResult?.assertions) }}</pre></n-tab-pane><n-tab-pane name="extracted" tab="提取结果"><pre class="response-code">{{ prettyResult(debugResult?.extracted) }}</pre></n-tab-pane><n-tab-pane name="request" tab="实际请求"><pre class="response-code">{{ prettyResult(debugResult?.request) }}</pre></n-tab-pane></n-tabs>
+<n-alert v-if="debugResult?.errors?.length" type="error">{{ debugResult.errors.join('；') }}</n-alert>
+</n-spin></section>
           </main>
 
           <aside class="workspace-sidebar">
-            <section class="side-card"
-              ><h2>请求概览</h2
-              ><div class="overview-list"
-                ><div
-                  ><span><PhStack /> Headers</span><b>{{ requestCount('headers') }}</b></div
-                ><div
-                  ><span><PhQuestion /> Params</span><b>{{ requestCount('params') }}</b></div
-                ><div
-                  ><span><PhBracketsCurly /> JSON</span><b>{{ requestCount('json') }}</b></div
-                ><div
-                  ><span><PhPaperclip /> Files</span><b>{{ fileEntries.length }}</b></div
-                ></div
-              ></section
-            >
             <section class="side-card variables-card">
               <header class="variable-card-header">
                 <h2>可用变量</h2>
@@ -337,7 +398,7 @@
                             <PhEyeSlash v-if="revealedVariableKeys.has(variable.key)" /><PhEye v-else />
                           </button>
                         </span>
-                        <span class="variable-actions"><button type="button" @click="copyVariable(variable)">复制</button><button type="button" @click="referenceVariable(variable)">引用</button></span>
+                        <span class="variable-actions"><button type="button" class="variable-copy-button" aria-label="复制变量" title="复制变量" @click="copyVariable(variable)"><PhCopy /></button><button type="button" @click="referenceVariable(variable)">引用</button></span>
                       </div>
                     </div>
                   </section>
@@ -352,13 +413,13 @@
       <n-modal
         v-model:show="debugDialogVisible"
         preset="card"
-        title="接口调试结果"
+        title="响应结果"
         class="endpoint-debug-modal"
-        style="width: 720px; max-width: calc(100vw - 48px); margin: 0 auto"
+        style="width: min(1440px, calc(100vw - 48px)); height: calc(100vh - 48px); margin: 0 auto"
         :mask-closable="!debugRunning"
       >
         <div class="debug-toolbar">
-          <div>
+          <div class="debug-environment-control">
             <span>执行环境</span>
             <n-select
               v-model:value="debugEnvironmentId"
@@ -367,13 +428,16 @@
               placeholder="请选择执行环境"
             />
           </div>
-          <n-button
-            type="primary"
-            :loading="debugRunning"
-            :disabled="!debugEnvironmentId"
-            @click="executeDebug"
-            >重新执行</n-button
-          >
+          <div class="debug-toolbar-actions">
+            <n-button secondary :disabled="!debugResult" @click="copyResponse">复制响应</n-button>
+            <n-button
+              type="primary"
+              :loading="debugRunning"
+              :disabled="!debugEnvironmentId"
+              @click="executeDebug()"
+              >重新执行</n-button
+            >
+          </div>
         </div>
 
         <n-spin :show="debugRunning">
@@ -382,10 +446,11 @@
               <n-tag :type="debugResult.passed ? 'success' : 'error'" :bordered="false">
                 {{ debugResult.passed ? '执行成功' : '执行失败' }}
               </n-tag>
-              <span>环境：{{ debugResult.environment || debugEnvironmentName }}</span>
-              <span>状态码：{{ debugResult.status_code ?? '—' }}</span>
-              <span>耗时：{{ debugResult.duration_ms ?? 0 }} ms</span>
-              <span v-if="debugResult.attempts">请求次数：{{ debugResult.attempts }}</span>
+              <span class="debug-metric"><small>执行环境</small><strong>{{ debugResult.environment || debugEnvironmentName }}</strong></span>
+              <span class="debug-metric"><small>状态码</small><strong>{{ debugResult.status_code ?? '—' }}</strong></span>
+              <span class="debug-metric"><small>耗时</small><strong>{{ debugResult.duration_ms ?? 0 }} ms</strong></span>
+              <span class="debug-metric"><small>响应大小</small><strong>{{ responseSize }}</strong></span>
+              <span v-if="debugAttemptCount" class="debug-metric"><small>请求次数</small><strong>{{ debugAttemptCount }}</strong></span>
             </div>
             <n-alert
               v-if="debugResult.errors?.length"
@@ -396,8 +461,23 @@
               <div v-for="(error, index) in debugResult.errors" :key="index">{{ error }}</div>
             </n-alert>
             <section class="debug-response">
-              <h3>响应正文</h3>
-              <pre>{{ debugResult.response_body || '（无响应正文）' }}</pre>
+              <n-tabs v-model:value="resultTab" type="line" animated class="debug-result-tabs">
+                <n-tab-pane name="body" tab="响应体">
+                  <pre class="debug-response-code">{{ prettyResult(debugResult.response_json ?? debugResult.response_body) }}</pre>
+                </n-tab-pane>
+                <n-tab-pane name="headers" tab="响应头">
+                  <pre class="debug-response-code">{{ prettyResult(debugResult.response_headers) }}</pre>
+                </n-tab-pane>
+                <n-tab-pane name="assertions" tab="断言结果">
+                  <pre class="debug-response-code">{{ prettyResult(debugResult.assertions) }}</pre>
+                </n-tab-pane>
+                <n-tab-pane name="extracted" tab="提取结果">
+                  <pre class="debug-response-code">{{ prettyResult(debugResult.extracted) }}</pre>
+                </n-tab-pane>
+                <n-tab-pane name="request" tab="实际请求">
+                  <pre class="debug-response-code">{{ prettyResult(debugResult.request) }}</pre>
+                </n-tab-pane>
+              </n-tabs>
             </section>
           </div>
           <n-empty v-else-if="!debugRunning" description="暂无执行结果" />
@@ -408,17 +488,23 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, h, ref, reactive, onMounted } from 'vue';
+import { asList } from '@/utils/list';
+
+  import { computed, h, ref, reactive, onMounted, watch } from 'vue';
   import { FormRules, useMessage } from 'naive-ui';
   import { useRoute, useRouter } from 'vue-router';
-  import { PhBracketsCurly, PhCaretUp, PhCircle, PhEye, PhEyeSlash, PhMagnifyingGlass, PhPackage, PhPaperclip, PhPlay, PhQuestion, PhStack } from '@phosphor-icons/vue';
+  import { PhArrowsOut, PhBracketsCurly, PhCaretDown, PhCaretUp, PhCircle, PhCopy, PhEye, PhEyeSlash, PhFolderSimple, PhMagnifyingGlass, PhPackage, PhPaperclip, PhPencilSimple, PhPlay, PhQuestion, PhSparkle, PhStack } from '@phosphor-icons/vue';
   import { useSubmitRedirect } from '@/hooks/web/useSubmitRedirect';
-  import { DynamicFunctionAPI, EnvironmentAPI, ProjectAPI, ProjectVariableAPI } from '@/api/project/http';
+  import { DynamicFunctionAPI, EnvironmentAPI, ModuleAPI, ProjectAPI, ProjectVariableAPI } from '@/api/project/http';
   import { Environment, ProjectVariable } from '@/api/project/models';
-  import { EndpointAPI, EndpointModuleAPI } from '@/api/case_api/http';
+  import { EndpointAPI } from '@/api/case_api/http';
   import { Endpoint, EndpointRunResult, UploadedEndpointFile } from '@/api/case_api/models';
   import ExtractProcessorEditor from './components/ExtractProcessorEditor.vue';
+  import EndpointParameterTable from './components/EndpointParameterTable.vue';
   import { defaultExtractRule, extractRuleFromConfig, extractRuleToConfig, type ExtractRule } from './extract-processors';
+
+  // 组件名需与路由名一致，供多页签 KeepAlive 精确缓存每个接口详情实例。
+  defineOptions({ name: 'case_api_endpoint_edit' });
 
   const route = useRoute();
   const router = useRouter();
@@ -430,17 +516,19 @@
   const endpointId = ref(dataID);
 
   const api = new EndpointAPI();
-  const moduleApi = new EndpointModuleAPI();
+  const moduleApi = new ModuleAPI();
   const project_api = new ProjectAPI();
   const projectVariableApi = new ProjectVariableAPI();
   const dynamicFunctionApi = new DynamicFunctionAPI();
   const environmentApi = new EnvironmentAPI();
 
   const formRef: any = ref(null);
+  const titleInputRef: any = ref(null);
   const message = useMessage();
-  type RequestTab = 'headers' | 'params' | 'body' | 'files';
+  type RequestTab = 'headers' | 'params' | 'body' | 'files' | 'extract' | 'validate';
   type JsonField = 'headers' | 'params' | 'data' | 'json';
   const requestTab = ref<RequestTab>('body');
+  const parameterTableRef = ref<InstanceType<typeof EndpointParameterTable> | null>(null);
   const bodyType = ref<'json' | 'data' | 'files'>('json');
   const submitMode = ref<'save' | 'debug' | null>(null);
   const debugDialogVisible = ref(false);
@@ -450,7 +538,7 @@
   const debugEnvironments = ref<Environment[]>([]);
   const debugResult = ref<EndpointRunResult | null>(null);
   type ValidateRule = { type: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'contains'; actual: string; expected: string };
-  type VariableCategory = 'project' | 'function';
+  type VariableCategory = 'project' | 'function' | 'dataset';
   type VariableItem = { key: string; name: string; reference: string; category: VariableCategory; value: string; source: string; sensitive?: boolean };
   const responseRuleTab = ref<'extract' | 'validate'>('extract');
   const extractRules = ref<ExtractRule[]>([]);
@@ -468,6 +556,11 @@
     label: value,
     value,
   }));
+  const renderMethodOption = (option: any) => h(
+    'span',
+    { class: ['request-method-option', `method-${String(option.value || 'get').toLowerCase()}`] },
+    String(option.label || option.value || '')
+  );
 
   const rules: FormRules = {
     project: {
@@ -518,8 +611,10 @@
       params: {},
       data: {},
       json: {},
+      body_type: 'json' as const,
       files: {},
       parametrize: [],
+      dataset_options: {} as NonNullable<Endpoint['dataset_options']>,
       extract: {},
       validate: {},
     };
@@ -530,7 +625,15 @@
   const projectVariables = ref<ProjectVariable[]>([]);
   const formValue = reactive(createDefaultValue());
   const fileEntries = ref<Array<UploadedEndpointFile & { field: string }>>([]);
+  const formDataTextEntries = ref<Array<{ field: string; value: string }>>([]);
   const dataDrivenEnabled = ref(false);
+  const runModeOptions = [
+    { label: '单次调试', key: 'single' },
+    { label: '数据驱动', key: 'dataset' },
+  ];
+  function selectRunMode(key: string | number) {
+    dataDrivenEnabled.value = key === 'dataset';
+  }
   const dataDriveFieldsText = ref('');
   const dataDriveFields = ref<string[]>([]);
   const dataDriveRows = ref<string[][]>([]);
@@ -556,10 +659,12 @@
   ];
   const requestCount = (field: JsonField) => Object.keys(formValue[field] || {}).length;
   const requestTabs = computed(() => [
-    { value: 'headers' as const, label: 'Headers', icon: PhStack, count: requestCount('headers') },
     { value: 'params' as const, label: 'Params', icon: PhQuestion, count: requestCount('params') },
+    { value: 'headers' as const, label: 'Headers', icon: PhStack, count: requestCount('headers') },
     { value: 'body' as const, label: 'Body', icon: PhBracketsCurly },
-    { value: 'files' as const, label: 'Files', icon: PhPaperclip, count: fileEntries.value.length },
+    { value: 'files' as const, label: '文件', icon: PhPaperclip, count: fileEntries.value.length },
+    { value: 'extract' as const, label: '数据提取', icon: PhStack, count: extractRules.value.length },
+    { value: 'validate' as const, label: '断言', icon: PhQuestion, count: validateRules.value.length },
   ]);
   const activeEditorField = computed<JsonField>(() =>
     requestTab.value === 'headers'
@@ -578,16 +683,14 @@
     ).join('\n')
   );
   const activeEditorPlaceholder = computed(() =>
-    activeEditorField.value === 'headers'
-      ? '{\n  "Authorization": "Bearer ${token}"\n}'
-      : activeEditorField.value === 'params'
-      ? '{\n  "page": 1,\n  "pageSize": 20\n}'
+    activeEditorField.value === 'headers' || activeEditorField.value === 'params'
+      ? ''
       : activeEditorField.value === 'data'
       ? '{\n  "name": "demo"\n}'
       : '{\n  "email": "admin@example.com"\n}'
   );
 
-  const asList = (data: any) => Array.isArray(data) ? data : data?.list || data?.results || [];
+  
   const defaultValidateRule = (): ValidateRule => ({ type: 'equals', actual: '$.', expected: '' });
   const normalizeJsonPathExpression = (value: unknown) => String(value || '').replace(/\s+·\s+.*$/, '').trim();
   const variableNameFromJsonPath = (path: unknown) => {
@@ -710,15 +813,19 @@
         data = {
           ...formValue,
           data:
-            bodyType.value === 'data' || bodyType.value === 'files'
+            bodyType.value === 'files'
+              ? serializeFormDataText()
+              : bodyType.value === 'data'
               ? parseJson(jsonText.data, '表单参数')
               : {},
           json: bodyType.value === 'json' ? parseJson(jsonText.json, 'JSON 请求体') : {},
+          body_type: bodyType.value === 'files' ? 'form_data' : bodyType.value,
           headers: parseJson(jsonText.headers, '请求头'),
           params: parseJson(jsonText.params, '查询参数'),
           cookies: {},
           files: serializeFiles(),
           parametrize: serializeDataDrive(),
+          dataset_options: { enabled: dataDrivenEnabled.value, disabled_rows: disabledRows.value, bindings: bindings.value, filename: datasetFilename.value },
           extract: toExtractConfig(extractRules.value),
           validate: toValidateConfig(validateRules.value),
         } as Endpoint;
@@ -727,6 +834,7 @@
         return;
       }
 
+      applyBindings(data);
       const isCreate = endpointId.value === 0;
       const saved = isCreate
         ? await api.createData(data as Endpoint)
@@ -747,7 +855,7 @@
         await prepareDebugRun(savedId, Number(formValue.project));
       } else {
         message.success('保存成功');
-        redirectAfterSubmit({ name: 'case_api_endpoint' });
+        await loadDirectory();
       }
     } catch (error: any) {
       if (Array.isArray(error)) message.error('验证失败，请填写完整信息');
@@ -760,33 +868,45 @@
   async function prepareDebugRun(savedId: number, projectId: number) {
     if (!projectId) throw new Error('接口未关联有效项目，无法执行。');
     const response: any = await environmentApi.getDataList({ project: projectId, pageSize: 999 });
-    const environments: Environment[] = (
-      Array.isArray(response) ? response : response?.list || response?.results || []
-    ).filter((item: Environment) => Number(item.project) === projectId && Number(item.id) > 0);
-    debugEnvironments.value = environments;
-    debugEnvironmentOptions.value = environments.map((item) => ({
-      label: `${item.name} · ${item.base_url}`,
-      value: Number(item.id),
-    }));
-    if (!environments.length) throw new Error('当前项目尚未配置执行环境。');
+    setDebugEnvironments(response);
+    if (!debugEnvironments.value.length) throw new Error('当前项目尚未配置执行环境。');
 
-    const selectedExists = environments.some((item) => item.id === debugEnvironmentId.value);
-    if (!selectedExists) {
-      const preferred = environments.find((item) => item.name === 'Dev') || environments[0];
+    if (!debugEnvironmentId.value) {
+      const preferred = debugEnvironments.value.find((item) => item.name === 'Dev') || debugEnvironments.value[0];
       debugEnvironmentId.value = Number(preferred.id);
     }
-    debugDialogVisible.value = true;
+    debugDialogVisible.value = false;
     await executeDebug(savedId);
   }
 
-  async function executeDebug(savedId = endpointId.value) {
-    if (!savedId || !debugEnvironmentId.value || debugRunning.value) return;
+  async function executeDebug(savedId: number = endpointId.value) {
+    const targetEndpointId = Number(savedId);
+    if (!Number.isInteger(targetEndpointId) || targetEndpointId <= 0) {
+      message.error('未获取到有效的接口 ID，无法执行。');
+      return;
+    }
+    if (!debugEnvironmentId.value || debugRunning.value) return;
     debugRunning.value = true;
     debugResult.value = null;
     try {
-      debugResult.value = await api.runById(savedId, debugEnvironmentId.value);
-      if (debugResult.value.passed) message.success('接口执行成功');
-      else message.error('接口执行失败');
+      batchResults.value = []; selectedBatchRow.value = 0;
+      if (dataDrivenEnabled.value) {
+        const indices = dataDriveRows.value.map((_, i) => i).filter(i => !disabledRows.value.includes(i));
+        batchTotal.value = indices.length;
+        for (const row of indices) {
+          let result: EndpointRunResult;
+          try { result = await api.runById(targetEndpointId, debugEnvironmentId.value, row); }
+          catch (error: any) { result = { environment: debugEnvironmentName.value, passed: false, errors: [error?.message || '执行失败'] }; }
+          batchResults.value.push({ row, result });
+          if (batchResults.value.length === 1) debugResult.value = result;
+        }
+        if (batchResults.value.some(r => !r.result.passed)) message.warning('数据集执行完成，存在失败行');
+        else message.success('数据集全部执行通过');
+      } else {
+        debugResult.value = await api.runById(targetEndpointId, debugEnvironmentId.value);
+        if (debugResult.value?.passed) message.success('接口执行成功');
+        else message.error('接口执行失败');
+      }
     } catch (error: any) {
       debugResult.value = {
         environment: debugEnvironmentName.value,
@@ -870,28 +990,37 @@
     fileEntries.value = Object.entries(formValue.files || {}).flatMap(([field, entries]) =>
       (Array.isArray(entries) ? entries : []).map((entry) => ({ ...entry, field }))
     );
+    formDataTextEntries.value = Object.entries(formValue.data || {}).map(([field, value]) => ({
+      field,
+      value: typeof value === 'string' ? value : JSON.stringify(value),
+    }));
     const parametrize = Array.isArray(formValue.parametrize) ? formValue.parametrize : [];
-    dataDrivenEnabled.value = parametrize.length >= 2;
+    // 打开详情默认进入单次调试；已有数据集仍完整保留，选择“数据驱动”后即可继续使用。
+    dataDrivenEnabled.value = false;
+    disabledRows.value = formValue.dataset_options?.disabled_rows || [];
+    bindings.value = formValue.dataset_options?.bindings || {};
+    datasetFilename.value = formValue.dataset_options?.filename || '';
     dataDriveFields.value =
-      dataDrivenEnabled.value && Array.isArray(parametrize[0])
+      Array.isArray(parametrize[0])
         ? parametrize[0].map((field) => String(field).trim()).filter(Boolean)
         : [];
     dataDriveFieldsText.value = dataDriveFields.value.join(', ');
-    dataDriveRows.value = dataDrivenEnabled.value
+    dataDriveRows.value = parametrize.length >= 2
       ? parametrize
           .slice(1)
           .filter((row) => Array.isArray(row))
-          .map((row) => row.map((value) => (value == null ? '' : String(value))))
+          .map((row) => row.map(encodeCell))
       : [];
     bodyType.value =
-      fileEntries.value.length > 0
+      formValue.body_type === 'form_data' || fileEntries.value.length > 0
         ? 'files'
-        : Object.keys(formValue.data || {}).length > 0 &&
-          Object.keys(formValue.json || {}).length === 0
+        : formValue.body_type === 'data' ||
+          (Object.keys(formValue.data || {}).length > 0 &&
+          Object.keys(formValue.json || {}).length === 0)
         ? 'data'
         : 'json';
     requestTab.value =
-      fileEntries.value.length > 0
+      bodyType.value === 'files'
         ? 'files'
         : Object.keys(formValue.params || {}).length > 0 &&
           Object.keys(formValue.json || {}).length === 0 &&
@@ -904,6 +1033,11 @@
     requestTab.value = tab;
     if (tab === 'files') bodyType.value = 'files';
     else if (tab === 'body' && bodyType.value === 'files') bodyType.value = 'json';
+  }
+
+  function selectBodyType(type: 'json' | 'data' | 'files') {
+    bodyType.value = type;
+    requestTab.value = type === 'files' ? 'files' : 'body';
   }
 
   function updateActiveEditor(value: string) {
@@ -942,11 +1076,12 @@
       names.add(name);
       return [{ key: `function-${item.id || 'custom'}-${name}`, name, reference: `\${${name}()}`, category: 'function' as const, value: '', source: '动态函数' }];
     }));
-    return [...projectItems, ...functionItems];
+    const datasetItems = dataDrivenEnabled.value ? dataDriveFields.value.map(name => ({ key: 'dataset-' + name, name, reference: '$ddt{' + name + '}', category: 'dataset' as const, value: '', source: '数据集参数' })) : [];
+    return [...projectItems, ...functionItems, ...datasetItems];
   });
   const variableTabs = computed(() => {
     const count = (category?: VariableCategory) => category ? variableItems.value.filter((item) => item.category === category).length : variableItems.value.length;
-    return [{ key: 'all' as const, label: '全部', count: count() }, { key: 'project' as const, label: '项目参数', count: count('project') }, { key: 'function' as const, label: '动态函数', count: count('function') }];
+    return [{ key: 'all' as const, label: '全部', count: count() }, { key: 'project' as const, label: '项目参数', count: count('project') }, { key: 'function' as const, label: '动态函数', count: count('function') }, ...(dataDrivenEnabled.value ? [{ key: 'dataset' as const, label: '数据集', count: count('dataset') }] : [])];
   });
   const filteredVariableGroups = computed(() => {
     const keyword = variableSearch.value.trim().toLowerCase();
@@ -958,6 +1093,7 @@
     return [
       { key: 'project' as const, label: '项目参数', detail: `项目：${projectName}`, items: items.filter((item) => item.category === 'project') },
       { key: 'function' as const, label: '动态函数', detail: '函数', items: items.filter((item) => item.category === 'function') },
+      { key: 'dataset' as const, label: '数据集参数', detail: '逐行取值', items: items.filter(item => item.category === 'dataset') },
     ].filter((group) => group.items.length);
   });
   function variableDisplayValue(variable: VariableItem) {
@@ -985,6 +1121,11 @@
     activeEditorCursor.value = { field: activeEditorField.value, start: target.selectionStart, end: target.selectionEnd };
   }
   async function referenceVariable(variable: VariableItem) {
+    if ((requestTab.value === 'headers' || requestTab.value === 'params') && parameterTableRef.value) {
+      parameterTableRef.value.insertVariable(variable.reference);
+      message.success(`已引用 ${variable.reference}`);
+      return;
+    }
     const cursor = activeEditorCursor.value;
     if (!cursor) {
       if (await copyVariable(variable, false)) message.info('已复制变量，请在请求参数中粘贴');
@@ -1019,6 +1160,29 @@
     }
   }
 
+  function focusEndpointTitle() {
+    titleInputRef.value?.focus?.();
+  }
+
+  async function copyActiveEditor() {
+    try {
+      await navigator.clipboard.writeText(activeEditorText.value);
+      message.success('请求内容已复制');
+    } catch {
+      message.error('复制失败，请手动选择内容');
+    }
+  }
+
+  async function copyResponse() {
+    if (!debugResult.value) return;
+    try {
+      await navigator.clipboard.writeText(prettyResult(debugResult.value.response_json ?? debugResult.value.response_body));
+      message.success('响应内容已复制');
+    } catch {
+      message.error('复制失败，请手动选择内容');
+    }
+  }
+
   function serializeFiles(): Record<string, UploadedEndpointFile[]> {
     return fileEntries.value.reduce((result: Record<string, UploadedEndpointFile[]>, entry) => {
       const field = entry.field.trim();
@@ -1026,6 +1190,23 @@
       (result[field] ||= []).push({ name: entry.name, path: entry.path, size: entry.size });
       return result;
     }, {});
+  }
+
+  function addFormDataTextEntry() {
+    formDataTextEntries.value.push({ field: '', value: '' });
+  }
+
+  function serializeFormDataText(): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const entry of formDataTextEntries.value) {
+      const field = entry.field.trim();
+      if (!field && entry.value) throw new Error('Form-data Text 字段名不能为空。');
+      if (!field) continue;
+      if (Object.prototype.hasOwnProperty.call(result, field))
+        throw new Error(`Form-data Text 字段名「${field}」重复。`);
+      result[field] = entry.value;
+    }
+    return result;
   }
 
   function syncDataDriveFields() {
@@ -1060,16 +1241,18 @@
     const sourceRow = dataDriveRows.value[rowIndex];
     if (!sourceRow) return;
     dataDriveRows.value.splice(rowIndex + 1, 0, [...sourceRow]);
+    disabledRows.value = disabledRows.value.map(i => i > rowIndex ? i + 1 : i);
     message.success(`第 ${rowIndex + 1} 行已复制`);
   }
 
   function serializeDataDrive() {
-    if (!dataDrivenEnabled.value) return [];
+    if (!dataDrivenEnabled.value && !dataDriveFieldsText.value.trim() && !dataDriveRows.value.length) return [];
     syncDataDriveFields();
     if (!dataDriveFields.value.length) throw new Error('启用数据驱动后请填写字段名。');
     if (!dataDriveRows.value.length) throw new Error('启用数据驱动后请至少添加一行数据。');
+    if (dataDrivenEnabled.value && disabledRows.value.length >= dataDriveRows.value.length) throw new Error('请至少启用一行数据。');
     const rows = dataDriveRows.value.map((row) =>
-      dataDriveFields.value.map((_, index) => row[index] ?? '')
+      dataDriveFields.value.map((_, index) => decodeCell(row[index] ?? ''))
     );
     return [dataDriveFields.value, ...rows];
   }
@@ -1098,6 +1281,135 @@
   onMounted(async () => {
     await get_data_by_api();
   });
+
+  const datasetInput = ref<HTMLInputElement | null>(null);
+  // 单元格使用 JSON 字面量保留数字、布尔、对象类型；显式双引号可保留数字字符串。
+  function decodeCell(value: string): any { try { return JSON.parse(value); } catch { return value; } }
+  function encodeCell(value: unknown): string {
+    if (typeof value === 'string') {
+      try { JSON.parse(value); return JSON.stringify(value); } catch { return value; }
+    }
+    return JSON.stringify(value) ?? '';
+  }
+  const importingDataset = ref(false);
+  const datasetFilename = ref('');
+  const disabledRows = ref<number[]>([]);
+  const bindings = ref<Record<string, { section?: string; path?: string }>>({});
+  const batchResults = ref<Array<{ row: number; result: EndpointRunResult }>>([]);
+  const batchTotal = ref(0);
+  const selectedBatchRow = ref(0);
+  const resultTab = ref('body');
+  const directorySearch = ref('');
+  const directoryItems = ref<any[]>([]);
+  const collapsedDirectoryGroups = ref(new Set<string>());
+  const directoryGroups = computed(() => {
+    const groups = new Map<string, any[]>();
+    directoryItems.value.filter(item => String(item.name).toLowerCase().includes(directorySearch.value.toLowerCase())).forEach(item => {
+      const name = item.module_name || '未分组'; if (!groups.has(name)) groups.set(name, []); groups.get(name)!.push(item);
+    });
+    return [...groups].map(([name, items]) => ({ name, items }));
+  });
+  function toggleDirectoryGroup(name: string) {
+    const next = new Set(collapsedDirectoryGroups.value);
+    next.has(name) ? next.delete(name) : next.add(name);
+    collapsedDirectoryGroups.value = next;
+  }
+  const environmentOrder = ['Dev', 'Test', 'Pre', 'Prod'];
+  function uniqueProjectEnvironments(payload: any): Environment[] {
+    const items: Environment[] = (Array.isArray(payload) ? payload : payload?.list || payload?.results || [])
+      .filter((item: Environment) => Number(item.project) === Number(formValue.project));
+    const byName = new Map<string, Environment>();
+    items.forEach((item) => {
+      const key = String(item.name || '').trim().toLowerCase();
+      if (key && !byName.has(key)) byName.set(key, item);
+    });
+    return [...byName.values()].sort((left, right) => {
+      const leftIndex = environmentOrder.indexOf(left.name);
+      const rightIndex = environmentOrder.indexOf(right.name);
+      const leftOrder = leftIndex < 0 ? environmentOrder.length : leftIndex;
+      const rightOrder = rightIndex < 0 ? environmentOrder.length : rightIndex;
+      return leftOrder - rightOrder || left.name.localeCompare(right.name, 'zh-CN');
+    });
+  }
+  function setDebugEnvironments(payload: any) {
+    const previousName = debugEnvironments.value.find(
+      (item) => Number(item.id) === Number(debugEnvironmentId.value),
+    )?.name;
+    debugEnvironments.value = uniqueProjectEnvironments(payload);
+    debugEnvironmentOptions.value = debugEnvironments.value.map((item) => ({
+      label: item.name,
+      value: Number(item.id),
+    }));
+    const replacement = previousName
+      ? debugEnvironments.value.find((item) => item.name === previousName)
+      : undefined;
+    if (!debugEnvironmentOptions.value.some((item) => item.value === debugEnvironmentId.value)) {
+      debugEnvironmentId.value = Number(replacement?.id || debugEnvironmentOptions.value[0]?.value) || null;
+    }
+  }
+  async function loadDirectory() {
+    if (!formValue.project) return;
+    const result: any = await api.getDataList({ project: formValue.project, pageSize: 999 });
+    directoryItems.value = Array.isArray(result) ? result : result?.list || result?.results || [];
+    const env: any = await environmentApi.getDataList({ project: formValue.project, pageSize: 999 });
+    setDebugEnvironments(env);
+  }
+  async function switchEndpoint(item: any) {
+    if (debugRunning.value || submitMode.value) return;
+    await router.push({ name: 'case_api_endpoint_edit', params: { id: item.id } });
+  }
+  watch(() => formValue.project, () => { void loadDirectory().catch(() => message.warning('接口目录或环境加载失败，请刷新重试')); });
+  const bindingSections = [{ label: 'Headers', value: 'headers' }, { label: 'Params', value: 'params' }, { label: 'Body · JSON', value: 'json' }, { label: 'Body · Data', value: 'data' }];
+  function setBinding(field: string, key: string, value: string | null) {
+    bindings.value[field] = { ...bindings.value[field], [key]: value || '' };
+  }
+  function applyBindings(data: Endpoint) {
+    for (const [field, binding] of Object.entries(bindings.value)) {
+      if (!dataDrivenEnabled.value || !binding.section || !binding.path) continue;
+      if (!dataDriveFields.value.includes(field)) continue;
+      const path = binding.path.split('.');
+      if (path.some(key => !key || ['__proto__', 'constructor', 'prototype'].includes(key))) throw new Error('字段映射路径无效');
+      let target = (data as any)[binding.section];
+      if (!target || typeof target !== 'object') throw new Error('字段映射目标必须为对象');
+      for (const key of path.slice(0, -1)) { target[key] = target[key] && typeof target[key] === 'object' ? target[key] : {}; target = target[key]; }
+      target[path[path.length - 1]] = '$ddt{' + field + '}';
+    }
+  }
+  function toggleDataRow(index: number, enabled: boolean) { disabledRows.value = enabled ? disabledRows.value.filter(i => i !== index) : [...disabledRows.value, index]; }
+  function removeDataRow(index: number) { dataDriveRows.value.splice(index, 1); disabledRows.value = disabledRows.value.filter(i => i !== index).map(i => i > index ? i - 1 : i); }
+  function insertDatasetVariable(name: string) { void referenceVariable({ key: 'dataset-' + name, name, reference: '$ddt{' + name + '}', category: 'dataset', value: '', source: '数据集参数' }); }
+  async function importDataset(event: Event) {
+    const input = event.target as HTMLInputElement, file = input.files?.[0];
+    if (!file) return;
+    if (!/\.(csv|json)$/i.test(file.name)) {
+      message.error('仅支持上传 CSV 或 JSON 格式文件');
+      input.value = '';
+      return;
+    }
+    importingDataset.value = true;
+    try {
+      const result = await api.importDataset(file);
+      dataDriveFields.value = result.fields; dataDriveFieldsText.value = result.fields.join(', ');
+      dataDriveRows.value = result.rows.map(row => row.map(encodeCell));
+      datasetFilename.value = file.name; disabledRows.value = []; bindings.value = {}; dataDrivenEnabled.value = true;
+      message.success('已导入 ' + result.rows.length + ' 行数据');
+    } catch (error: any) { message.error(error?.message || error?.detail || '导入失败，请检查文件格式'); }
+    finally { importingDataset.value = false; input.value = ''; }
+  }
+  function selectBatchRow(index: number) { selectedBatchRow.value = index; debugResult.value = batchResults.value[index].result; }
+  function prettyResult(value: unknown) {
+    if (value === undefined || value === null) return '暂无数据';
+    if (typeof value === 'string') { try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; } }
+    return JSON.stringify(value, null, 2);
+  }
+  const responseSize = computed(() => ((new TextEncoder().encode(debugResult.value?.response_body || '').length) / 1024).toFixed(2) + ' KB');
+  const debugAttemptCount = computed(() => {
+    const attempts = (debugResult.value as (EndpointRunResult & { attempts?: unknown }) | null)?.attempts;
+    if (Array.isArray(attempts)) return attempts.length;
+    if (typeof attempts === 'number' && Number.isFinite(attempts)) return attempts;
+    return 0;
+  });
+
 </script>
 
 <style lang="less" scoped>
@@ -1494,10 +1806,13 @@
   }
   .files-panel-head {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
     padding-bottom: 16px;
     border-bottom: 1px solid #edf1f6;
+  }
+  .files-panel-head > div:first-child {
+    margin-right: auto;
   }
   .files-panel-head strong {
     color: #263348;
@@ -1516,6 +1831,30 @@
     min-height: 50px;
     padding: 8px 0;
     border-bottom: 1px solid #edf1f6;
+  }
+  .form-data-table-head,
+  .form-data-entry {
+    display: grid;
+    grid-template-columns: minmax(140px, 0.8fr) 64px minmax(220px, 1.6fr) 48px;
+    gap: 12px;
+    align-items: center;
+  }
+  .form-data-table-head {
+    padding: 12px 0 6px;
+    color: #7d8999;
+    font-size: 12px;
+  }
+  .form-data-entry :deep(.n-tag) {
+    justify-self: start;
+  }
+  .form-data-file-value {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 12px;
+  }
+  .form-data-file-value .file-name {
+    flex: 1;
   }
   .file-name {
     overflow: hidden;
@@ -1759,70 +2098,169 @@
     margin-top: 10px;
   }
   .endpoint-debug-modal {
-    max-height: calc(100vh - 64px);
+    max-height: calc(100vh - 40px);
     overflow: hidden;
+    border-radius: 10px;
+  }
+  .endpoint-debug-modal :deep(.n-card-header) {
+    min-height: 64px;
+    padding: 0 22px;
+    border-bottom: 1px solid #e4e9f1;
   }
   .endpoint-debug-modal :deep(.n-card__content) {
-    overflow-y: auto;
+    display: flex;
+    height: calc(100% - 64px);
+    min-height: 0;
+    flex-direction: column;
+    padding: 0 22px 22px;
+    overflow: hidden;
   }
   .debug-toolbar {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
     gap: 16px;
-    margin-bottom: 18px;
+    min-height: 72px;
+    padding: 12px 0;
+    border-bottom: 1px solid #edf0f5;
   }
-  .debug-toolbar > div {
+  .debug-environment-control {
     display: grid;
     grid-template-columns: 72px minmax(260px, 1fr);
     align-items: center;
     gap: 12px;
-    flex: 1;
+    width: min(480px, 100%);
   }
   .debug-toolbar span {
     color: #59677b;
     font-size: 13px;
     font-weight: 600;
   }
+  .debug-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
   .debug-result {
     display: grid;
+    min-height: 0;
+    grid-template-rows: auto auto minmax(0, 1fr);
     gap: 14px;
+    padding-top: 14px;
   }
   .debug-summary {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 10px 18px;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 7px;
+    background: #f5f7f9;
     color: #66758a;
     font-size: 13px;
+  }
+  .debug-metric {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 7px;
+    min-height: 26px;
+    padding: 3px 11px;
+    border-left: 1px solid #dfe5eb;
+    font-variant-numeric: tabular-nums;
+  }
+  .debug-metric small {
+    color: #8490a0;
+    font-size: 12px;
+  }
+  .debug-metric strong {
+    color: #334155;
+    font-size: 13px;
+    font-weight: 600;
   }
   .debug-errors {
     font-size: 13px;
   }
   .debug-response {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
     overflow: hidden;
     border: 1px solid #dce3ee;
     border-radius: 8px;
   }
-  .debug-response h3 {
-    margin: 0;
-    padding: 12px 14px;
+  .debug-result-tabs :deep(.n-tabs-nav) {
+    flex: none;
+    padding: 0 20px;
     border-bottom: 1px solid #e8edf4;
-    color: #1b2638;
-    font-size: 14px;
   }
-  .debug-response pre {
+  .debug-result-tabs :deep(.n-tabs-tab) {
+    min-height: 50px;
+    padding: 0 4px;
+  }
+  .debug-result-tabs,
+  .debug-result-tabs :deep(.n-tabs-pane-wrapper),
+  .debug-result-tabs :deep(.n-tab-pane) {
+    min-height: 0;
+  }
+  .debug-result-tabs :deep(.n-tabs-pane-wrapper) {
+    flex: 1;
+  }
+  .debug-result-tabs :deep(.n-tab-pane) {
+    padding-top: 0;
+  }
+  .debug-response-code {
     overflow: auto;
-    max-height: 420px;
+    height: 100%;
+    min-height: 320px;
+    max-height: calc(100vh - 310px);
     margin: 0;
-    padding: 14px;
+    padding: 20px;
     color: #dfe7f3;
     background: #202733;
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-    font-size: 12px;
-    line-height: 1.7;
+    font-size: 13px;
+    line-height: 1.75;
     white-space: pre-wrap;
-    word-break: break-all;
+    overflow-wrap: anywhere;
+    tab-size: 2;
+  }
+  @media (max-width: 760px) {
+    .endpoint-debug-modal {
+      width: calc(100vw - 20px) !important;
+      height: calc(100vh - 20px) !important;
+      max-height: calc(100vh - 20px);
+    }
+    .endpoint-debug-modal :deep(.n-card-header) {
+      padding: 16px;
+    }
+    .endpoint-debug-modal :deep(.n-card__content) {
+      padding: 0 16px 16px;
+    }
+    .debug-toolbar {
+      align-items: stretch;
+      flex-direction: column;
+    }
+    .debug-environment-control {
+      grid-template-columns: 1fr;
+      gap: 6px;
+      width: 100%;
+    }
+    .debug-toolbar-actions {
+      justify-content: flex-end;
+    }
+    .debug-response-code {
+      min-height: 280px;
+      padding: 14px;
+      font-size: 12px;
+    }
+    .debug-summary {
+      align-items: stretch;
+    }
+    .debug-metric {
+      border-left: 0;
+      padding-right: 6px;
+      padding-left: 6px;
+    }
   }
   @media (max-width: 1400px) {
     .endpoint-page {
@@ -1892,4 +2330,164 @@
     .extract-rule-header, .validate-rule-header { display: none; }
     .extract-rule-row, .validate-rule-row { padding: 12px; }
   }
+</style>
+
+<style scoped lang="less">
+.api-workbench{--n-primary-color:#087f74;display:grid;grid-template-columns:200px minmax(0,1fr);padding:0!important;background:#fff!important;min-height:calc(100vh - 90px);color:#263238}
+.endpoint-directory{padding:22px 12px;border-right:1px solid #e3e6e8;background:#fff}.endpoint-directory>.n-input{margin:24px 0}.directory-back{font-size:14px}.directory-group{margin:0 0 12px}.directory-group-header{display:grid;width:100%;grid-template-columns:20px minmax(0,1fr) 18px;align-items:center;gap:8px;padding:10px 8px;border:0;background:transparent;color:#263238;font-size:14px;text-align:left;cursor:pointer}.directory-group-header>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.directory-group-header>svg:last-child{transition:transform .18s ease}.directory-group-header>svg:last-child.collapsed{transform:rotate(-90deg)}.directory-items{display:flex;flex-direction:column;gap:2px}.directory-items>button{display:grid;width:100%;grid-template-columns:54px minmax(0,1fr);align-items:center;gap:8px;padding:11px 10px 11px 16px;border:0;border-radius:4px;background:none;text-align:left;cursor:pointer}.directory-items>button:hover{background:#f2f8f7}.directory-items>button.selected{background:#e2f5f3;color:#087f74}.directory-items b{font:600 12px/1 ui-monospace,monospace;color:#c17818}.directory-items b.get{color:#158354}.directory-items b.put,.directory-items b.patch{color:#356fd0}.directory-items b.delete{color:#d1455b}.directory-items button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.endpoint-page-inner{max-width:none!important;width:100%;min-width:0;padding:22px!important}.page-toolbar{margin:0!important}.basic-card{border:0!important;padding:12px 0 18px!important;box-shadow:none!important}.basic-card h1{font-size:30px;margin:0 0 14px;color:#192626;font-weight:650}.basic-grid{grid-template-columns:1.1fr 1fr 1fr!important;max-width:880px}.basic-grid :deep(.n-form-item){margin:0}.execution-modes{display:flex;gap:2px;margin-bottom:18px}.execution-modes button{padding:8px 16px;border:0;background:#f5f7f7;color:#647473;cursor:pointer}.execution-modes .active{color:#087f74;background:#e1f2ef;border-bottom:2px solid #087f74}.environment-selector{width:200px}.endpoint-workspace{grid-template-columns:minmax(0,1fr) 310px!important;gap:20px!important;align-items:start}.workspace-main{display:flex;flex-direction:column;gap:0!important;min-width:0}.request-card{display:grid;grid-template-columns:minmax(0,1fr) auto;border:0!important;border-radius:0!important;box-shadow:none!important;padding:0!important}.request-card-head{grid-column:2;grid-row:1;padding:0 0 12px 10px!important;border:0!important}.request-card-head h2{display:none}.request-target{grid-column:1;grid-row:1;padding:0!important}.request-target :deep(.n-form-item-feedback-wrapper){display:none}.request-tabs,.editor-toolbar,.json-editor,.editor-note,.files-panel{grid-column:1/-1}.request-tabs{padding:0!important;gap:18px!important}.request-tabs button{padding:14px 2px!important;color:#62716f!important;font-size:13px!important}.request-tabs button.active{color:#087f74!important;border-color:#087f74!important}.request-tabs button svg{display:none}.request-debug-button{height:36px;background:#087f74!important;border-color:#087f74!important;border-radius:4px!important}.request-tabs button.active::after{background:#087f74!important}.json-editor{background:#202725!important;border-radius:4px!important;margin:0!important}.json-editor :deep(textarea){color:#d4eee8!important;font-family:ui-monospace,monospace!important;font-size:14px!important}.editor-note{padding:10px 0!important}.response-rules-card{border:0!important;border-radius:0!important}.response-rules-card :deep(.n-tabs-nav){display:none}.data-drive-card{order:-1;border:1px solid #dfe8e5!important;background:#f9fcfb!important;margin-bottom:18px!important;border-radius:5px!important}.data-drive-title{padding:12px 16px!important}.dataset-tools{display:flex;align-items:center;gap:10px;font-size:12px}.dataset-bindings h3{margin:18px 0 8px}.dataset-bindings p{font-size:12px;color:#687e76}.binding-row{display:grid;grid-template-columns:120px 150px minmax(120px,1fr) 40px;gap:8px;align-items:center;margin:8px 0}.inline-response{border-top:1px solid #dce5e1;margin-top:18px;min-width:0}.response-heading{display:flex;align-items:center;gap:16px;padding:16px 0}.response-heading h2{margin:0;font-size:17px}.response-heading>span{font-size:12px;color:#687570}.response-heading .n-button{margin-left:auto}.response-code{background:#202725;color:#d2e9e3;padding:18px;border-radius:4px;font:13px/1.8 ui-monospace,monospace;min-height:190px;max-height:480px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.batch-results{max-height:190px;overflow:auto;border:1px solid #e1ebe7}.batch-results>button{width:100%;display:flex;justify-content:space-between;padding:9px 14px;background:#fff;border:0;border-top:1px solid #edf3ef;cursor:pointer}.batch-results>.selected{background:#e9f7f2}.batch-summary{padding:10px;background:#f4faf7}.passed{color:#16834e}.failed{color:#cb4242}.workspace-sidebar{position:sticky;top:12px;min-width:0}.variables-card{box-shadow:none!important;border-radius:5px!important;padding:16px 12px!important}.variable-tabs{overflow:auto;gap:12px!important}.variable-tabs button{flex:none}.variable-row{grid-template-columns:minmax(0,1fr) auto!important;padding:12px 8px!important}.variable-row code{grid-column:1;font-size:12px!important;white-space:normal!important;overflow-wrap:anywhere}.variable-value{grid-column:1;font-size:12px!important}.variable-actions{grid-column:2;grid-row:1/3}.variable-actions button{color:#087f74!important}.variable-group header{background:white!important}.variable-group{border:0!important;border-bottom:1px solid #e6eeeb!important}.variable-row{border-top:1px solid #edf2ef!important}.side-card h2{font-size:16px!important}.save-button{color:#087f74!important;border-color:#087f74!important;background:white!important}
+@media(max-width:1250px){.api-workbench{grid-template-columns:160px minmax(0,1fr)}.endpoint-workspace{grid-template-columns:minmax(0,1fr) 270px!important}.request-tabs{gap:10px!important}.endpoint-page-inner{padding:16px!important}}
+@media(max-width:980px){.endpoint-directory{display:none}.api-workbench{display:block}.endpoint-workspace{grid-template-columns:1fr!important}.workspace-sidebar{position:static}.basic-grid{grid-template-columns:1fr!important}.binding-row{grid-template-columns:1fr 1fr}.page-actions{flex-wrap:wrap}.request-tabs{overflow:auto}}
+
+/* 与接口工作台原型统一的最终视觉覆盖 */
+.endpoint-page-inner{padding:22px 28px!important}
+.page-actions{gap:18px}
+.endpoint-title-row{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:0 0 16px}
+.endpoint-title-editor{display:flex;min-width:260px;max-width:560px;align-items:center;gap:8px}
+.endpoint-title-editor :deep(.n-input){background:transparent}
+.endpoint-title-editor :deep(.n-input-wrapper){padding:0 10px;background:transparent;box-shadow:none!important;transition:box-shadow .18s ease,background-color .18s ease}
+.endpoint-title-editor:focus-within :deep(.n-input-wrapper){background:#fff;box-shadow:0 0 0 1px #087f74 inset,0 0 0 2px rgba(8,127,116,.12)!important}
+.endpoint-title-editor :deep(input){height:42px;color:#182322;font-size:30px;font-weight:650;line-height:42px}
+.endpoint-title-editor>button{display:grid;width:30px;height:30px;padding:0;border:0;color:#485655;background:transparent;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .18s ease;place-items:center}
+.endpoint-title-editor:focus-within>button{opacity:1;pointer-events:auto}
+.endpoint-title-editor>button svg{width:19px;height:19px}
+.basic-grid{grid-template-columns:240px 240px!important;max-width:540px;gap:28px!important}
+.execution-modes{flex:none;align-self:center;margin:0}
+.environment-selector{width:260px}
+.save-button{width:118px;height:46px}
+.endpoint-workspace{grid-template-columns:minmax(0,1fr) 380px!important;gap:20px!important}
+.request-core-input{grid-template-columns:130px minmax(0,1fr)!important}
+.request-core-input{height:48px!important}
+.request-core-input :deep(.n-base-selection),.request-core-input :deep(.n-base-selection-label),.request-core-input :deep(.n-input),.request-core-input :deep(.n-input-wrapper){height:46px!important;min-height:46px!important}
+.request-tabs{height:58px!important;padding:0!important;gap:26px!important}
+.request-tabs button{min-width:auto!important;padding:14px 12px!important;color:#4f5c5a!important;font-size:14px!important}
+.request-tabs button.active::after{right:4px!important;left:4px!important}
+.request-tabs button.request-parameter-tab{flex:none;gap:7px;padding:9px 2px!important;color:#78869b!important;font-size:13px!important;font-weight:400;line-height:normal}
+.request-tabs button.request-parameter-tab.active{color:#008993!important;font-weight:400}
+.request-tabs button.request-parameter-tab::after{left:0!important;right:0!important;bottom:-1px;height:2px;border-radius:0}
+.request-tabs button.request-parameter-tab.active::after{background:#008993!important}
+.request-tabs button.request-parameter-tab b{min-width:0;height:auto;padding:0 5px;border-radius:12px;background:#f1f5f8;color:inherit;font-size:11px;font-weight:400;line-height:normal}
+.request-run-control{display:flex;height:48px;overflow:visible;border-radius:4px;box-shadow:0 6px 14px rgba(8,127,116,.16)}
+.request-debug-button{width:154px!important;min-width:154px!important;height:48px!important;font-size:15px!important;border-radius:4px 0 0 4px!important}
+.request-run-menu{width:48px!important;min-width:48px!important;height:48px!important;padding:0!important;border-left:1px solid rgba(255,255,255,.4)!important;border-radius:0 4px 4px 0!important;background:#087f74!important}
+.request-run-menu :deep(.n-button__icon){margin:0!important}
+.editor-toolbar{height:64px!important;padding:0!important}
+.body-kind-tabs{overflow:visible;gap:20px!important;border:0!important;border-bottom:1px solid #dce5e1!important;border-radius:0!important}
+.body-kind-tabs button{position:relative;min-width:auto!important;height:42px!important;padding:0 4px!important;border:0!important;border-radius:0!important;background:transparent!important}
+.body-kind-tabs button::after{position:absolute;right:4px;bottom:-1px;left:4px;height:2px;border-radius:2px 2px 0 0;background:transparent;content:''}
+.body-kind-tabs button.active{color:#087f74!important;background:transparent!important}
+.body-kind-tabs button.active::after{background:#087f74!important}
+.execution-modes button.active,.request-tabs button.active,.variable-tabs button.active{background:transparent!important}
+.request-core-input{display:flex!important;gap:8px!important;height:42px!important;overflow:visible!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important}
+.request-core-input:focus-within{border:0!important;box-shadow:none!important}
+.request-core-input>.request-method-select{width:110px!important;flex:none}
+.request-core-input>.n-input{min-width:0;flex:1}
+.request-core-input :deep(.n-base-selection),.request-core-input :deep(.n-input-wrapper){height:42px!important;min-height:42px!important;border:0!important;border-radius:6px!important;box-shadow:0 0 0 1px #e1e7f0 inset!important;transition:box-shadow .18s ease,background-color .18s ease}
+.request-core-input :deep(.n-base-selection:hover),.request-core-input :deep(.n-input-wrapper:hover){box-shadow:0 0 0 1px #a9c3bf inset!important}
+.request-core-input :deep(.n-base-selection.n-base-selection--active),.request-core-input :deep(.n-input.n-input--focus .n-input-wrapper){box-shadow:0 0 0 1px #087f74 inset,0 0 0 3px rgb(8 127 116 / 9%)!important}
+.request-core-input :deep(.n-input__input-el){color:#5f6f86;font:13px ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+.request-method-select :deep(.n-base-selection-label){background:transparent!important;font-weight:600}
+.request-method-select.method-get :deep(.n-base-selection-label){color:#318357!important}
+.request-method-select.method-post :deep(.n-base-selection-label){color:#da820b!important}
+.request-method-select.method-put :deep(.n-base-selection-label),.request-method-select.method-patch :deep(.n-base-selection-label){color:#277bc5!important}
+.request-method-select.method-delete :deep(.n-base-selection-label){color:#d44857!important}
+.json-editor{min-height:160px!important}
+.json-editor :deep(.n-input),.json-editor :deep(.n-input-wrapper),.json-editor :deep(.n-input__textarea-el){min-height:158px!important}
+.editor-note{display:none!important}
+.inline-response{margin-top:14px}
+.response-heading .n-button{margin:0}
+.response-heading .response-heading-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
+.response-code{min-height:240px}
+.workspace-sidebar{margin-top:0}
+.variables-card{padding:0 0 16px!important;border:1px solid #d7dfdc!important}
+.variable-card-header{min-height:58px!important;padding:0 18px!important}
+.variable-search{max-width:calc(100% - 28px)!important;margin:0 14px 8px!important}
+.variable-tabs{min-height:48px!important;padding:0 14px!important;gap:8px!important}
+.variable-tabs button{height:48px!important;flex:1;font-size:13px!important}
+.variable-group{margin:0 12px 14px!important;border:1px solid #dfe5ed!important;border-radius:4px!important}
+.variable-group>header{min-height:44px!important}
+.variable-row{min-height:58px!important;padding:7px 12px!important}
+.variable-row code{font-size:13px!important}
+.variable-actions{gap:12px!important}
+.variable-actions button{font-size:12px!important}
+/* 接口名称与页面操作同排，项目/模块与右侧可用变量同一水平 */
+.endpoint-title-row{margin:0!important}
+.workspace-main{gap:18px!important}
+.basic-grid{grid-template-columns:220px 220px!important;max-width:468px;gap:28px!important;align-self:start}
+
+/* 收窄请求方式、URL 和发送请求组合，编辑器等下方区域仍保持全宽 */
+.request-card{grid-template-columns:minmax(0,680px) auto minmax(0,1fr)!important;align-self:stretch;margin:6px 0 0!important}
+.request-card :deep(.parameter-table){grid-column:1/-1;width:100%}
+.request-core-input{grid-template-columns:110px minmax(0,1fr)!important;height:44px!important}
+.request-core-input :deep(.n-base-selection),.request-core-input :deep(.n-base-selection-label),.request-core-input :deep(.n-input),.request-core-input :deep(.n-input-wrapper){height:42px!important;min-height:42px!important}
+.request-core-input :deep(.n-input-wrapper){display:flex;align-items:center!important}
+.request-core-input :deep(.n-input__input){display:flex;align-items:center;height:100%!important}
+.request-core-input :deep(.n-input__input-el){height:42px!important;line-height:42px!important}
+.request-run-control{height:44px;box-shadow:0 5px 12px rgba(8,127,116,.14)}
+.request-debug-button{width:132px!important;min-width:132px!important;height:44px!important;font-size:14px!important}
+.request-run-menu{width:42px!important;min-width:42px!important;height:44px!important}
+@media(max-width:1400px){.endpoint-workspace{grid-template-columns:minmax(0,1fr) 340px!important}.environment-selector{width:220px}.request-tabs{gap:12px!important}.request-card{grid-template-columns:minmax(0,580px) auto minmax(0,1fr)!important}}
+@media(max-width:1250px){.endpoint-page-inner{padding:16px!important}.request-tabs{gap:6px!important}.basic-grid{grid-template-columns:200px 200px!important}.workspace-sidebar{margin-top:0}}
+@media(max-width:980px){.endpoint-workspace{grid-template-columns:1fr!important}.workspace-sidebar{position:static;margin-top:0}.basic-grid{grid-template-columns:1fr 1fr!important;max-width:none;width:100%}.endpoint-title-row{align-items:center;flex-wrap:wrap}.endpoint-title-editor{min-width:280px;flex:1}.request-card{grid-template-columns:minmax(0,1fr) auto!important}.request-card-head{grid-column:2}.request-target{grid-column:1}.request-debug-button{width:124px!important;min-width:124px!important}}
+
+/* 接口详情工作台：重建页面节奏，减少横线和嵌套外框。 */
+.api-workbench{grid-template-columns:260px minmax(0,1fr);background:#f4f6f5!important}
+.endpoint-directory{border-right-color:#e2e7e5;background:#f8faf9}
+.endpoint-page-inner{width:min(100%,1720px);margin:0 auto;padding:22px 26px 32px!important}
+.page-toolbar{min-height:24px;margin-bottom:10px!important}
+.breadcrumb-row{font-size:12px;letter-spacing:.01em}
+.basic-card{margin-bottom:14px!important;padding:0!important;background:transparent!important}
+.endpoint-title-row{min-height:58px;margin:0!important}
+.endpoint-title-editor{max-width:640px}
+.endpoint-title-editor :deep(.n-input),.endpoint-title-editor :deep(.n-input-wrapper){background:transparent!important}
+.endpoint-title-editor :deep(input){height:44px;font-size:27px;line-height:44px;letter-spacing:-.02em}
+.page-actions{gap:10px}
+.save-button{width:104px;height:40px;border-radius:6px}
+.environment-selector{width:230px}
+.endpoint-workspace{grid-template-columns:minmax(0,1fr) 350px!important;gap:16px!important}
+.workspace-main{gap:14px!important}
+.basic-grid{width:100%;max-width:none;grid-template-columns:minmax(220px,280px) minmax(220px,280px)!important;gap:18px!important;padding:13px 16px 2px;border:1px solid #e2e7e5;border-radius:9px;background:#fff}
+.request-card{grid-template-columns:minmax(0,1fr) auto!important;align-items:start;gap:0 12px;margin:0!important;padding:16px 16px 18px!important;border:1px solid #e2e7e5!important;border-radius:10px!important;background:#fff!important}
+.request-card-head{grid-column:2;grid-row:1;align-self:start;padding:0!important}
+.request-target{grid-column:1;grid-row:1;align-self:start;padding:0!important;border:0!important}
+.request-target :deep(.n-form-item){margin:0!important}
+.request-target :deep(.n-form-item-blank){min-height:44px!important}
+.request-core-input{width:100%;height:44px!important}
+.request-tabs{grid-column:1/-1;height:54px!important;margin-top:12px;padding:0!important;border-bottom:1px solid #e8ecea!important;gap:22px!important}
+.request-tabs button{padding:0 4px!important;font-size:13px!important}
+.editor-toolbar{height:54px!important}
+.body-kind-tabs{border-bottom-color:#e8ecea!important}
+.json-editor{margin:0!important;border-color:#29312f!important;border-radius:7px!important;background:#202624!important}
+.inline-response{margin:0!important;padding:0 16px 18px;border:1px solid #e2e7e5!important;border-radius:10px;background:#fff}
+.response-heading{min-height:58px;padding:0;border-bottom:1px solid #e8ecea}
+.inline-response :deep(.n-tabs-nav){border-bottom-color:#e8ecea}
+.inline-response :deep(.n-tab-pane){padding-top:14px}
+.response-code{border:1px solid #29312f;border-radius:7px;background:#202624}
+.workspace-sidebar{top:14px}
+.variables-card{overflow:hidden;padding:0 0 12px!important;border:1px solid #e2e7e5!important;border-radius:10px!important;background:#fff}
+.variable-card-header{min-height:58px!important;padding:0 16px!important;border-bottom:0!important}
+.variable-search{max-width:calc(100% - 32px)!important;margin:0 16px 6px!important}
+.variable-tabs{margin:0 16px!important;padding:0!important;border-bottom:1px solid #e8ecea!important;gap:12px!important}
+.variable-group{margin:12px 16px 0!important;border:0!important;border-radius:0!important}
+.variable-group>header{min-height:38px!important;padding:0 4px!important;border-bottom:1px solid #edf0ef!important;background:transparent!important}
+.variable-row{min-height:54px!important;padding:7px 4px!important;border-top:1px solid #edf0ef!important;background:transparent!important}
+.variable-rows .variable-row:first-child{border-top:0!important}
+.variable-row:hover{background:#f7f9f8!important}
+@media(max-width:1400px){.endpoint-workspace{grid-template-columns:minmax(0,1fr) 320px!important}}
+@media(max-width:980px){.api-workbench{display:block}.endpoint-page-inner{padding:18px!important}.endpoint-workspace{grid-template-columns:1fr!important}.request-card{grid-template-columns:minmax(0,1fr) auto!important}.workspace-sidebar{position:static}.basic-grid{grid-template-columns:1fr 1fr!important}}
+
+/* 请求栏最终对齐：方法、URL 与执行按钮共用同一基线和高度。 */
+.request-card .request-core-input,
+.request-card .request-run-control,
+.request-card .request-debug-button,
+.request-card .request-run-menu,
+.request-card .request-core-input :deep(.n-base-selection),
+.request-card .request-core-input :deep(.n-base-selection-label),
+.request-card .request-core-input :deep(.n-input),
+.request-card .request-core-input :deep(.n-input-wrapper),
+.request-card .request-core-input :deep(.n-input__input-el){height:44px!important;min-height:44px!important}
+.request-card .request-core-input :deep(.n-input__input-el){line-height:44px!important}
+.request-card .request-run-control{align-self:start}
+.directory-items>button.selected{position:relative;overflow:hidden}
+.directory-items>button.selected::before{position:absolute;top:0;bottom:0;left:0;width:3px;border-radius:0 3px 3px 0;background:#4fbba5;content:''}
 </style>
