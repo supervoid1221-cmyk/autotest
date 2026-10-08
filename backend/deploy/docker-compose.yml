@@ -20,6 +20,8 @@ services:
       - ./data/performance_runs:/app/performance_runs
       - ./data/app_uploads:/app/app_uploads
       - ./data/app_runs:/app/app_runs
+      - ./data/tenant_storage:/app/tenant_storage
+      - ./data/media:/app/media
       - dynamic-function-runtime:/run/dynamic-functions
     depends_on:
       function-worker:
@@ -56,6 +58,8 @@ services:
       - ./data/performance_runs:/app/performance_runs
       - ./data/app_uploads:/app/app_uploads
       - ./data/app_runs:/app/app_runs
+      - ./data/tenant_storage:/app/tenant_storage
+      - ./data/media:/app/media
       - dynamic-function-runtime:/run/dynamic-functions
 
   performance-worker:
@@ -75,6 +79,7 @@ services:
       - ./data/logs:/app/logs
       - ./data/performance_runs:/app/performance_runs
       - ./data/runtime_auth_locks:/app/runtime_auth_locks
+      - ./data/tenant_storage:/app/tenant_storage
 
   function-worker:
     image: test-platform-backend:latest
