@@ -4,10 +4,8 @@
 一遍。这里把接口目录的行按 (project, name) 合并进 project.Module，并把
 Endpoint.module 指过去；另外两个应用各自做同样的事。
 
-操作顺序是刻意的：先 AlterField 改外键指向，再 RunPython 搬数据，最后删旧表。
-Django 的 SQLite schema editor 在整个迁移期间关闭外键检查，且只在迁移结束时才
-执行 check_constraints()，所以「外键已指向新表、新表还没数据」的中间态是安全的。
-反过来先搬数据会撞上旧外键约束（新目录 id 在旧表里不存在）。
+先用临时外键写入新目录，再移除旧外键并重命名。MySQL 在 AlterField 时立即
+检查外键，不能先改变外键指向、再更新旧目录 ID。
 """
 
 from django.db import migrations, models
@@ -24,7 +22,7 @@ def merge_into_shared_module(apps, schema_editor):
         module, _ = Module.objects.get_or_create(project_id=legacy.project_id, name=legacy.name)
         mapping[legacy.id] = module.id
     for legacy_id, shared_id in mapping.items():
-        Endpoint.objects.filter(module_id=legacy_id).update(module_id=shared_id)
+        Endpoint.objects.filter(module_id=legacy_id).update(shared_module_id=shared_id)
 
 
 def restore_legacy_modules(apps, schema_editor):
@@ -39,13 +37,13 @@ def restore_legacy_modules(apps, schema_editor):
     EndpointModule = apps.get_model("case_api", "EndpointModule")
     Endpoint = apps.get_model("case_api", "Endpoint")
 
-    referenced = set(Endpoint.objects.exclude(module_id=None).values_list("module_id", flat=True))
+    referenced = set(Endpoint.objects.exclude(shared_module_id=None).values_list("shared_module_id", flat=True))
     mapping = {}
     for module in Module.objects.filter(id__in=referenced).order_by("id"):
         legacy = EndpointModule.objects.create(project_id=module.project_id, name=module.name)
         mapping[module.id] = legacy.id
     for shared_id, legacy_id in mapping.items():
-        Endpoint.objects.filter(module_id=shared_id).update(module_id=legacy_id)
+        Endpoint.objects.filter(shared_module_id=shared_id).update(module_id=legacy_id)
 
 
 class Migration(migrations.Migration):
@@ -56,12 +54,19 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AddField(
+            model_name='endpoint',
+            name='shared_module',
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='project.module', verbose_name='所属模块'),
+        ),
+        migrations.RunPython(merge_into_shared_module, restore_legacy_modules),
+        migrations.RemoveField(model_name='endpoint', name='module'),
+        migrations.RenameField(model_name='endpoint', old_name='shared_module', new_name='module'),
         migrations.AlterField(
             model_name='endpoint',
             name='module',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='endpoints', to='project.module', verbose_name='所属模块'),
         ),
-        migrations.RunPython(merge_into_shared_module, restore_legacy_modules),
         migrations.DeleteModel(
             name='EndpointModule',
         ),

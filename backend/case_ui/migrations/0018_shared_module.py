@@ -1,7 +1,6 @@
 """把 UI 元素目录并入共享的项目级目录。
 
-与 case_api/0036 同构：先 AlterField 把 Element.module 指向 project.Module，
-再按 (project, name) 合并旧目录行，最后删掉 ElementModule。
+与 case_api/0036 同构：先用临时外键写入共享目录，再替换旧外键。
 
 这里合并会命中接口侧已经建好的目录行——这正是共享的意义：接口管理里已有的
 「登录」目录，UI 元素管理直接复用，不再新建一条同名记录。
@@ -21,7 +20,7 @@ def merge_into_shared_module(apps, schema_editor):
         module, _ = Module.objects.get_or_create(project_id=legacy.project_id, name=legacy.name)
         mapping[legacy.id] = module.id
     for legacy_id, shared_id in mapping.items():
-        Element.objects.filter(module_id=legacy_id).update(module_id=shared_id)
+        Element.objects.filter(module_id=legacy_id).update(shared_module_id=shared_id)
 
 
 def restore_legacy_modules(apps, schema_editor):
@@ -34,13 +33,13 @@ def restore_legacy_modules(apps, schema_editor):
     ElementModule = apps.get_model("case_ui", "ElementModule")
     Element = apps.get_model("case_ui", "Element")
 
-    referenced = set(Element.objects.exclude(module_id=None).values_list("module_id", flat=True))
+    referenced = set(Element.objects.exclude(shared_module_id=None).values_list("shared_module_id", flat=True))
     mapping = {}
     for module in Module.objects.filter(id__in=referenced).order_by("id"):
         legacy = ElementModule.objects.create(project_id=module.project_id, name=module.name)
         mapping[module.id] = legacy.id
     for shared_id, legacy_id in mapping.items():
-        Element.objects.filter(module_id=shared_id).update(module_id=legacy_id)
+        Element.objects.filter(shared_module_id=shared_id).update(module_id=legacy_id)
 
 
 class Migration(migrations.Migration):
@@ -51,12 +50,19 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AddField(
+            model_name='element',
+            name='shared_module',
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='project.module', verbose_name='所属模块'),
+        ),
+        migrations.RunPython(merge_into_shared_module, restore_legacy_modules),
+        migrations.RemoveField(model_name='element', name='module'),
+        migrations.RenameField(model_name='element', old_name='shared_module', new_name='module'),
         migrations.AlterField(
             model_name='element',
             name='module',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='ui_elements', to='project.module', verbose_name='所属模块'),
         ),
-        migrations.RunPython(merge_into_shared_module, restore_legacy_modules),
         migrations.DeleteModel(
             name='ElementModule',
         ),

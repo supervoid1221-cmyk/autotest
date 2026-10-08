@@ -27,7 +27,7 @@ def merge_into_shared_module(apps, schema_editor):
         if not created:
             collapsed.append(legacy.name)
     for legacy_id, shared_id in mapping.items():
-        AppElement.objects.filter(module_id=legacy_id).update(module_id=shared_id)
+        AppElement.objects.filter(module_id=legacy_id).update(shared_module_id=shared_id)
     if collapsed:
         # 元素本身不丢（仍挂在合并后的目录上），但合并掉了几条目录值得人工过一眼。
         sys.stdout.write(
@@ -48,25 +48,25 @@ def restore_legacy_modules(apps, schema_editor):
     AppElementModule = apps.get_model("case_app", "AppElementModule")
     AppElement = apps.get_model("case_app", "AppElement")
 
-    referenced = set(AppElement.objects.exclude(module_id=None).values_list("module_id", flat=True))
+    referenced = set(AppElement.objects.exclude(shared_module_id=None).values_list("shared_module_id", flat=True))
     mapping = {}
     for module in Module.objects.filter(id__in=referenced).order_by("id"):
         application_id = (
-            AppElement.objects.filter(module_id=module.id)
+            AppElement.objects.filter(shared_module_id=module.id)
             .exclude(application_id=None)
             .order_by("id")
             .values_list("application_id", flat=True)
             .first()
         )
         if not application_id:
-            AppElement.objects.filter(module_id=module.id).update(module=None)
+            AppElement.objects.filter(shared_module_id=module.id).update(shared_module=None)
             continue
         legacy = AppElementModule.objects.create(
             project_id=module.project_id, application_id=application_id, name=module.name
         )
         mapping[module.id] = legacy.id
     for shared_id, legacy_id in mapping.items():
-        AppElement.objects.filter(module_id=shared_id).update(module_id=legacy_id)
+        AppElement.objects.filter(shared_module_id=shared_id).update(module_id=legacy_id)
 
 
 class Migration(migrations.Migration):
@@ -77,12 +77,19 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AddField(
+            model_name='appelement',
+            name='shared_module',
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='project.module'),
+        ),
+        migrations.RunPython(merge_into_shared_module, restore_legacy_modules),
+        migrations.RemoveField(model_name='appelement', name='module'),
+        migrations.RenameField(model_name='appelement', old_name='shared_module', new_name='module'),
         migrations.AlterField(
             model_name='appelement',
             name='module',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='app_elements', to='project.module'),
         ),
-        migrations.RunPython(merge_into_shared_module, restore_legacy_modules),
         migrations.DeleteModel(
             name='AppElementModule',
         ),
